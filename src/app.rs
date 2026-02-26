@@ -127,7 +127,6 @@ pub struct All4LaserApp {
     // Layers (New System)
     layers: Vec<ui::layers_new::CutLayer>,
     active_layer_idx: usize,
-    #[serde(skip)]
     cut_settings_state: ui::cut_settings::CutSettingsState,
 
     // Timing
