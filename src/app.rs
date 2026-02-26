@@ -33,6 +33,7 @@ pub struct All4LaserApp {
     program_lines: Vec<String>,
     program_index: usize,
     running: bool,
+    is_dry_run: bool, // new flag for dry run
 
     // Preview
     renderer: PreviewRenderer,
@@ -78,6 +79,9 @@ pub struct All4LaserApp {
 
     // End-of-job notification
     notify_job_done: bool,
+
+    // Error Notification
+    last_error: Option<String>,
 
     // GCode Editor
     gcode_editor: ui::gcode_editor::GCodeEditorState,
@@ -139,6 +143,7 @@ impl All4LaserApp {
             program_lines: Vec::new(),
             program_index: 0,
             running: false,
+            is_dry_run: false,
             renderer: PreviewRenderer::default(),
             needs_auto_fit: false,
             console_log: vec!["All4Laser ready.".to_string()],
@@ -158,6 +163,7 @@ impl All4LaserApp {
             job_center: None,
             air_assist_on: false,
             notify_job_done: false,
+            last_error: None,
             gcode_editor: ui::gcode_editor::GCodeEditorState::default(),
             shortcuts: ui::shortcuts::ShortcutsState::default(),
             tiling: ui::tiling::TilingState::default(),
@@ -203,6 +209,11 @@ impl All4LaserApp {
         }
     }
 
+    fn show_error(&mut self, msg: String) {
+        self.log(format!("ERROR: {}", msg));
+        self.last_error = Some(msg);
+    }
+
     fn poll_serial(&mut self) {
         // Poll for status periodically
         if self.is_connected() && self.last_poll.elapsed() > Duration::from_millis(STATUS_POLL_MS) {
@@ -245,6 +256,7 @@ impl All4LaserApp {
                         self.send_next_program_line();
                     } else if self.running && self.program_index >= self.program_lines.len() {
                         self.running = false;
+                        self.is_dry_run = false;
                         // Air assist OFF
                         if self.machine_profile.air_assist {
                             self.send_command("M9");
@@ -259,6 +271,7 @@ impl All4LaserApp {
                 SerialMsg::Response(GrblResponse::Alarm(code)) => {
                     self.log(format!("ALARM:{code}"));
                     self.running = false;
+                    self.is_dry_run = false;
                 }
                 SerialMsg::Response(GrblResponse::GrblVersion(ver)) => {
                     self.log(format!("Grbl {ver}"));
@@ -281,6 +294,7 @@ impl All4LaserApp {
                     self.connection = None;
                     self.grbl_state = GrblState::default();
                     self.running = false;
+                    self.is_dry_run = false;
                     self.framing_active = false;
                     self.log(format!("Disconnected: {reason}"));
                 }
@@ -297,7 +311,7 @@ impl All4LaserApp {
             let line_idx = self.program_index;
             self.program_index += 1;
 
-            let cmd = if let (Some(file), Some(center)) = (&self.loaded_file, self.job_center) {
+            let mut cmd = if let (Some(file), Some(center)) = (&self.loaded_file, self.job_center) {
                 if let Some(parsed) = file.lines.get(line_idx) {
                     let rotary_scale = if self.machine_profile.rotary_enabled && self.machine_profile.rotary_diameter_mm > 0.1 {
                         50.0 / self.machine_profile.rotary_diameter_mm // Default reference 50mm
@@ -311,6 +325,15 @@ impl All4LaserApp {
             } else {
                 self.program_lines[line_idx].clone()
             };
+
+            // Dry Run: Replace M3/M4 with M5
+            if self.is_dry_run {
+                if cmd.contains("M3") || cmd.contains("M4") {
+                    cmd = cmd.replace("M3", "M5").replace("M4", "M5");
+                }
+                // Strip S parameter if present to be safe, though M5 ignores it
+                // Simple string replacement might be brittle, but sufficient for now.
+            }
 
             let trimmed = cmd.trim().to_string();
             if trimmed.is_empty() || trimmed.starts_with(';') || trimmed.starts_with('(') {
@@ -327,7 +350,7 @@ impl All4LaserApp {
         let port = match self.ports.get(self.selected_port) {
             Some(p) => p.clone(),
             None => {
-                self.log("No port selected".to_string());
+                self.show_error("No port selected".to_string());
                 return;
             }
         };
@@ -341,7 +364,7 @@ impl All4LaserApp {
             }
             Err(e) => {
                 self.grbl_state.status = MacStatus::Disconnected;
-                self.log(format!("Connection failed: {e}"));
+                self.show_error(format!("Connection failed: {e}"));
             }
         }
     }
@@ -352,6 +375,7 @@ impl All4LaserApp {
         }
         self.grbl_state = GrblState::default();
         self.running = false;
+        self.is_dry_run = false;
         self.framing_active = false;
         self.log("Disconnected".to_string());
     }
@@ -381,7 +405,7 @@ impl All4LaserApp {
             "svg" => {
                 let data = match std::fs::read(path) {
                     Ok(d) => d,
-                    Err(e) => { self.log(format!("Error reading SVG: {e}")); return; }
+                    Err(e) => { self.show_error(format!("Error reading SVG: {e}")); return; }
                 };
                 let layers = imaging::svg::extract_layers(&data);
                 let mut svg_params = imaging::svg::SvgParams::default();
@@ -400,7 +424,7 @@ impl All4LaserApp {
             "png" | "jpg" | "jpeg" | "bmp" => {
                 let img = match image::open(path) {
                     Ok(i) => i.to_rgba8(), // we need rgba for texture
-                    Err(e) => { self.log(format!("Error opening image: {e}")); return; }
+                    Err(e) => { self.show_error(format!("Error opening image: {e}")); return; }
                 };
                 
                 self.import_state = Some(ui::image_dialog::ImageImportState {
@@ -417,7 +441,7 @@ impl All4LaserApp {
             "dxf" => {
                 let data = match std::fs::read_to_string(path) {
                     Ok(d) => d,
-                    Err(e) => { self.log(format!("Error reading DXF: {e}")); return; }
+                    Err(e) => { self.show_error(format!("Error reading DXF: {e}")); return; }
                 };
                 let params = crate::imaging::dxf::DxfParams::default();
                 match crate::imaging::dxf::dxf_to_gcode(&data, &params) {
@@ -426,7 +450,7 @@ impl All4LaserApp {
                         self.set_loaded_file(file, lines);
                         self.log(format!("DXF imported: {filename}"));
                     }
-                    Err(e) => self.log(format!("DXF import failed: {e}")),
+                    Err(e) => self.show_error(format!("DXF import failed: {e}")),
                 }
             }
             _ => {
@@ -437,7 +461,7 @@ impl All4LaserApp {
                         self.set_loaded_file(file, lines);
                     }
                     Err(e) => {
-                        self.log(format!("Failed to load file: {e}"));
+                        self.show_error(format!("Failed to load file: {e}"));
                     }
                 }
             }
@@ -466,7 +490,7 @@ impl All4LaserApp {
 
     fn save_file(&mut self) {
         if self.program_lines.is_empty() {
-            self.log("No program to save.".into());
+            self.show_error("No program to save.".into());
             return;
         }
 
@@ -478,14 +502,14 @@ impl All4LaserApp {
             let data = self.program_lines.join("\n");
             match std::fs::write(&path, data) {
                 Ok(_) => self.log(format!("Saved to {}", path.display())),
-                Err(e) => self.log(format!("Failed to save: {e}")),
+                Err(e) => self.show_error(format!("Failed to save: {e}")),
             }
         }
     }
 
     fn frame_bbox(&mut self) {
         if !self.is_connected() {
-            self.log("Not connected.".into());
+            self.show_error("Not connected.".into());
             return;
         }
 
@@ -504,7 +528,7 @@ impl All4LaserApp {
                 self.log("Continuous Framing Started...".into());
                 self.send_frame_sequence();
             } else {
-                self.log("Loaded file has no bounds.".into());
+                self.show_error("Loaded file has no bounds.".into());
             }
         }
     }
@@ -536,7 +560,7 @@ impl All4LaserApp {
 
     fn quick_move_to(&mut self, pos: ui::machine_state::QuickPosition) {
         if !self.is_connected() {
-            self.log("Not connected.".into());
+            self.show_error("Not connected.".into());
             return;
         }
         if let Some(file) = &self.loaded_file {
@@ -555,20 +579,20 @@ impl All4LaserApp {
                 let cmd = format!("G90 G0 X{:.2} Y{:.2} F{feed}", x, y);
                 self.send_command(&cmd);
             } else {
-                self.log("Loaded file has no bounds.".into());
+                self.show_error("Loaded file has no bounds.".into());
             }
         } else {
-            self.log("No file loaded.".into());
+            self.show_error("No file loaded.".into());
         }
     }
 
     fn run_program(&mut self) {
         if !self.is_connected() {
-            self.log("Not connected".to_string());
+            self.show_error("Not connected".to_string());
             return;
         }
         if self.program_lines.is_empty() {
-            self.log("No file loaded".to_string());
+            self.show_error("No file loaded".to_string());
             return;
         }
         self.program_index = 0;
@@ -588,7 +612,7 @@ impl All4LaserApp {
             }
         }
         
-        self.log("Starting program…".to_string());
+        self.log(if self.is_dry_run { "Starting Dry Run (Laser OFF)…".to_string() } else { "Starting program…".to_string() });
         self.send_next_program_line();
     }
 
@@ -597,6 +621,7 @@ impl All4LaserApp {
             conn.send_byte(protocol::CMD_RESET);
         }
         self.running = false;
+        self.is_dry_run = false;
         self.framing_active = false;
         // Air assist OFF
         if self.machine_profile.air_assist {
@@ -999,6 +1024,28 @@ impl eframe::App for All4LaserApp {
             self.machine_profile.workspace_y_mm,
         );
 
+        // === Error Notification ===
+        // We clone the error first to avoid borrowing `self` in the closure
+        let error_to_show = self.last_error.clone();
+        if let Some(err) = error_to_show {
+             let mut open = true;
+             egui::Window::new("❌ Error")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.label(egui::RichText::new(err).color(theme::RED));
+                    ui.add_space(8.0);
+                    if ui.button("OK").clicked() {
+                        self.last_error = None;
+                    }
+                });
+             if !open {
+                 self.last_error = None;
+             }
+        }
+
         // === Job Done Notification ===
         if self.notify_job_done {
             egui::Window::new("✅ Job Complete")
@@ -1295,7 +1342,7 @@ impl eframe::App for All4LaserApp {
                             }
                             self.log("Project loaded.".into());
                         }
-                        Err(e) => self.log(format!("Project load failed: {e}")),
+                        Err(e) => self.show_error(format!("Project load failed: {e}")),
                     }
                 }
             }
@@ -1316,7 +1363,7 @@ impl eframe::App for All4LaserApp {
                     };
                     match crate::config::project::ProjectFile::save(&path_str, &proj) {
                         Ok(_) => self.log(format!("Project saved: {path_str}")),
-                        Err(e) => self.log(format!("Project save failed: {e}")),
+                        Err(e) => self.show_error(format!("Project save failed: {e}")),
                     }
                 }
             }

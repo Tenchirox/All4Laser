@@ -29,6 +29,7 @@ pub fn show(
     // Zoom toolbar
     ui.horizontal(|ui| {
         ui.label(RichText::new("Preview").color(theme::LAVENDER).strong().size(14.0));
+        ui.checkbox(&mut renderer.show_rapids, "Show Rapids").on_hover_text("Show G0 rapid moves");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button("⊞ Fit").clicked() {
                 action.auto_fit = true;

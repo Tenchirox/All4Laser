@@ -1,5 +1,5 @@
 /// Integrated GCode editor panel
-use egui::RichText;
+use egui::{RichText, Color32};
 use crate::theme;
 
 pub struct GCodeEditorState {
@@ -48,6 +48,55 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
             });
             ui.separator();
 
+            let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
+                let mut job = egui::text::LayoutJob::default();
+                job.wrap.max_width = wrap_width;
+
+                for line in string.lines() {
+                    let mut chars = line.chars().peekable();
+                    let mut current_token = String::new();
+
+                    while let Some(c) = chars.next() {
+                         if c == ';' || c == '(' {
+                            // Comment rest of line
+                            if !current_token.is_empty() {
+                                job.append(&current_token, 0.0, egui::TextFormat {
+                                    font_id: egui::TextStyle::Monospace.resolve(ui.style()),
+                                    color: theme::TEXT,
+                                    ..Default::default()
+                                });
+                                current_token.clear();
+                            }
+                            let mut comment = String::from(c);
+                            while let Some(&next) = chars.peek() {
+                                comment.push(next);
+                                chars.next();
+                            }
+                            job.append(&comment, 0.0, egui::TextFormat {
+                                font_id: egui::TextStyle::Monospace.resolve(ui.style()),
+                                color: theme::SUBTEXT,
+                                ..Default::default()
+                            });
+                            break;
+                        } else if c.is_whitespace() {
+                            if !current_token.is_empty() {
+                                job.append(&current_token, 0.0, format_token(ui, &current_token));
+                                current_token.clear();
+                            }
+                            job.append(&c.to_string(), 0.0, egui::TextFormat::default());
+                        } else {
+                            current_token.push(c);
+                        }
+                    }
+                    if !current_token.is_empty() {
+                        job.append(&current_token, 0.0, format_token(ui, &current_token));
+                    }
+                    job.append("\n", 0.0, egui::TextFormat::default());
+                }
+
+                ui.fonts(|f| f.layout_job(job))
+            };
+
             let response = egui::ScrollArea::vertical()
                 .max_height(420.0)
                 .show(ui, |ui| {
@@ -55,6 +104,7 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
                         [ui.available_width(), 400.0],
                         egui::TextEdit::multiline(&mut state.text)
                             .font(egui::TextStyle::Monospace)
+                            .layouter(&mut layouter)
                             .desired_rows(20),
                     )
                 });
@@ -74,4 +124,22 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
     }
 
     action
+}
+
+fn format_token(ui: &egui::Ui, token: &str) -> egui::TextFormat {
+    let first = token.chars().next().unwrap_or(' ').to_ascii_uppercase();
+    let color = match first {
+        'G' => theme::BLUE,
+        'M' => theme::PEACH,
+        'X' | 'Y' | 'Z' => theme::LAVENDER,
+        'F' => theme::TEAL,
+        'S' => theme::RED,
+        _ => theme::TEXT,
+    };
+
+    egui::TextFormat {
+        font_id: egui::TextStyle::Monospace.resolve(ui.style()),
+        color,
+        ..Default::default()
+    }
 }

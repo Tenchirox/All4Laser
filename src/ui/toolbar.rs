@@ -11,6 +11,7 @@ pub struct ToolbarAction {
     pub open_project: bool,
     pub run_program: bool,
     pub frame_bbox: bool,
+    pub dry_run: bool,
     pub abort_program: bool,
     pub hold: bool,
     pub resume: bool,
@@ -40,6 +41,7 @@ impl Default for ToolbarAction {
             open_project: false,
             run_program: false,
             frame_bbox: false,
+            dry_run: false,
             abort_program: false,
             hold: false,
             resume: false,
@@ -140,6 +142,11 @@ pub fn show(
             let frame_col = if framing_active { theme::RED } else { theme::SUBTEXT };
             if ui.add_enabled(connected, egui::Button::new(RichText::new(frame_lbl).color(frame_col).size(13.0))).clicked() {
                 action.frame_bbox = true;
+            }
+
+            // Dry Run
+             if ui.add_enabled(connected && has_file, egui::Button::new(RichText::new("🛡 Dry Run").color(theme::BLUE).size(13.0))).on_hover_text("Run job with Laser OFF (M5)").clicked() {
+                action.dry_run = true;
             }
         }
 
