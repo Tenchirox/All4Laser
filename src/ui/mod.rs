@@ -19,5 +19,6 @@ pub mod layers;
 pub mod layers_new;
 pub mod cut_palette;
 pub mod cut_settings;
+pub mod alignment;
 pub mod text;
 pub mod generators;

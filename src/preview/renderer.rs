@@ -2,6 +2,7 @@ use egui::{Color32, Painter, Pos2, Rect, Stroke, Vec2};
 use crate::gcode::types::PreviewSegment;
 use crate::theme;
 use crate::ui::drawing::{ShapeParams, ShapeKind};
+use std::collections::HashSet;
 
 /// An object visible in the preview that can be interacted with.
 #[derive(Clone)]
@@ -25,7 +26,7 @@ pub struct PreviewRenderer {
     pub simulation_progress: Option<f32>, // 0.0 to 1.0
     pub show_rapids: bool, // Toggle for G0 moves
     _drag_start: Option<Pos2>,
-    pub selected_shape_idx: Option<usize>, // Selected index in DrawingState
+    pub selected_shape_idx: HashSet<usize>, // Selected indices in DrawingState (Multi-select)
 }
 
 impl Default for PreviewRenderer {
@@ -38,16 +39,16 @@ impl Default for PreviewRenderer {
             simulation_progress: None,
             show_rapids: true,
             _drag_start: None,
-            selected_shape_idx: None,
+            selected_shape_idx: HashSet::new(),
         }
     }
 }
 
 pub enum InteractiveAction {
     None,
-    SelectShape(usize),
+    SelectShape(usize, bool), // idx, is_multi (ctrl/shift)
     Deselect,
-    DragShape { idx: usize, delta: Vec2 },
+    DragSelection { delta: Vec2 }, // Drag all selected
 }
 
 impl PreviewRenderer {
@@ -138,13 +139,8 @@ impl PreviewRenderer {
         self.draw_gcode_segments(&painter, segments, rect, is_light, transform);
 
         // Draw interactive shapes (Overlay)
-        // We draw these ON TOP of the GCode preview to show selection state
-        // In a real app, these shapes generate the GCode, so displaying both might be redundant
-        // but helpful for "Dry Run" visual verification.
-        // For Priority #2, we want to visualize the selection box.
-
         for (idx, shape) in shapes.iter().enumerate() {
-            let is_selected = self.selected_shape_idx == Some(idx);
+            let is_selected = self.selected_shape_idx.contains(&idx);
             self.draw_shape_overlay(&painter, shape, rect, is_selected);
         }
 
@@ -303,11 +299,8 @@ impl PreviewRenderer {
             }
         };
 
-        let p_min = self.world_to_screen(bounds.min.x, bounds.min.y, rect);
         // Correct Y flipping: world Y goes up, screen Y goes down.
         // world_to_screen flips Y.
-        // so bounds.max.y in world (higher) becomes lower Y in screen (smaller).
-        // we need to construct screen rect carefully.
 
         let p1 = self.world_to_screen(bounds.min.x, bounds.min.y, rect);
         let p2 = self.world_to_screen(bounds.max.x, bounds.max.y, rect);
@@ -410,6 +403,8 @@ impl PreviewRenderer {
                 let wx = (hover.x - self.pan.x) / self.zoom;
                 let wy = -(hover.y - self.pan.y) / self.zoom;
 
+                let is_multi = ui.input(|i| i.modifiers.ctrl || i.modifiers.shift);
+
                 let mut hit_idx = None;
                 // Simple hit testing against shape bounds
                 for (idx, shape) in shapes.iter().enumerate() {
@@ -425,31 +420,38 @@ impl PreviewRenderer {
 
                     if bounds.contains(Pos2::new(wx, wy)) {
                         hit_idx = Some(idx);
-                        // Don't break, prefer top-most (last drawn) if overlapping?
-                        // Actually shapes vector order usually implies draw order.
                     }
                 }
 
                 if let Some(idx) = hit_idx {
-                    self.selected_shape_idx = Some(idx);
-                    action = InteractiveAction::SelectShape(idx);
-                } else {
-                    self.selected_shape_idx = None;
+                    if is_multi {
+                        if self.selected_shape_idx.contains(&idx) {
+                            self.selected_shape_idx.remove(&idx);
+                        } else {
+                            self.selected_shape_idx.insert(idx);
+                        }
+                    } else {
+                        self.selected_shape_idx.clear();
+                        self.selected_shape_idx.insert(idx);
+                    }
+                    action = InteractiveAction::SelectShape(idx, is_multi);
+                } else if !is_multi {
+                    self.selected_shape_idx.clear();
                     action = InteractiveAction::Deselect;
                 }
             }
         }
 
         // Dragging Logic
-        // If we have a selection, and we are dragging, move the shape
+        // If we have a selection, and we are dragging, move the shapes
         if response.dragged() {
-            if let Some(idx) = self.selected_shape_idx {
+            if !self.selected_shape_idx.is_empty() {
                 let delta = response.drag_delta();
                 // Convert screen delta to world delta
                 let world_dx = delta.x / self.zoom;
                 let world_dy = -delta.y / self.zoom; // Flip Y
-                action = InteractiveAction::DragShape {
-                    idx,
+
+                action = InteractiveAction::DragSelection {
                     delta: Vec2::new(world_dx, world_dy)
                 };
             } else {
