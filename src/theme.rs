@@ -61,6 +61,7 @@ pub const SURFACE0: Color32 = DARK_SURFACE0;
 pub const SURFACE1: Color32 = DARK_SURFACE1;
 pub const SURFACE2: Color32 = DARK_SURFACE2;
 pub const OVERLAY0: Color32 = Color32::from_rgb(108, 112, 134); // #6C7086
+pub const OVERLAY2: Color32 = Color32::from_rgb(147, 153, 178); // #9399B2 - Added this for cut_palette.rs
 pub const TEXT: Color32 = DARK_TEXT;
 pub const SUBTEXT: Color32 = DARK_SUBTEXT;
 

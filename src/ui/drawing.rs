@@ -2,6 +2,7 @@
 
 use egui::{Ui, RichText};
 use crate::theme;
+use crate::ui::layers_new::CutLayer;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShapeKind {
@@ -18,9 +19,7 @@ pub struct ShapeParams {
     pub width: f32,
     pub height: f32,
     pub radius: f32,
-    pub speed: f32,
-    pub power: f32,
-    pub passes: u32,
+    pub layer_idx: usize,
     pub text: String,
     pub font_size_mm: f32,
 }
@@ -34,9 +33,7 @@ impl Default for ShapeParams {
             width: 50.0,
             height: 30.0,
             radius: 20.0,
-            speed: 500.0,
-            power: 800.0,
-            passes: 1,
+            layer_idx: 0,
             text: "Hello".into(),
             font_size_mm: 10.0,
         }
@@ -61,7 +58,7 @@ pub struct DrawingAction {
     pub generate_gcode: Option<Vec<String>>,
 }
 
-pub fn show(ui: &mut Ui, state: &mut DrawingState) -> DrawingAction {
+pub fn show(ui: &mut Ui, state: &mut DrawingState, layers: &[CutLayer], active_layer_idx: usize) -> DrawingAction {
     let mut action = DrawingAction { generate_gcode: None };
 
     ui.group(|ui| {
@@ -117,31 +114,46 @@ pub fn show(ui: &mut Ui, state: &mut DrawingState) -> DrawingAction {
         }
 
         ui.add_space(4.0);
+
+        // Layer Selector
         ui.horizontal(|ui| {
-            ui.label("Speed:");
-            ui.add(egui::DragValue::new(&mut state.current.speed).speed(10.0));
-            ui.label("Power:");
-            ui.add(egui::DragValue::new(&mut state.current.power).speed(5.0));
-            ui.label("Passes:");
-            ui.add(egui::DragValue::new(&mut state.current.passes).range(1..=50));
+             ui.label("Layer:");
+             // Simple integer drag for now, could be a combobox
+             if ui.add(egui::DragValue::new(&mut state.current.layer_idx).range(0..=29)).changed() {
+                 // Clamp handled by drag value range
+             }
+             if let Some(l) = layers.get(state.current.layer_idx) {
+                 let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                 ui.painter().rect_filled(rect, 2.0, l.color);
+             }
         });
+
+        // Auto-update layer index if no shapes present and user changes active layer elsewhere?
+        // Or just let user set it manually. Manual is safer for now.
+        // However, standard UX is "new objects take active layer".
+        // We can do this: if state.current.layer_idx != active_layer_idx AND shapes is empty, sync?
+        // Let's just provide a button "Use Active Layer"
+        if ui.button("Set to Active Layer").clicked() {
+            state.current.layer_idx = active_layer_idx;
+        }
+
 
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
             if ui.button(RichText::new("➕ Add Shape").color(theme::GREEN).strong()).clicked() {
                 state.shapes.push(state.current.clone());
-                let lines = generate_all_gcode(state);
+                let lines = generate_all_gcode(state, layers);
                 action.generate_gcode = Some(lines);
             }
             if ui.button("⮪ Undo").clicked() {
                 state.shapes.pop();
-                let lines = generate_all_gcode(state);
+                let lines = generate_all_gcode(state, layers);
                 action.generate_gcode = Some(lines);
             }
             if ui.button("🗑 Clear").clicked() {
                 state.shapes.clear();
-                let lines = generate_all_gcode(state);
+                let lines = generate_all_gcode(state, layers);
                 action.generate_gcode = Some(lines);
             }
         });
@@ -154,21 +166,56 @@ pub fn show(ui: &mut Ui, state: &mut DrawingState) -> DrawingAction {
     action
 }
 
-fn generate_all_gcode(state: &DrawingState) -> Vec<String> {
+pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<String> {
+    if state.shapes.is_empty() {
+        return Vec::new(); // Return empty if no shapes, avoids overwriting with blank
+    }
     let mut lines = Vec::new();
     lines.push("; Compiled Drawing — All4Laser".into());
     lines.push("G90".into());
     lines.push("G21".into());
 
+    // Create a default layer fallback once, outside the loop
+    let default_layer = if !layers.is_empty() {
+        layers[0].clone()
+    } else {
+        // Fallback if empty (shouldn't happen with default_palette)
+        let mut l = CutLayer::default_palette()[0].clone();
+        l.color = egui::Color32::WHITE;
+        l
+    };
+
     for (idx, shape) in state.shapes.iter().enumerate() {
-        lines.push(format!("; Shape {}: {:?}", idx + 1, shape.shape));
-        for pass in 0..shape.passes {
-            if shape.passes > 1 { lines.push(format!("; Pass {}", pass + 1)); }
+        // Retrieve layer settings
+        let layer = layers.get(shape.layer_idx).unwrap_or(&default_layer);
+
+        if !layer.visible {
+            continue;
+        }
+
+        lines.push(format!("; Shape {}: {:?} [Layer C{:02}]", idx + 1, shape.shape, layer.id));
+
+        // Apply Z-offset if needed (simple implementation: move Z before start)
+        if layer.z_offset != 0.0 {
+            lines.push(format!("G0 Z{:.2}", layer.z_offset));
+        }
+
+        // Air Assist
+        if layer.air_assist {
+             lines.push("M8".into());
+        }
+
+        for pass in 0..layer.passes {
+            if layer.passes > 1 { lines.push(format!("; Pass {}", pass + 1)); }
             match shape.shape {
-                ShapeKind::Rectangle => gen_rect(&mut lines, shape),
-                ShapeKind::Circle => gen_circle(&mut lines, shape),
-                ShapeKind::TextLine => gen_text(&mut lines, shape),
+                ShapeKind::Rectangle => gen_rect(&mut lines, shape, layer),
+                ShapeKind::Circle => gen_circle(&mut lines, shape, layer),
+                ShapeKind::TextLine => gen_text(&mut lines, shape, layer),
             }
+        }
+
+        if layer.air_assist {
+            lines.push("M9".into());
         }
     }
 
@@ -177,16 +224,12 @@ fn generate_all_gcode(state: &DrawingState) -> Vec<String> {
     lines
 }
 
-fn generate_gcode(_state: &DrawingState) -> Vec<String> {
-    // This is no longer used, we use generate_all_gcode instead
-    Vec::new()
-}
-
-fn gen_rect(lines: &mut Vec<String>, s: &ShapeParams) {
+fn gen_rect(lines: &mut Vec<String>, s: &ShapeParams, layer: &CutLayer) {
     let (x0, y0) = (s.x, s.y);
     let (x1, y1) = (s.x + s.width, s.y + s.height);
-    let sp = s.speed;
-    let pw = s.power;
+    let sp = layer.speed;
+    let pw = layer.power;
+
     lines.push(format!("M5"));
     lines.push(format!("G0 X{:.3} Y{:.3}", x0, y0));
     lines.push(format!("M3 S{:.0}", pw));
@@ -197,14 +240,14 @@ fn gen_rect(lines: &mut Vec<String>, s: &ShapeParams) {
     lines.push("M5".into());
 }
 
-fn gen_circle(lines: &mut Vec<String>, s: &ShapeParams) {
+fn gen_circle(lines: &mut Vec<String>, s: &ShapeParams, layer: &CutLayer) {
     use std::f32::consts::PI;
     let cx = s.x;
     let cy = s.y;
     let r = s.radius;
     let steps = 64;
-    let sp = s.speed;
-    let pw = s.power;
+    let sp = layer.speed;
+    let pw = layer.power;
 
     // Start at right of circle
     let start_x = cx + r;
@@ -223,11 +266,11 @@ fn gen_circle(lines: &mut Vec<String>, s: &ShapeParams) {
     lines.push("M5".into());
 }
 
-fn gen_text(lines: &mut Vec<String>, s: &ShapeParams) {
+fn gen_text(lines: &mut Vec<String>, s: &ShapeParams, layer: &CutLayer) {
     let char_w = s.font_size_mm * 0.6;
     let char_h = s.font_size_mm;
-    let sp = s.speed;
-    let pw = s.power;
+    let sp = layer.speed;
+    let pw = layer.power;
     let mut cursor_x = s.x;
 
     for ch in s.text.chars() {

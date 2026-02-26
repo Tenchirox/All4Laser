@@ -124,6 +124,12 @@ pub struct All4LaserApp {
     text_state: ui::text::TextToolState,
     generator_state: ui::generators::GeneratorState,
 
+    // Layers (New System)
+    layers: Vec<ui::layers_new::CutLayer>,
+    active_layer_idx: usize,
+    #[cfg_attr(feature = "persistence", serde(skip))]
+    cut_settings_state: ui::cut_settings::CutSettingsState,
+
     // Timing
     last_poll: Instant,
 }
@@ -184,6 +190,9 @@ impl All4LaserApp {
             camera_state: ui::camera::CameraState::default(),
             text_state: ui::text::TextToolState::default(),
             generator_state: ui::generators::GeneratorState::default(),
+            layers: ui::layers_new::CutLayer::default_palette(),
+            active_layer_idx: 0,
+            cut_settings_state: ui::cut_settings::CutSettingsState::default(),
         };
 
         app.apply_theme(&cc.egui_ctx);
@@ -821,7 +830,7 @@ impl All4LaserApp {
 
         if self.ui_layout == theme::UiLayout::Modern {
             // Drawing Tools (Only in sidebar in modern)
-            let draw_action = ui::drawing::show(ui, &mut self.drawing_state);
+            let draw_action = ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
             if let Some(lines) = draw_action.generate_gcode {
                 let file = GCodeFile::from_lines("drawing", &lines);
                 self.set_loaded_file(file, lines);
@@ -1238,6 +1247,16 @@ impl eframe::App for All4LaserApp {
             }
         }
 
+        // === Handle Cut Settings Modal ===
+        {
+            let action = ui::cut_settings::show(ctx, &mut self.cut_settings_state, &self.layers);
+            if let Some((idx, new_layer)) = action.apply {
+                if idx < self.layers.len() {
+                    self.layers[idx] = new_layer;
+                }
+            }
+        }
+
         // === Handle Settings Modal ===
         if let Some(state) = &mut self.settings_state {
             ui::settings_dialog::show(ctx, state);
@@ -1398,6 +1417,22 @@ impl eframe::App for All4LaserApp {
 
             let sb_actions = ui::status_bar::show(ui, &self.grbl_state, file_info, progress);
 
+            ui.add_space(2.0);
+            ui.separator();
+            ui.add_space(2.0);
+
+            // Palette
+            let pal_action = ui::cut_palette::show(ui, &self.layers, self.active_layer_idx);
+            if let Some(idx) = pal_action.select_layer {
+                self.active_layer_idx = idx;
+                // Automatically set drawing tool to this layer
+                self.drawing_state.current.layer_idx = idx;
+            }
+            if let Some(idx) = pal_action.open_settings {
+                self.cut_settings_state.editing_layer_idx = Some(idx);
+                self.cut_settings_state.is_open = true;
+            }
+
             if let Some(conn) = self.connection.as_ref() {
                 if sb_actions.feed_up { conn.send_byte(protocol::FEED_OV_PLUS_10); }
                 if sb_actions.feed_down { conn.send_byte(protocol::FEED_OV_MINUS_10); }
@@ -1425,7 +1460,7 @@ impl eframe::App for All4LaserApp {
                 // Classic Left: Thin drawing toolbar
                 ui.vertical_centered(|ui| {
                     ui.add_space(4.0);
-                    let draw_action = ui::drawing::show(ui, &mut self.drawing_state);
+                    let draw_action = ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
                     if let Some(lines) = draw_action.generate_gcode {
                         let file = GCodeFile::from_lines("drawing", &lines);
                         self.set_loaded_file(file, lines);
@@ -1493,7 +1528,8 @@ impl eframe::App for All4LaserApp {
             let preview_action = ui::preview_panel::show(
                 ui, 
                 &mut self.renderer, 
-                &segments, 
+                &segments,
+                &self.drawing_state.shapes,
                 self.light_mode, 
                 offset, 
                 self.job_rotation,
@@ -1508,6 +1544,42 @@ impl eframe::App for All4LaserApp {
                     let rect = ui.max_rect();
                     self.renderer.auto_fit(&segments, rect, offset, self.job_rotation);
                 }
+            }
+
+            // Handle Interaction from Preview
+            match preview_action.interactive_action {
+                crate::preview::renderer::InteractiveAction::SelectShape(idx) => {
+                    // Update drawing tool to reflect selection?
+                    // Ideally we should have a "Select" mode in Drawing Tools.
+                    // For now, let's just log it.
+                    self.log(format!("Selected Shape #{}", idx));
+                    if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                        self.drawing_state.current = shape.clone();
+                    }
+                }
+                crate::preview::renderer::InteractiveAction::Deselect => {
+                    // self.log("Deselected".into());
+                }
+                crate::preview::renderer::InteractiveAction::DragShape { idx, delta } => {
+                    if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
+                        shape.x += delta.x;
+                        shape.y += delta.y;
+
+                        // Update current if it was the one dragged
+                        self.drawing_state.current = shape.clone();
+
+                        // Regenerate GCode if needed (debounce this in real app)
+                        // But for now, we only regenerate on release?
+                        // Actually, dragging logic in renderer is continuous.
+                        // We need a "DragEnd" event or just live update.
+                        // Live update is fine for small shape counts.
+
+                        let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                        let file = GCodeFile::from_lines("drawing", &lines);
+                        self.set_loaded_file(file, lines);
+                    }
+                }
+                _ => {}
             }
 
             // Update machine position in preview
