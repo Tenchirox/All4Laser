@@ -62,7 +62,7 @@
 Contributions are welcome! Please feel free to submit Pull Requests or open issues for feature requests and bug reports.
 
 ## 📄 License
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU GPL V3.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
 *Built with ❤️ for the laser community using Rust.*
