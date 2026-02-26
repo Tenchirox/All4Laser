@@ -16,5 +16,8 @@ pub mod shortcuts;
 pub mod tiling;
 pub mod camera;
 pub mod layers;
+pub mod layers_new;
+pub mod cut_palette;
+pub mod cut_settings;
 pub mod text;
 pub mod generators;
