@@ -10,6 +10,7 @@ pub struct PreviewRenderer {
     /// Machine workspace in mm (from GRBL $130, $131)
     pub workspace_size: Vec2,
     pub simulation_progress: Option<f32>, // 0.0 to 1.0
+    pub show_rapids: bool, // Toggle for G0 moves
     _drag_start: Option<Pos2>,
 }
 
@@ -21,6 +22,7 @@ impl Default for PreviewRenderer {
             machine_pos: Pos2::ZERO,
             workspace_size: Vec2::new(400.0, 400.0), // conservative default
             simulation_progress: None,
+            show_rapids: true,
             _drag_start: None,
         }
     }
@@ -193,7 +195,7 @@ impl PreviewRenderer {
                     };
                     painter.line_segment([p1, p2], Stroke::new(stroke_width, color));
                 }
-            } else {
+            } else if self.show_rapids {
                 flush_accumulated(&painter, &mut current_accumulated_line);
                 let dist_sq = (seg.x1 - seg.x2).powi(2) + (seg.y1 - seg.y2).powi(2);
                 if dist_sq > 25.0 {

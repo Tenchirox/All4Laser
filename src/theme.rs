@@ -46,6 +46,7 @@ pub const GREEN: Color32 = Color32::from_rgb(166, 227, 161);   // #A6E3A1
 pub const BLUE: Color32 = Color32::from_rgb(137, 180, 250);    // #89B4FA
 pub const LAVENDER: Color32 = Color32::from_rgb(180, 190, 254);// #B4BEFE
 pub const MAUVE: Color32 = Color32::from_rgb(203, 166, 247);   // #CBA6F7
+pub const TEAL: Color32 = Color32::from_rgb(148, 226, 213);    // #94E2D5
 
 // Generic exports for backwards compatibility (used by other modules directly)
 // We will alias these to the currently active theme in `apply_theme` using context, 

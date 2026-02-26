@@ -15,6 +15,8 @@ pub struct PowerSpeedTestState {
     pub cell_gap: f32,   // gap between cells in mm
     pub origin_x: f32,
     pub origin_y: f32,
+    pub scan_bidirectional: bool, // unidirectional vs bidirectional
+    pub interval_mm: f32, // scan interval
 }
 
 impl Default for PowerSpeedTestState {
@@ -31,6 +33,8 @@ impl Default for PowerSpeedTestState {
             cell_gap: 2.0,
             origin_x: 5.0,
             origin_y: 5.0,
+            scan_bidirectional: true,
+            interval_mm: 0.1,
         }
     }
 }
@@ -62,8 +66,12 @@ pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState) -> PowerSpeedT
                 ui.label("Power max (S):"); ui.add(egui::DragValue::new(&mut state.power_max).speed(10.0)); ui.end_row();
                 ui.label("Cell size (mm):"); ui.add(egui::DragValue::new(&mut state.cell_size).range(2.0..=50.0)); ui.end_row();
                 ui.label("Gap (mm):"); ui.add(egui::DragValue::new(&mut state.cell_gap).range(0.5..=10.0)); ui.end_row();
+                ui.label("Interval (mm):"); ui.add(egui::DragValue::new(&mut state.interval_mm).range(0.01..=2.0).speed(0.01)); ui.end_row();
                 ui.label("Origin X:"); ui.add(egui::DragValue::new(&mut state.origin_x)); ui.end_row();
                 ui.label("Origin Y:"); ui.add(egui::DragValue::new(&mut state.origin_y)); ui.end_row();
+            });
+            ui.horizontal(|ui| {
+                 ui.checkbox(&mut state.scan_bidirectional, "Bidirectional Scan");
             });
 
             let total_w = (state.cell_size + state.cell_gap) * state.cols as f32;
@@ -100,6 +108,7 @@ fn generate_gcode(s: &PowerSpeedTestState) -> Vec<String> {
     let speed_step = if s.rows > 1 { (s.speed_max - s.speed_min) / (s.rows - 1) as f32 } else { 0.0 };
     let power_step = if s.cols > 1 { (s.power_max - s.power_min) / (s.cols - 1) as f32 } else { 0.0 };
     let step = s.cell_size + s.cell_gap;
+    let interval = s.interval_mm.max(0.01);
 
     for row in 0..s.rows {
         let speed = s.speed_min + row as f32 * speed_step;
@@ -115,15 +124,26 @@ fn generate_gcode(s: &PowerSpeedTestState) -> Vec<String> {
             lines.push(format!("M5"));
             lines.push(format!("G0 X{:.2} Y{:.2} F3000", x0, y0));
             lines.push(format!("M3 S{:.0}", power));
+
             // Fill with horizontal scan lines
-            let scan_step = 0.1_f32;
             let mut y = y0;
             let mut left_to_right = true;
             while y <= y1 + 0.001 {
                 let (start_x, end_x) = if left_to_right { (x0, x1) } else { (x1, x0) };
-                lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", start_x, y, speed));
-                lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", end_x, y, speed));
-                y += scan_step;
+
+                // If bidirectional is OFF and we are on a "return" line (right to left), we should just move fast (G0)
+                if !s.scan_bidirectional && !left_to_right {
+                     lines.push(format!("M5"));
+                     lines.push(format!("G0 X{:.2} Y{:.2}", start_x, y));
+                     lines.push(format!("M3 S{:.0}", power));
+                     lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", end_x, y, speed));
+                } else {
+                    // Normal burn move
+                     lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", start_x, y, speed));
+                     lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", end_x, y, speed));
+                }
+
+                y += interval;
                 left_to_right = !left_to_right;
             }
             lines.push(format!("M5"));
