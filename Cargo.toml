@@ -1,0 +1,28 @@
+[package]
+name = "all4laser"
+version = "0.1.0"
+edition = "2024"
+description = "All4Laser — Open-source laser engraver controller"
+license = "GPL-3.0"
+
+[dependencies]
+eframe = { version = "0.31", features = ["default"] }
+egui = "0.31"
+egui_extras = { version = "0.31", features = ["image"] }
+serialport = "4"
+image = "0.25"
+rfd = "0.15"
+log = "0.4"
+env_logger = "0.11"
+crossbeam-channel = "0.5"
+usvg = "0.45"
+tiny-skia = "0.11"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+rusttype = "0.9"
+qrcode = "0.14"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
