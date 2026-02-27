@@ -17,6 +17,15 @@ const MAX_LOG_LINES: usize = 500;
 const STATUS_POLL_MS: u64 = 250;
 const LEFT_PANEL_WIDTH: f32 = 300.0;
 
+#[derive(PartialEq, Clone, Copy)]
+pub enum RightPanelTab {
+    Cuts,
+    Move,
+    Console,
+    Art,
+    Laser,
+}
+
 pub struct All4LaserApp {
     // GRBL state
     grbl_state: GrblState,
@@ -132,6 +141,12 @@ pub struct All4LaserApp {
     // Language
     language: crate::i18n::Language,
 
+<<<<<<< font-discovery-10009174142615310891
+    // Layout State
+    active_tab: RightPanelTab,
+
+=======
+>>>>>>> main
     // Timing
     last_poll: Instant,
 }
@@ -196,6 +211,10 @@ impl All4LaserApp {
             active_layer_idx: 0,
             cut_settings_state: ui::cut_settings::CutSettingsState::default(),
             language: crate::i18n::Language::English,
+<<<<<<< font-discovery-10009174142615310891
+            active_tab: RightPanelTab::Cuts,
+=======
+>>>>>>> main
         };
 
         app.apply_theme(&cc.egui_ctx);
@@ -1021,6 +1040,150 @@ impl All4LaserApp {
                 });
         });
     }
+
+    fn ui_right_tabs(&mut self, ui: &mut egui::Ui, connected: bool) {
+        use crate::i18n::tr;
+
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.active_tab, RightPanelTab::Cuts, tr("Cuts"));
+            ui.selectable_value(&mut self.active_tab, RightPanelTab::Move, tr("Move"));
+            ui.selectable_value(&mut self.active_tab, RightPanelTab::Console, tr("Console"));
+            ui.selectable_value(&mut self.active_tab, RightPanelTab::Art, tr("Art"));
+            ui.selectable_value(&mut self.active_tab, RightPanelTab::Laser, tr("Laser"));
+        });
+        ui.separator();
+
+        egui::ScrollArea::vertical().id_salt("tab_scroll").show(ui, |ui| {
+            match self.active_tab {
+                RightPanelTab::Cuts => {
+                    // Layer List Table (to be implemented more fully)
+                    ui.label(RichText::new("Layers").strong());
+                    // Reuse palette for now, but vertical?
+                    // We need a list view.
+                    // For now, I'll put Materials here too.
+                    ui.add_space(8.0);
+                    let mat_action = ui::materials::show(ui, &mut self.materials_state);
+                    if let Some(s) = mat_action.apply_speed { self.jog_feed = s; }
+                    if let Some(p) = mat_action.apply_power { self.test_fire_power = p / 10.0; }
+
+                    ui.separator();
+                    // Show full layers list with details
+                    let list_action = ui::cut_list::show(ui, &mut self.layers, self.active_layer_idx);
+                    if let Some(idx) = list_action.select_layer {
+                        self.active_layer_idx = idx;
+                        self.drawing_state.current.layer_idx = idx;
+                    }
+                    if let Some(idx) = list_action.open_settings {
+                        self.cut_settings_state.editing_layer_idx = Some(idx);
+                        self.cut_settings_state.is_open = true;
+                    }
+                }
+                RightPanelTab::Move => {
+                    // Machine State + Jog
+                    let ms_action = ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected);
+                    if ms_action.toggle_focus && connected {
+                        self.is_focus_on = !self.is_focus_on;
+                        if self.is_focus_on { self.send_command("M3 S10"); } else { self.send_command("M5"); }
+                    }
+                    if let Some(pos) = ms_action.quick_pos { self.quick_move_to(pos); }
+
+                    ui.add_space(8.0);
+                    let jog_action = ui::jog::show(ui, &mut self.jog_step, &mut self.jog_feed);
+                    if let Some(dir) = jog_action.direction { self.jog(dir); }
+
+                    ui.add_space(8.0);
+                    // Z-Probe & Focus
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
+                        });
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("⇊ Run Z-Probe").clicked() {
+                                self.send_command("G38.2 Z-50 F100");
+                                self.send_command("G92 Z0");
+                                self.send_command("G0 Z5 F500");
+                            }
+                            if ui.button("🎯 Focus Point").clicked() {
+                                self.send_command("G0 Z20 F1000");
+                            }
+                        });
+                    });
+                }
+                RightPanelTab::Console => {
+                     let console_action = ui::console::show(ui, &self.console_log, &mut self.console_input);
+                     if let Some(cmd) = console_action.send_command { self.send_command(&cmd); }
+
+                     ui.separator();
+                     // Show GCode here too?
+                     self.ui_right_content(ui); // The GCode list
+                }
+                RightPanelTab::Art => {
+                    // Drawing Tools
+                    let draw_action = ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
+                    if let Some(lines) = draw_action.generate_gcode {
+                        let file = GCodeFile::from_lines("drawing", &lines);
+                        self.set_loaded_file(file, lines);
+                    }
+                    ui.add_space(8.0);
+                    // Alignment
+                    let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+                    let ws = self.renderer.workspace_size;
+                    ui::alignment::show(ui, &mut self.drawing_state, &selection, ws);
+
+                    ui.add_space(8.0);
+                    // Properties (Shape Properties)
+                    ui.label(RichText::new("Shape Properties").strong());
+                    if selection.len() == 1 {
+                        let idx = selection[0];
+                        if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
+                            let mut changed = false;
+                            ui.horizontal(|ui| {
+                                ui.label("X:"); if ui.add(egui::DragValue::new(&mut shape.x).speed(1.0)).changed() { changed = true; }
+                                ui.label("Y:"); if ui.add(egui::DragValue::new(&mut shape.y).speed(1.0)).changed() { changed = true; }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("W:"); if ui.add(egui::DragValue::new(&mut shape.width).speed(1.0)).changed() { changed = true; }
+                                ui.label("H:"); if ui.add(egui::DragValue::new(&mut shape.height).speed(1.0)).changed() { changed = true; }
+                            });
+
+                            if changed {
+                                let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                                let file = GCodeFile::from_lines("drawing", &lines);
+                                self.set_loaded_file(file, lines);
+                            }
+                        }
+                    } else if selection.len() > 1 {
+                        ui.label(format!("{} items selected", selection.len()));
+                    } else {
+                        ui.label("Select a shape to edit properties.");
+                    }
+                }
+                RightPanelTab::Laser => {
+                     // Connection
+                    let conn_action = ui::connection::show(ui, &self.ports, &mut self.selected_port, &self.baud_rates, &mut self.selected_baud, connected);
+                    if conn_action.connect { self.connect(); }
+                    if conn_action.disconnect { self.disconnect(); }
+                    if conn_action.refresh_ports { self.ports = connection::list_ports(); }
+
+                    ui.add_space(8.0);
+                    // Macros
+                    let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
+                    if let Some(gcode) = macros_action.execute_macro {
+                        for line in gcode.lines() { self.send_command(line.trim()); }
+                    }
+
+                    // Machine Profile
+                    ui.separator();
+                    ui.label(RichText::new("Machine Profile").strong());
+                    ui.horizontal(|ui| {
+                         if ui.checkbox(&mut self.machine_profile.rotary_enabled, "Rotary").changed() { self.machine_profile.save(); }
+                         if ui.checkbox(&mut self.machine_profile.air_assist, "Air Assist").changed() { self.machine_profile.save(); }
+                    });
+                }
+            }
+        });
+    }
 }
 
 impl eframe::App for All4LaserApp {
@@ -1505,11 +1668,8 @@ impl eframe::App for All4LaserApp {
             if self.ui_layout == theme::UiLayout::Modern {
                 self.ui_right_content(ui);
             } else {
-                // Classic Right: Machine, Jog, Transform, Console, GCode
-                egui::ScrollArea::vertical().id_salt("right_scroll").show(ui, |ui| {
-                    self.ui_left_content(ui, connected); // Reuse most content
-                    self.ui_right_content(ui);       // Plus GCode viewer
-                });
+                // Classic Right: Tabbed interface
+                self.ui_right_tabs(ui, connected);
             }
         });
 
