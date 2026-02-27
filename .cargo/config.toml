@@ -1,0 +1,4 @@
+[target.x86_64-pc-windows-gnu]
+linker = "/opt/llvm-mingw/bin/x86_64-w64-mingw32-gcc"
+ar = "/opt/llvm-mingw/bin/x86_64-w64-mingw32-ar"
+rustflags = ["-L", "/home/animehq/All4Laser/.cargo/lib"]
