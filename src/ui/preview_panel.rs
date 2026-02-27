@@ -36,7 +36,7 @@ pub fn show(
 
     // Zoom toolbar
     ui.horizontal(|ui| {
-        ui.label(RichText::new(crate::i18n::tr("Preview")).color(theme::LAVENDER).strong().size(14.0));
+        ui.label(RichText::new("Preview").color(theme::LAVENDER).strong().size(14.0));
         ui.checkbox(&mut renderer.show_rapids, "Rapids");
         ui.checkbox(&mut renderer.realistic_preview, "Realistic");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
