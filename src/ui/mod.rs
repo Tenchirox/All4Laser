@@ -23,3 +23,6 @@ pub mod cut_list;
 pub mod alignment;
 pub mod text;
 pub mod generators;
+pub mod circular_array;
+pub mod offset;
+pub mod boolean_ops;

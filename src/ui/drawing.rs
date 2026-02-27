@@ -247,16 +247,8 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
 fn gen_rect(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
     let (x0, y0) = (s.x, s.y);
     let (x1, y1) = (s.x + s.width, s.y + s.height);
-    let sp = layer.speed;
-    let pw = layer.power;
-
-    builder.laser_off();
-    builder.rapid(x0, y0);
-    builder.linear(x1, y0, sp, pw);
-    builder.linear(x1, y1, sp, pw);
-    builder.linear(x0, y1, sp, pw);
-    builder.linear(x0, y0, sp, pw);
-    builder.laser_off();
+    let path = vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)];
+    crate::gcode::path_utils::apply_tabs(builder, &path, layer);
 }
 
 fn gen_circle(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
@@ -265,44 +257,25 @@ fn gen_circle(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
     let cy = s.y;
     let r = s.radius;
     let steps = 64;
-    let sp = layer.speed;
-    let pw = layer.power;
 
-    // Start at right of circle
-    let start_x = cx + r;
-    let start_y = cy;
-
-    builder.laser_off();
-    builder.rapid(start_x, start_y);
-
-    for i in 1..=steps {
+    let mut path = Vec::with_capacity(steps + 1);
+    for i in 0..=steps {
         let angle = 2.0 * PI * (i as f32) / (steps as f32);
         let px = cx + r * angle.cos();
         let py = cy + r * angle.sin();
-        builder.linear(px, py, sp, pw);
+        path.push((px, py));
     }
-    builder.laser_off();
+    crate::gcode::path_utils::apply_tabs(builder, &path, layer);
 }
 
 fn gen_path(builder: &mut GCodeBuilder, points: &[(f32, f32)], s: &ShapeParams, layer: &CutLayer) {
     if points.is_empty() { return; }
 
-    // Apply shape offset (s.x, s.y) to all points
-    // Typically path points are relative to 0,0 of the shape, or absolute?
-    // Let's assume absolute relative to (0,0) of the canvas, but shifted by s.x/s.y?
-    // Usually for paths, s.x/s.y acts as an offset.
+    let abs_path: Vec<(f32, f32)> = points.iter()
+        .map(|p| (s.x + p.0, s.y + p.1))
+        .collect();
 
-    let sp = layer.speed;
-    let pw = layer.power;
-
-    builder.laser_off();
-    let (p0x, p0y) = points[0];
-    builder.rapid(s.x + p0x, s.y + p0y);
-
-    for &(px, py) in &points[1..] {
-        builder.linear(s.x + px, s.y + py, sp, pw);
-    }
-    builder.laser_off();
+    crate::gcode::path_utils::apply_tabs(builder, &abs_path, layer);
 }
 
 fn gen_text(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {

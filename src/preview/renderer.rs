@@ -1,7 +1,7 @@
 use egui::{Color32, Painter, Pos2, Rect, Stroke, Vec2};
 use crate::gcode::types::PreviewSegment;
 use crate::theme;
-use crate::ui::drawing::{ShapeParams, ShapeKind};
+use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
 use std::collections::HashSet;
 
 /// An object visible in the preview that can be interacted with.
@@ -28,6 +28,8 @@ pub struct PreviewRenderer {
     pub realistic_preview: bool, // Toggle for realistic material texture
     _drag_start: Option<Pos2>,
     pub selected_shape_idx: HashSet<usize>, // Selected indices in DrawingState (Multi-select)
+    pub node_edit_mode: bool,
+    pub selected_node: Option<(usize, usize)>, // (shape_idx, point_idx)
 }
 
 impl Default for PreviewRenderer {
@@ -42,6 +44,8 @@ impl Default for PreviewRenderer {
             realistic_preview: false,
             _drag_start: None,
             selected_shape_idx: HashSet::new(),
+            node_edit_mode: false,
+            selected_node: None,
         }
     }
 }
@@ -51,6 +55,7 @@ pub enum InteractiveAction {
     SelectShape(usize, bool), // idx, is_multi (ctrl/shift)
     Deselect,
     DragSelection { delta: Vec2 }, // Drag all selected
+    MoveNode { shape_idx: usize, node_idx: usize, new_pos: Pos2 },
 }
 
 impl PreviewRenderer {
@@ -149,7 +154,7 @@ impl PreviewRenderer {
         // Draw interactive shapes (Overlay)
         for (idx, shape) in shapes.iter().enumerate() {
             let is_selected = self.selected_shape_idx.contains(&idx);
-            self.draw_shape_overlay(&painter, shape, rect, is_selected);
+            self.draw_shape_overlay(&painter, shape, rect, is_selected, idx);
         }
 
         // Draw machine position
@@ -290,7 +295,7 @@ impl PreviewRenderer {
         flush_accumulated(&painter, &mut current_accumulated_line);
     }
 
-    fn draw_shape_overlay(&self, painter: &Painter, shape: &ShapeParams, rect: Rect, is_selected: bool) {
+    fn draw_shape_overlay(&self, painter: &Painter, shape: &ShapeParams, rect: Rect, is_selected: bool, idx: usize) {
         // Calculate shape bounds in world
         let bounds = match &shape.shape {
             ShapeKind::Rectangle => Rect::from_min_size(
@@ -340,6 +345,18 @@ impl PreviewRenderer {
             let corners = [screen_rect.min, screen_rect.max, screen_rect.left_bottom(), screen_rect.right_top()];
             for c in corners {
                 painter.rect_filled(Rect::from_center_size(c, Vec2::splat(handle_size)), 1.0, theme::BLUE);
+            }
+
+            // Draw Node Handles if in Node Edit Mode
+            if self.node_edit_mode {
+                if let ShapeKind::Path(pts) = &shape.shape {
+                    for (v_idx, p) in pts.iter().enumerate() {
+                        let vp = self.world_to_screen(shape.x + p.0, shape.y + p.1, rect);
+                        let is_sel = self.selected_node == Some((idx, v_idx));
+                        let color = if is_sel { theme::RED } else { theme::GREEN };
+                        painter.circle_filled(vp, 4.0, color);
+                    }
+                }
             }
         }
     }
@@ -463,6 +480,27 @@ impl PreviewRenderer {
                 }
 
                 if let Some(idx) = hit_idx {
+                    if self.node_edit_mode {
+                        // Check for node hit first
+                        let mut node_hit = None;
+                        if let Some(shape) = shapes.get(idx) {
+                            if let ShapeKind::Path(pts) = &shape.shape {
+                                for (v_idx, p) in pts.iter().enumerate() {
+                                    let vp = Pos2::new(shape.x + p.0, shape.y + p.1);
+                                    if (vp.x - wx).abs() < 2.0 / self.zoom && (vp.y - wy).abs() < 2.0 / self.zoom {
+                                        node_hit = Some(v_idx);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        self.selected_node = node_hit.map(|n| (idx, n));
+                        if node_hit.is_some() {
+                             // If we hit a node, we don't necessarily want to change shape selection?
+                             // Standard CAD: selection stays, we just pick a node.
+                        }
+                    }
+
                     if is_multi {
                         if self.selected_shape_idx.contains(&idx) {
                             self.selected_shape_idx.remove(&idx);
@@ -476,15 +514,21 @@ impl PreviewRenderer {
                     action = InteractiveAction::SelectShape(idx, is_multi);
                 } else if !is_multi {
                     self.selected_shape_idx.clear();
+                    self.selected_node = None;
                     action = InteractiveAction::Deselect;
                 }
             }
         }
 
-        // Dragging Logic
-        // If we have a selection, and we are dragging, move the shapes
         if response.dragged() {
-            if !self.selected_shape_idx.is_empty() {
+            if self.node_edit_mode && self.selected_node.is_some() {
+                 let (s_idx, v_idx) = self.selected_node.unwrap();
+                 if let Some(pos) = response.interact_pointer_pos() {
+                     let dx = (pos.x - self.pan.x) / self.zoom;
+                     let dy = -(pos.y - self.pan.y) / self.zoom;
+                     action = InteractiveAction::MoveNode { shape_idx: s_idx, node_idx: v_idx, new_pos: Pos2::new(dx, dy) };
+                 }
+            } else if !self.selected_shape_idx.is_empty() {
                 let delta = response.drag_delta();
                 // Convert screen delta to world delta
                 let mut world_dx = delta.x / self.zoom;

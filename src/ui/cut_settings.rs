@@ -77,6 +77,20 @@ pub fn show(ctx: &egui::Context, state: &mut CutSettingsState, layers: &[CutLaye
                     ui.label("Z Offset (mm):");
                     ui.add(egui::DragValue::new(&mut layer.z_offset).speed(0.1));
                     ui.end_row();
+
+                    ui.label(RichText::new("🏗 Tabs / Bridges:").strong());
+                    ui.checkbox(&mut layer.tab_enabled, "Enabled");
+                    ui.end_row();
+
+                    if layer.tab_enabled {
+                        ui.label("Tab Spacing:");
+                        ui.add(egui::DragValue::new(&mut layer.tab_spacing).speed(1.0).range(1.0..=500.0).suffix(" mm"));
+                        ui.end_row();
+
+                        ui.label("Tab Size (Gap):");
+                        ui.add(egui::DragValue::new(&mut layer.tab_size).speed(0.1).range(0.1..=10.0).suffix(" mm"));
+                        ui.end_row();
+                    }
                 });
 
                 ui.add_space(8.0);
