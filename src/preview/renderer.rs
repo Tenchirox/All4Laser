@@ -34,6 +34,7 @@ pub struct PreviewRenderer {
     pub hover_shape_idx: Option<usize>,
     pub dragging_rotation: Option<usize>, // shape_idx being rotated
     pub image_textures: std::collections::HashMap<usize, egui::TextureHandle>, // shape_idx -> texture
+    pub initial_fit_done: bool,
 }
 
 impl Default for PreviewRenderer {
@@ -53,6 +54,7 @@ impl Default for PreviewRenderer {
             hover_shape_idx: None,
             dragging_rotation: None,
             image_textures: std::collections::HashMap::new(),
+            initial_fit_done: false,
         }
     }
 }
@@ -112,6 +114,11 @@ impl PreviewRenderer {
             // 3. Re-center + Offset
             Pos2::new(rx + job_center.x + job_offset.x, ry + job_center.y + job_offset.y)
         };
+
+        if !self.initial_fit_done {
+            self.auto_fit_workspace(rect);
+            self.initial_fit_done = true;
+        }
 
         // Background
         let bg_color = if self.realistic_preview {
@@ -514,9 +521,31 @@ impl PreviewRenderer {
         }
     }
 
+    /// Auto-fit the machine workspace to the view
+    pub fn auto_fit_workspace(&mut self, rect: Rect) {
+        if self.workspace_size.x <= 0.0 || self.workspace_size.y <= 0.0 {
+            return;
+        }
+
+        let margin = 40.0;
+        let view_w = rect.width() - margin * 2.0;
+        let view_h = rect.height() - margin * 2.0;
+
+        self.zoom = (view_w / self.workspace_size.x).min(view_h / self.workspace_size.y).max(0.01);
+
+        let center_x = self.workspace_size.x / 2.0;
+        let center_y = self.workspace_size.y / 2.0;
+
+        self.pan = Vec2::new(
+            rect.center().x - center_x * self.zoom,
+            rect.center().y + center_y * self.zoom,
+        );
+    }
+
     /// Auto-fit all segments in view
     pub fn auto_fit(&mut self, segments: &[PreviewSegment], rect: Rect, job_offset: Vec2, job_rotation_deg: f32) {
         if segments.is_empty() {
+            self.auto_fit_workspace(rect);
             return;
         }
 
