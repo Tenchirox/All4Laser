@@ -166,7 +166,7 @@ pub fn show(ui: &mut Ui, state: &mut DrawingState, layers: &[CutLayer], active_l
     action
 }
 
-fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<String> {
+pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<String> {
     let mut lines = Vec::new();
     lines.push("; Compiled Drawing — All4Laser".into());
     lines.push("G90".into());
