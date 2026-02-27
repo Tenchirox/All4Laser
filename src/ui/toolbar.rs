@@ -2,6 +2,8 @@ use egui::{Ui, RichText};
 use crate::config::recent_files::RecentFiles;
 use crate::theme;
 
+use crate::i18n::{self, tr, Language};
+
 pub struct ToolbarAction {
     pub connect_toggle: bool,
     pub open_file: bool,
@@ -21,6 +23,7 @@ pub struct ToolbarAction {
     pub reset: bool,
     pub set_theme: Option<theme::UiTheme>,
     pub set_layout: Option<theme::UiLayout>,
+    pub set_language: Option<Language>,
     pub toggle_light_mode: bool,
     pub open_settings: bool,
     pub open_power_speed_test: bool,
@@ -51,6 +54,7 @@ impl Default for ToolbarAction {
             reset: false,
             set_theme: None,
             set_layout: None,
+            set_language: None,
             toggle_light_mode: false,
             open_settings: false,
             open_power_speed_test: false,
@@ -77,16 +81,17 @@ pub fn show(
         ui.spacing_mut().item_spacing.x = 4.0;
 
         // Connect / Disconnect
-        let conn_label = if connected { "⏏ Disconnect" } else { "🔌 Connect" };
+        let conn_label = if connected { tr("Disconnect") } else { tr("Connect") };
+        let conn_text = if connected { format!("⏏ {}", conn_label) } else { format!("🔌 {}", conn_label) };
         let conn_color = if connected { theme::RED } else { theme::GREEN };
-        if ui.button(RichText::new(conn_label).color(conn_color).size(13.0)).clicked() {
+        if ui.button(RichText::new(conn_text).color(conn_color).size(13.0)).clicked() {
             action.connect_toggle = true;
         }
 
         ui.separator();
 
         // File group
-        if ui.button(RichText::new("📂 Open").size(13.0)).clicked() {
+        if ui.button(RichText::new(format!("📂 {}", tr("Open"))).size(13.0)).clicked() {
             action.open_file = true;
         }
         // Recent files dropdown
@@ -108,7 +113,7 @@ pub fn show(
             }
         });
 
-        if ui.button(RichText::new("💾 Save").size(13.0)).clicked() {
+        if ui.button(RichText::new(format!("💾 {}", tr("Save"))).size(13.0)).clicked() {
             action.save_file = true;
         }
 
@@ -128,17 +133,17 @@ pub fn show(
 
         // Run / Abort toggle
         if running {
-            if ui.button(RichText::new("⛔ Abort").color(theme::RED).size(13.0)).clicked() {
+            if ui.button(RichText::new(format!("⛔ {}", tr("Stop"))).color(theme::RED).size(13.0)).clicked() {
                 action.abort_program = true;
             }
         } else {
             let run_btn = ui.add_enabled(
                 connected,
-                egui::Button::new(RichText::new("▶ Run").color(theme::GREEN).size(13.0)),
+                egui::Button::new(RichText::new(format!("▶ {}", tr("Run"))).color(theme::GREEN).size(13.0)),
             );
             if run_btn.clicked() { action.run_program = true; }
 
-            let frame_lbl = if framing_active { "⏹ Stop Frame" } else { "⛶ Frame" };
+            let frame_lbl = if framing_active { format!("⏹ {}", tr("Stop")) } else { "⛶ Frame".to_string() };
             let frame_col = if framing_active { theme::RED } else { theme::SUBTEXT };
             if ui.add_enabled(connected, egui::Button::new(RichText::new(frame_lbl).color(frame_col).size(13.0))).clicked() {
                 action.frame_bbox = true;
@@ -150,18 +155,18 @@ pub fn show(
             }
         }
 
-        if ui.add_enabled(connected, egui::Button::new(RichText::new("⏸ Hold").size(13.0))).clicked() { action.hold = true; }
-        if ui.add_enabled(connected, egui::Button::new(RichText::new("▶ Resume").size(13.0))).clicked() { action.resume = true; }
+        if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("⏸ {}", tr("Hold"))).size(13.0))).clicked() { action.hold = true; }
+        if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("▶ {}", tr("Resume"))).size(13.0))).clicked() { action.resume = true; }
 
         ui.separator();
 
-        if ui.add_enabled(connected, egui::Button::new(RichText::new("🏠 Home").size(13.0))).clicked() { action.home = true; }
-        if ui.add_enabled(connected, egui::Button::new(RichText::new("🔓 Unlock").size(13.0))).clicked() { action.unlock = true; }
+        if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("🏠 {}", tr("Home"))).size(13.0))).clicked() { action.home = true; }
+        if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("🔓 {}", tr("Unlock"))).size(13.0))).clicked() { action.unlock = true; }
         if ui.add_enabled(connected, egui::Button::new(RichText::new("⊙ Zero").size(13.0))).clicked() { action.set_zero = true; }
 
         ui.separator();
 
-        if ui.add_enabled(connected, egui::Button::new(RichText::new("↻ Reset").color(theme::PEACH).size(13.0))).clicked() { action.reset = true; }
+        if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("↻ {}", tr("Reset"))).color(theme::PEACH).size(13.0))).clicked() { action.reset = true; }
 
         // View menu
         egui::menu::menu_button(ui, "👁 View", |ui| {
@@ -184,6 +189,21 @@ pub fn show(
             if ui.selectable_label(false, "Classic (LightBurn Style)").clicked() {
                 action.set_layout = Some(theme::UiLayout::Classic);
                 ui.close_menu();
+            }
+
+            ui.separator();
+            ui.label(RichText::new("Language:").strong());
+            let current_lang = i18n::get_language();
+            let langs = [
+                Language::English, Language::French, Language::Japanese,
+                Language::German, Language::Italian, Language::Arabic,
+                Language::Spanish, Language::Portuguese
+            ];
+            for lang in langs {
+                if ui.selectable_label(current_lang == lang, lang.name()).clicked() {
+                    action.set_language = Some(lang);
+                    ui.close_menu();
+                }
             }
         });
 
@@ -218,7 +238,7 @@ pub fn show(
                 action.toggle_light_mode = true; 
             }
             ui.add_space(8.0);
-            if ui.add_enabled(connected, egui::Button::new(RichText::new("⚙ Settings").size(13.0))).clicked() {
+            if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("⚙ {}", tr("Settings"))).size(13.0))).clicked() {
                 action.open_settings = true;
             }
         });

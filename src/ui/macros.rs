@@ -62,7 +62,7 @@ pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosActi
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Custom Macros").color(theme::LAVENDER).strong());
+            ui.label(RichText::new("Macros").color(theme::LAVENDER).strong());
             if ui.button("+").clicked() {
                 state.items.push(MacroDef { label: "New Macro".into(), gcode: "".into() });
                 state.editing_idx = Some(state.items.len() - 1);

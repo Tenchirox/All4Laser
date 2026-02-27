@@ -64,7 +64,7 @@ pub fn show(ui: &mut Ui, state: &mut DrawingState, layers: &[CutLayer], active_l
     let mut action = DrawingAction { generate_gcode: None };
 
     ui.group(|ui| {
-        ui.label(RichText::new("✏ Drawing Tools").color(theme::LAVENDER).strong());
+        ui.label(RichText::new(format!("✏ {}", crate::i18n::tr("Drawing Tools"))).color(theme::LAVENDER).strong());
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {

@@ -167,6 +167,7 @@ dependencies = [
  "env_logger",
  "font-kit",
  "image",
+ "lazy_static",
  "log",
  "qrcode",
  "rfd",

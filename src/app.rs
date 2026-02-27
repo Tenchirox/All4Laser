@@ -129,6 +129,9 @@ pub struct All4LaserApp {
     active_layer_idx: usize,
     cut_settings_state: ui::cut_settings::CutSettingsState,
 
+    // Language
+    language: crate::i18n::Language,
+
     // Timing
     last_poll: Instant,
 }
@@ -192,6 +195,7 @@ impl All4LaserApp {
             layers: ui::layers_new::CutLayer::default_palette(),
             active_layer_idx: 0,
             cut_settings_state: ui::cut_settings::CutSettingsState::default(),
+            language: crate::i18n::Language::English,
         };
 
         app.apply_theme(&cc.egui_ctx);
@@ -779,7 +783,7 @@ impl All4LaserApp {
 
         // Machine Profile settings
         let mut profile_changed = false;
-        egui::CollapsingHeader::new(egui::RichText::new("⚙ Machine Profile").color(crate::theme::LAVENDER).strong())
+        egui::CollapsingHeader::new(egui::RichText::new(format!("⚙ {}", crate::i18n::tr("Machine Profile"))).color(crate::theme::LAVENDER).strong())
             .show(ui, |ui| {
                 egui::Grid::new("mp_grid").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
                     ui.label("Name:"); 
@@ -894,7 +898,7 @@ impl All4LaserApp {
                 }
             }
             ui.add_space(4.0);
-            ui.label(RichText::new("📐 Job Transformation").color(theme::LAVENDER).strong());
+            ui.label(RichText::new(format!("📐 {}", crate::i18n::tr("Job Transformation"))).color(theme::LAVENDER).strong());
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label("Offset X:");
@@ -949,7 +953,7 @@ impl All4LaserApp {
         // Z-Probe & Focus (Pro Tier)
         ui.group(|ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("📏 Z-Probe & Focus").color(theme::LAVENDER).strong());
+                ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
             });
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -1339,6 +1343,10 @@ impl eframe::App for All4LaserApp {
             }
             if let Some(l) = actions.set_layout {
                 self.ui_layout = l;
+            }
+            if let Some(lang) = actions.set_language {
+                self.language = lang;
+                crate::i18n::set_language(lang);
             }
             if actions.toggle_light_mode {
                 self.light_mode = !self.light_mode;
