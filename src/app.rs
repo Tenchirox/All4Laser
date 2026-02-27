@@ -321,12 +321,19 @@ impl All4LaserApp {
 
             let mut cmd = if let (Some(file), Some(center)) = (&self.loaded_file, self.job_center) {
                 if let Some(parsed) = file.lines.get(line_idx) {
-                    let rotary_scale = if self.machine_profile.rotary_enabled && self.machine_profile.rotary_diameter_mm > 0.1 {
-                        50.0 / self.machine_profile.rotary_diameter_mm // Default reference 50mm
+                    // Standard transform (offset/rotate)
+                    let transformed = parsed.transform(egui::vec2(self.job_offset_x, self.job_offset_y), self.job_rotation, center, 1.0);
+
+                    // Apply Rotary transformation if enabled
+                    if self.machine_profile.rotary_enabled {
+                        crate::gcode::transform::apply_rotary(
+                            &transformed,
+                            self.machine_profile.rotary_diameter_mm,
+                            self.machine_profile.rotary_axis
+                        )
                     } else {
-                        1.0
-                    };
-                    parsed.transform(egui::vec2(self.job_offset_x, self.job_offset_y), self.job_rotation, center, rotary_scale)
+                        transformed
+                    }
                 } else {
                     self.program_lines[line_idx].clone()
                 }
@@ -962,6 +969,11 @@ impl All4LaserApp {
                 ui.horizontal(|ui| {
                     ui.label("Cylinder Ø:");
                     ui.add(egui::DragValue::new(&mut self.machine_profile.rotary_diameter_mm).suffix(" mm"));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Rotary Axis:");
+                    ui.selectable_value(&mut self.machine_profile.rotary_axis, 'Y', "Y (Roller)");
+                    ui.selectable_value(&mut self.machine_profile.rotary_axis, 'A', "A (Chuck)");
                 });
             }
         });

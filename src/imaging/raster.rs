@@ -42,6 +42,7 @@ pub struct RasterParams {
     pub rotation: i32,   // 0, 90, 180, 270
     pub _line_spacing: f32,
     pub dither: DitherMode,
+    pub use_skeleton: bool, // New flag for skeletonization
     pub outline: OutlineParams,
 }
 
@@ -61,6 +62,7 @@ impl Default for RasterParams {
             rotation: 0,
             _line_spacing: 0.1, // mm
             dither: DitherMode::FloydSteinberg,
+            use_skeleton: false,
             outline: OutlineParams::default(),
         }
     }

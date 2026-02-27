@@ -14,7 +14,7 @@ pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLa
     let bounds = match shape.shape {
         ShapeKind::Rectangle => (shape.x, shape.y, shape.x + shape.width, shape.y + shape.height),
         ShapeKind::Circle => (shape.x - shape.radius, shape.y - shape.radius, shape.x + shape.radius, shape.y + shape.radius),
-        ShapeKind::TextLine => return, // Text filling is complex (needs font outline poly), skipping for now
+        _ => return, // Text/Path filling is complex (needs polygon logic), skipping for now
     };
 
     let (min_x, min_y, max_x, max_y) = bounds;

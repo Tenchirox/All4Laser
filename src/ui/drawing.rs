@@ -10,6 +10,7 @@ pub enum ShapeKind {
     Rectangle,
     Circle,
     TextLine,
+    Path(Vec<(f32, f32)>), // Centerline or Vector path
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -87,7 +88,7 @@ pub fn show(ui: &mut Ui, state: &mut DrawingState, layers: &[CutLayer], active_l
             ui.add(egui::DragValue::new(&mut state.current.y).speed(1.0).suffix(" mm"));
         });
 
-        match state.current.shape {
+        match &state.current.shape {
             ShapeKind::Rectangle => {
                 ui.horizontal(|ui| {
                     ui.label("W:");
@@ -111,6 +112,9 @@ pub fn show(ui: &mut Ui, state: &mut DrawingState, layers: &[CutLayer], active_l
                     ui.label("Font size:");
                     ui.add(egui::DragValue::new(&mut state.current.font_size_mm).speed(0.5).suffix(" mm"));
                 });
+            }
+            ShapeKind::Path(pts) => {
+                ui.label(format!("Path with {} points", pts.len()));
             }
         }
 
@@ -220,10 +224,11 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
             }
 
             if layer.mode == CutMode::Line || layer.mode == CutMode::FillAndLine {
-                match shape.shape {
+                match &shape.shape {
                     ShapeKind::Rectangle => gen_rect(&mut builder, shape, layer),
                     ShapeKind::Circle => gen_circle(&mut builder, shape, layer),
                     ShapeKind::TextLine => gen_text(&mut builder, shape, layer),
+                    ShapeKind::Path(pts) => gen_path(&mut builder, pts, shape, layer),
                 }
             }
         }
@@ -275,6 +280,27 @@ fn gen_circle(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
         let px = cx + r * angle.cos();
         let py = cy + r * angle.sin();
         builder.linear(px, py, sp, pw);
+    }
+    builder.laser_off();
+}
+
+fn gen_path(builder: &mut GCodeBuilder, points: &[(f32, f32)], s: &ShapeParams, layer: &CutLayer) {
+    if points.is_empty() { return; }
+
+    // Apply shape offset (s.x, s.y) to all points
+    // Typically path points are relative to 0,0 of the shape, or absolute?
+    // Let's assume absolute relative to (0,0) of the canvas, but shifted by s.x/s.y?
+    // Usually for paths, s.x/s.y acts as an offset.
+
+    let sp = layer.speed;
+    let pw = layer.power;
+
+    builder.laser_off();
+    let (p0x, p0y) = points[0];
+    builder.rapid(s.x + p0x, s.y + p0y);
+
+    for &(px, py) in &points[1..] {
+        builder.linear(s.x + px, s.y + py, sp, pw);
     }
     builder.laser_off();
 }
