@@ -238,7 +238,7 @@ pub fn show(
                 action.toggle_light_mode = true; 
             }
             ui.add_space(8.0);
-            if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("⚙ {}", tr("Settings"))).size(13.0))).clicked() {
+            if ui.button(RichText::new(format!("⚙ {}", tr("Settings"))).size(13.0)).clicked() {
                 action.open_settings = true;
             }
         });

@@ -2,6 +2,7 @@ use egui::{Ui, RichText};
 use crate::preview::renderer::{PreviewRenderer, InteractiveAction};
 use crate::gcode::types::PreviewSegment;
 use crate::ui::drawing::ShapeParams;
+use crate::ui::layers_new::CutLayer;
 use crate::theme;
 
 pub struct PreviewAction {
@@ -27,6 +28,7 @@ pub fn show(
     renderer: &mut PreviewRenderer,
     segments: &[PreviewSegment],
     shapes: &[ShapeParams],
+    layers: &[CutLayer],
     is_light: bool,
     job_offset: egui::Vec2,
     job_rotation_deg: f32,
@@ -53,7 +55,7 @@ pub fn show(
     });
 
     // Render preview
-    action.interactive_action = renderer.show(ui, segments, shapes, is_light, job_offset, job_rotation_deg, camera_state);
+    action.interactive_action = renderer.show(ui, segments, shapes, layers, is_light, job_offset, job_rotation_deg, camera_state);
 
     action
 }

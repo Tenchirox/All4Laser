@@ -111,29 +111,32 @@ pub fn apply_offset(state: &OffsetState, drawing: &mut DrawingState, selected_in
 }
 
 pub fn shape_to_polygon(s: &ShapeParams) -> Option<Polygon<f64>> {
+    let angle = (s.rotation as f64).to_radians();
+    let rotate = |lx: f64, ly: f64| -> (f64, f64) {
+        let rx = lx * angle.cos() - ly * angle.sin();
+        let ry = lx * angle.sin() + ly * angle.cos();
+        (s.x as f64 + rx, s.y as f64 + ry)
+    };
+
     match &s.shape {
         ShapeKind::Rectangle => {
-            let (x0, y0) = (s.x as f64, s.y as f64);
-            let (x1, y1) = ((s.x + s.width) as f64, (s.y + s.height) as f64);
-            Some(Polygon::new(LineString::from(vec![
-                (x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)
-            ]), vec![]))
+            let pts = vec![(0.0, 0.0), (s.width as f64, 0.0), (s.width as f64, s.height as f64), (0.0, s.height as f64), (0.0, 0.0)];
+            let points: Vec<(f64, f64)> = pts.into_iter().map(|(lx, ly)| rotate(lx, ly)).collect();
+            Some(Polygon::new(LineString::from(points), vec![]))
         }
         ShapeKind::Circle => {
             use std::f64::consts::PI;
-            let cx = s.x as f64;
-            let cy = s.y as f64;
             let r = s.radius as f64;
             let steps = 64;
             let mut points = Vec::with_capacity(steps + 1);
             for i in 0..=steps {
                 let angle = 2.0 * PI * (i as f64) / (steps as f64);
-                points.push((cx + r * angle.cos(), cy + r * angle.sin()));
+                points.push(rotate(r * angle.cos(), r * angle.sin()));
             }
             Some(Polygon::new(LineString::from(points), vec![]))
         }
         ShapeKind::Path(pts) => {
-            let points: Vec<(f64, f64)> = pts.iter().map(|p| ((p.0 + s.x) as f64, (p.1 + s.y) as f64)).collect();
+            let points: Vec<(f64, f64)> = pts.iter().map(|p| rotate(p.0 as f64, p.1 as f64)).collect();
             if points.len() < 3 { return None; }
             Some(Polygon::new(LineString::from(points), vec![]))
         }

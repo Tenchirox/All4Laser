@@ -4,21 +4,23 @@ use egui::{CentralPanel, SidePanel, TopBottomPanel, RichText};
 
 use crate::config::machine_profile::MachineProfile;
 use crate::config::recent_files::RecentFiles;
+use crate::config::settings::AppSettings;
 use crate::gcode::file::GCodeFile;
 use crate::grbl::types::*;
 use crate::grbl::protocol;
-use crate::preview::renderer::{PreviewRenderer, InteractiveAction};
-use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
+use crate::preview::renderer::PreviewRenderer;
+use crate::ui::drawing::ShapeKind;
 use crate::serial::connection::{self, SerialConnection, SerialMsg};
 use crate::theme;
 use crate::ui;
+use crate::ui::offset::JoinStyle;
 use crate::imaging;
 
 const MAX_LOG_LINES: usize = 500;
 const STATUS_POLL_MS: u64 = 250;
 const LEFT_PANEL_WIDTH: f32 = 300.0;
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum RightPanelTab {
     Cuts,
     Move,
@@ -67,7 +69,7 @@ pub struct All4LaserApp {
     macros_state: ui::macros::MacrosState,
 
     // Drawing Tools
-    drawing_state: ui::drawing::DrawingState,
+    drawing_state: crate::ui::drawing::DrawingState,
 
     // Power/Speed Test
     power_speed_test: ui::power_speed_test::PowerSpeedTestState,
@@ -144,13 +146,11 @@ pub struct All4LaserApp {
 
     // Language
     language: crate::i18n::Language,
-
-<<<<<<< font-discovery-10009174142615310891
-    // Layout State
     active_tab: RightPanelTab,
 
-=======
->>>>>>> main
+    // Persistence
+    settings: AppSettings,
+
     // Timing
     last_poll: Instant,
 }
@@ -159,7 +159,7 @@ impl All4LaserApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let ports = connection::list_ports();
 
-        let app = Self {
+        let mut app = Self {
             grbl_state: GrblState::default(),
             connection: None,
             ports,
@@ -180,7 +180,7 @@ impl All4LaserApp {
             import_state: None,
             settings_state: None,
             macros_state: ui::macros::MacrosState::default(),
-            drawing_state: ui::drawing::DrawingState::default(),
+            drawing_state: crate::ui::drawing::DrawingState::default(),
             power_speed_test: ui::power_speed_test::PowerSpeedTestState::default(),
             recent_files: RecentFiles::load(),
             machine_profile: MachineProfile::load(),
@@ -217,15 +217,30 @@ impl All4LaserApp {
             layers: ui::layers_new::CutLayer::default_palette(),
             active_layer_idx: 0,
             cut_settings_state: ui::cut_settings::CutSettingsState::default(),
-            language: crate::i18n::Language::English,
-<<<<<<< font-discovery-10009174142615310891
-            active_tab: RightPanelTab::Cuts,
-=======
->>>>>>> main
+            language: crate::i18n::Language::English, // Will be overridden
+            active_tab: RightPanelTab::Cuts,         // Will be overridden
+            settings: AppSettings::load(),
         };
 
+        // Apply loaded settings
+        app.ui_theme = app.settings.theme;
+        app.ui_layout = app.settings.layout;
+        app.light_mode = app.settings.light_mode;
+        app.language = app.settings.language;
+        app.active_tab = app.settings.active_tab;
+
+        crate::i18n::set_language(app.language);
         app.apply_theme(&cc.egui_ctx);
         app
+    }
+
+    fn sync_settings(&mut self) {
+        self.settings.theme = self.ui_theme;
+        self.settings.layout = self.ui_layout;
+        self.settings.light_mode = self.light_mode;
+        self.settings.language = self.language;
+        self.settings.active_tab = self.active_tab;
+        self.settings.save();
     }
 
     pub fn apply_theme(&self, ctx: &egui::Context) {
@@ -728,6 +743,7 @@ impl All4LaserApp {
         let mut jog_dir: Option<JogDirection> = None;
         let mut hold = false;
         let mut abort = false;
+        let mut delete_selection = false;
 
         ctx.input(|i| {
             if i.key_pressed(egui::Key::ArrowUp) { jog_dir = Some(JogDirection::N); }
@@ -739,7 +755,25 @@ impl All4LaserApp {
             if i.key_pressed(egui::Key::Home) { jog_dir = Some(JogDirection::Home); }
             if i.key_pressed(egui::Key::Space) { hold = true; }
             if i.key_pressed(egui::Key::Escape) { abort = true; }
+            if i.key_pressed(egui::Key::Delete) { delete_selection = true; }
         });
+
+        if delete_selection {
+            let mut selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+            if !selection.is_empty() {
+                selection.sort_by(|a, b| b.cmp(a)); // Sort descending to remove without index shifts
+                for idx in selection {
+                    if idx < self.drawing_state.shapes.len() {
+                        self.drawing_state.shapes.remove(idx);
+                    }
+                }
+                self.renderer.selected_shape_idx.clear();
+                // Regenerate G-Code
+                let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                let file = GCodeFile::from_lines("drawing", &lines);
+                self.set_loaded_file(file, lines);
+            }
+        }
 
         if let Some(dir) = jog_dir {
             self.jog(dir);
@@ -866,7 +900,7 @@ impl All4LaserApp {
 
         if self.ui_layout == theme::UiLayout::Modern {
             // Drawing Tools (Only in sidebar in modern)
-            let draw_action = ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
+            let draw_action = crate::ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
             if let Some(lines) = draw_action.generate_gcode {
                 let file = GCodeFile::from_lines("drawing", &lines);
                 self.set_loaded_file(file, lines);
@@ -1050,6 +1084,13 @@ impl All4LaserApp {
     }
 
     fn ui_right_content(&mut self, ui: &mut egui::Ui) {
+        let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+        if !selection.is_empty() {
+            ui.add_space(4.0);
+            self.ui_shape_properties(ui, &selection);
+            ui.separator();
+        }
+
         ui.vertical(|ui| {
             ui.add_space(4.0);
             ui.label(RichText::new("📜 GCode Lines").color(theme::LAVENDER).strong());
@@ -1088,15 +1129,93 @@ impl All4LaserApp {
         });
     }
 
+    fn ui_shape_properties(&mut self, ui: &mut egui::Ui, selection: &[usize]) {
+        ui.label(RichText::new("Shape Properties").strong());
+        if selection.len() == 1 {
+            let idx = selection[0];
+            if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
+                let mut changed = false;
+                ui.horizontal(|ui| {
+                    ui.label("X:"); if ui.add(egui::DragValue::new(&mut shape.x).speed(1.0)).changed() { changed = true; }
+                    ui.label("Y:"); if ui.add(egui::DragValue::new(&mut shape.y).speed(1.0)).changed() { changed = true; }
+                });
+                ui.horizontal(|ui| {
+                    match &shape.shape {
+                        ShapeKind::Circle => {
+                            ui.label("R:"); if ui.add(egui::DragValue::new(&mut shape.radius).speed(1.0)).changed() { changed = true; }
+                        }
+                        _ => {
+                            ui.label("W:"); if ui.add(egui::DragValue::new(&mut shape.width).speed(1.0)).changed() { changed = true; }
+                            ui.label("H:"); if ui.add(egui::DragValue::new(&mut shape.height).speed(1.0)).changed() { changed = true; }
+                        }
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Layer:");
+                    egui::ComboBox::from_id_salt("sel_layer")
+                        .selected_text(format!("Layer {}", shape.layer_idx))
+                        .show_ui(ui, |ui| {
+                            for i in 0..self.layers.len() {
+                                let name = self.layers[i].name.clone();
+                                if ui.selectable_value(&mut shape.layer_idx, i, name).changed() {
+                                    changed = true;
+                                }
+                            }
+                        });
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Rotation:");
+                    if ui.add(egui::DragValue::new(&mut shape.rotation).suffix("°").range(0.0..=360.0)).changed() {
+                        changed = true;
+                    }
+                });
+
+                ui.separator();
+                ui.label(RichText::new("Outline Settings").strong());
+                ui.horizontal(|ui| {
+                    ui.label("Dist:");
+                    ui.add(egui::DragValue::new(&mut self.offset_state.distance).speed(0.1).range(0.1..=100.0));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Join:");
+                    egui::ComboBox::from_id_salt("sel_join")
+                        .selected_text(format!("{:?}", self.offset_state.join_style))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.offset_state.join_style, JoinStyle::Round, "Round");
+                            ui.selectable_value(&mut self.offset_state.join_style, JoinStyle::Miter, "Miter");
+                            ui.selectable_value(&mut self.offset_state.join_style, JoinStyle::Bevel, "Bevel");
+                        });
+                });
+
+                ui.add_space(4.0);
+                if ui.button("🔳 Create Outline (Cut)").clicked() {
+                    let selection = vec![idx];
+                    ui::offset::apply_offset(&self.offset_state, &mut self.drawing_state, &selection);
+                    changed = true;
+                }
+
+                if changed {
+                    let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                    let file = GCodeFile::from_lines("drawing", &lines);
+                    self.set_loaded_file(file, lines);
+                }
+            }
+        } else if selection.len() > 1 {
+            ui.label(format!("{} items selected", selection.len()));
+        } else {
+            ui.label("Select a shape to edit properties.");
+        }
+    }
+
     fn ui_right_tabs(&mut self, ui: &mut egui::Ui, connected: bool) {
         use crate::i18n::tr;
 
         ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.active_tab, RightPanelTab::Cuts, tr("Cuts"));
-            ui.selectable_value(&mut self.active_tab, RightPanelTab::Move, tr("Move"));
-            ui.selectable_value(&mut self.active_tab, RightPanelTab::Console, tr("Console"));
-            ui.selectable_value(&mut self.active_tab, RightPanelTab::Art, tr("Art"));
-            ui.selectable_value(&mut self.active_tab, RightPanelTab::Laser, tr("Laser"));
+            if ui.selectable_value(&mut self.active_tab, RightPanelTab::Cuts, tr("Cuts")).changed() { self.sync_settings(); }
+            if ui.selectable_value(&mut self.active_tab, RightPanelTab::Move, tr("Move")).changed() { self.sync_settings(); }
+            if ui.selectable_value(&mut self.active_tab, RightPanelTab::Console, tr("Console")).changed() { self.sync_settings(); }
+            if ui.selectable_value(&mut self.active_tab, RightPanelTab::Art, tr("Art")).changed() { self.sync_settings(); }
+            if ui.selectable_value(&mut self.active_tab, RightPanelTab::Laser, tr("Laser")).changed() { self.sync_settings(); }
         });
         ui.separator();
 
@@ -1167,7 +1286,7 @@ impl All4LaserApp {
                 }
                 RightPanelTab::Art => {
                     // Drawing Tools
-                    let draw_action = ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
+                    let draw_action = crate::ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
                     if let Some(lines) = draw_action.generate_gcode {
                         let file = GCodeFile::from_lines("drawing", &lines);
                         self.set_loaded_file(file, lines);
@@ -1180,31 +1299,7 @@ impl All4LaserApp {
 
                     ui.add_space(8.0);
                     // Properties (Shape Properties)
-                    ui.label(RichText::new("Shape Properties").strong());
-                    if selection.len() == 1 {
-                        let idx = selection[0];
-                        if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
-                            let mut changed = false;
-                            ui.horizontal(|ui| {
-                                ui.label("X:"); if ui.add(egui::DragValue::new(&mut shape.x).speed(1.0)).changed() { changed = true; }
-                                ui.label("Y:"); if ui.add(egui::DragValue::new(&mut shape.y).speed(1.0)).changed() { changed = true; }
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("W:"); if ui.add(egui::DragValue::new(&mut shape.width).speed(1.0)).changed() { changed = true; }
-                                ui.label("H:"); if ui.add(egui::DragValue::new(&mut shape.height).speed(1.0)).changed() { changed = true; }
-                            });
-
-                            if changed {
-                                let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
-                                let file = GCodeFile::from_lines("drawing", &lines);
-                                self.set_loaded_file(file, lines);
-                            }
-                        }
-                    } else if selection.len() > 1 {
-                        ui.label(format!("{} items selected", selection.len()));
-                    } else {
-                        ui.label("Select a shape to edit properties.");
-                    }
+                    self.ui_shape_properties(ui, &selection);
                 }
                 RightPanelTab::Laser => {
                      // Connection
@@ -1361,7 +1456,7 @@ impl eframe::App for All4LaserApp {
             let ca_action = ui::circular_array::show(ctx, &mut self.circular_array_state);
             if ca_action.apply {
                 ui::circular_array::apply_array(&self.circular_array_state, &mut self.drawing_state, &selection);
-                let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
                 let file = GCodeFile::from_lines("drawing", &lines);
                 self.set_loaded_file(file, lines);
                 self.log("Circular array applied.".into());
@@ -1374,7 +1469,7 @@ impl eframe::App for All4LaserApp {
             let off_action = ui::offset::show(ctx, &mut self.offset_state);
             if off_action.apply {
                 ui::offset::apply_offset(&self.offset_state, &mut self.drawing_state, &selection);
-                let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
                 let file = GCodeFile::from_lines("drawing", &lines);
                 self.set_loaded_file(file, lines);
                 self.log("Offset applied.".into());
@@ -1387,7 +1482,7 @@ impl eframe::App for All4LaserApp {
             let bool_action = ui::boolean_ops::show(ctx, &mut self.boolean_ops_state);
             if bool_action.apply {
                 ui::boolean_ops::apply_boolean(&self.boolean_ops_state, &mut self.drawing_state, &selection);
-                let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
                 let file = GCodeFile::from_lines("drawing", &lines);
                 self.set_loaded_file(file, lines);
                 self.log("Boolean operation applied.".into());
@@ -1493,18 +1588,35 @@ impl eframe::App for All4LaserApp {
             } else if import_triggered {
                 match &state.import_type {
                     ui::image_dialog::ImportType::Raster(img) => {
-                        let lines = if state.vectorize {
-                            imaging::raster::vectorize_image(img, &state.raster_params)
-                        } else {
-                            imaging::raster::image_to_gcode(img, &state.raster_params)
+                        let shape = crate::ui::drawing::ShapeParams {
+                            shape: crate::ui::drawing::ShapeKind::RasterImage {
+                                data: crate::ui::drawing::ImageData(std::sync::Arc::new(img.clone())),
+                                params: state.raster_params.clone(),
+                            },
+                            x: 0.0,
+                            y: 0.0,
+                            width: state.raster_params.width_mm,
+                            height: state.raster_params.height_mm,
+                            ..Default::default()
                         };
-                        let file = GCodeFile::from_lines(&state.filename, &lines);
+                        self.drawing_state.shapes.push(shape);
+                        let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                        let file = GCodeFile::from_lines("drawing", &lines);
                         self.set_loaded_file(file, lines);
                     }
                     ui::image_dialog::ImportType::Svg(data) => {
-                        match imaging::svg::svg_to_gcode(data, &state.svg_params) {
-                            Ok(lines) => {
-                                let file = GCodeFile::from_lines(&state.filename, &lines);
+                        match imaging::svg::svg_to_paths(data, &state.svg_params) {
+                            Ok(paths) => {
+                                for (pts, layer_idx) in paths {
+                                    let shape = crate::ui::drawing::ShapeParams {
+                                        shape: crate::ui::drawing::ShapeKind::Path(pts),
+                                        layer_idx,
+                                        ..Default::default()
+                                    };
+                                    self.drawing_state.shapes.push(shape);
+                                }
+                                let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                                let file = GCodeFile::from_lines("drawing", &lines);
                                 self.set_loaded_file(file, lines);
                             }
                             Err(e) => self.log(format!("SVG Conversion failed: {e}")),
@@ -1589,17 +1701,21 @@ impl eframe::App for All4LaserApp {
             if let Some(t) = actions.set_theme {
                 self.ui_theme = t;
                 self.apply_theme(ctx);
+                self.sync_settings();
             }
             if let Some(l) = actions.set_layout {
                 self.ui_layout = l;
+                self.sync_settings();
             }
             if let Some(lang) = actions.set_language {
                 self.language = lang;
                 crate::i18n::set_language(lang);
+                self.sync_settings();
             }
             if actions.toggle_light_mode {
                 self.light_mode = !self.light_mode;
                 self.apply_theme(ctx);
+                self.sync_settings();
             }
             if actions.open_power_speed_test {
                 self.power_speed_test.is_open = true;
@@ -1679,6 +1795,7 @@ impl eframe::App for All4LaserApp {
                 let bar = egui::ProgressBar::new(progress)
                     .text(format!("{}/{}", self.program_index, self.program_lines.len()));
                 ui.add(bar);
+                ui.add_space(4.0);
             }
 
             let file_info = self.loaded_file.as_ref().map(|f| {
@@ -1690,11 +1807,11 @@ impl eframe::App for All4LaserApp {
                 None
             };
 
+            ui.add_space(4.0);
             let sb_actions = ui::status_bar::show(ui, &self.grbl_state, file_info, progress);
-
-            ui.add_space(2.0);
+            ui.add_space(4.0);
             ui.separator();
-            ui.add_space(2.0);
+            ui.add_space(4.0);
 
             // Palette
             let pal_action = ui::cut_palette::show(ui, &self.layers, self.active_layer_idx);
@@ -1735,7 +1852,7 @@ impl eframe::App for All4LaserApp {
                 // Classic Left: Thin drawing toolbar
                 ui.vertical_centered(|ui| {
                     ui.add_space(4.0);
-                    let draw_action = ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
+                    let draw_action = crate::ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
                     if let Some(lines) = draw_action.generate_gcode {
                         let file = GCodeFile::from_lines("drawing", &lines);
                         self.set_loaded_file(file, lines);
@@ -1779,7 +1896,7 @@ impl eframe::App for All4LaserApp {
             // Simulation Slider Overlay
             if self.loaded_file.is_some() {
                 egui::Area::new(egui::Id::new("sim_controls"))
-                    .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
+                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(60.0, 40.0))
                     .show(ctx, |ui| {
                         ui.group(|ui| {
                             ui.horizontal(|ui| {
@@ -1802,6 +1919,7 @@ impl eframe::App for All4LaserApp {
                 &mut self.renderer, 
                 &segments,
                 &self.drawing_state.shapes,
+                &self.layers,
                 self.light_mode, 
                 offset, 
                 self.job_rotation,
@@ -1839,9 +1957,32 @@ impl eframe::App for All4LaserApp {
                     }
 
                     // Trigger Live Update
-                    let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                    let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
                     let file = GCodeFile::from_lines("drawing", &lines);
                     self.set_loaded_file(file, lines);
+                }
+                crate::preview::renderer::InteractiveAction::RotateSelection { shape_idx, delta_deg } => {
+                    if let Some(shape) = self.drawing_state.shapes.get_mut(shape_idx) {
+                        // 1. Get current world center
+                        let local_center = shape.local_center();
+                        let (old_cx, old_cy) = shape.world_pos(local_center.0, local_center.1);
+
+                        // 2. Apply rotation
+                        shape.rotation += delta_deg;
+                        // Normalize 0-360
+                        shape.rotation = (shape.rotation + 360.0) % 360.0;
+
+                        // 3. Get new world center if (x,y) stayed same
+                        let (new_cx, new_cy) = shape.world_pos(local_center.0, local_center.1);
+
+                        // 4. Adjust (x,y) to keep center at (old_cx, old_cy)
+                        shape.x += old_cx - new_cx;
+                        shape.y += old_cy - new_cy;
+                        
+                        let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                        let file = GCodeFile::from_lines("drawing", &lines);
+                        self.set_loaded_file(file, lines);
+                    }
                 }
                 crate::preview::renderer::InteractiveAction::MoveNode { shape_idx, node_idx, new_pos } => {
                     if let Some(shape) = self.drawing_state.shapes.get_mut(shape_idx) {
@@ -1851,7 +1992,7 @@ impl eframe::App for All4LaserApp {
                                  p.1 = new_pos.y - shape.y;
                                  
                                  // Regenerate G-code for preview
-                                 let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                                 let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
                                  let file = GCodeFile::from_lines("drawing", &lines);
                                  self.set_loaded_file(file, lines);
                              }

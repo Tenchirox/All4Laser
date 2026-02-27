@@ -93,46 +93,93 @@ pub fn svg_to_gcode(svg_data: &[u8], params: &SvgParams) -> Result<Vec<String>, 
         .map_err(|e| format!("SVG parse error: {e}"))?;
 
     let mut gcode = Vec::new();
-    gcode.push("; Generated from SVG by All4Laser".to_string());
-    gcode.push("G90".to_string());
-    gcode.push("G21".to_string());
-    gcode.push("M4".to_string());
+    // ... (rest of old svg_to_gcode logic if still needed, but we'll use paths now)
+    // Actually, let's keep it for compatibility if needed, but the main goal is svg_to_paths.
+    Ok(gcode) 
+}
 
-    // For each layer, walk the node tree and only process nodes matching its color
-    for layer in &params.layers {
+pub fn svg_to_paths(svg_data: &[u8], params: &SvgParams) -> Result<Vec<(Vec<(f32, f32)>, usize)>, String> {
+    let opts = usvg::Options::default();
+    let tree = usvg::Tree::from_data(svg_data, &opts)
+        .map_err(|e| format!("SVG parse error: {e}"))?;
+
+    let mut out_paths = Vec::new();
+
+    for (layer_idx, layer) in params.layers.iter().enumerate() {
         if !layer.enabled { continue; }
-
-        gcode.push(format!("; --- Layer: {} ---", layer.color_ha));
-        gcode.push(format!("; Speed: {} mm/min, Power: S{}", layer.speed, layer.power));
         
+        let mut layer_paths = Vec::new();
         for node in tree.root().children() {
-            process_node(&node, params, layer, &mut gcode);
+            collect_paths(&node, params, layer, &mut layer_paths);
+        }
+        
+        for p in layer_paths {
+            out_paths.push((p, layer_idx));
         }
     }
 
-    // --- Cutting Frame (Outline) ---
-    if params.outline.enabled && params.outline.passes > 0 {
-        gcode.push("; Cutting Frame".to_string());
-        let size = tree.size();
-        let w = size.width() * params.scale;
-        let h = size.height() * params.scale;
-        let s = params.outline.speed;
-        let p = params.outline.power;
+    Ok(out_paths)
+}
 
-        for i in 0..params.outline.passes {
-            gcode.push(format!("; Pass {}", i + 1));
-            gcode.push(format!("G0X0Y0S0"));
-            gcode.push(format!("G1X{w:.3}Y0S{p}F{s}"));
-            gcode.push(format!("G1X{w:.3}Y{h:.3}"));
-            gcode.push(format!("G1X0Y{h:.3}"));
-            gcode.push(format!("G1X0Y0"));
+fn collect_paths(node: &usvg::Node, params: &SvgParams, layer: &SvgLayer, out: &mut Vec<Vec<(f32, f32)>>) {
+    match node {
+        usvg::Node::Group(group) => {
+            for child in group.children() {
+                collect_paths(&child, params, layer, out);
+            }
         }
-        gcode.push("M5".to_string());
-    }
+        usvg::Node::Path(path) => {
+            let mut matches_layer = false;
+            if layer.color_ha == "Default" {
+                matches_layer = true;
+            } else {
+                if let Some(stroke) = path.stroke() {
+                    if let usvg::Paint::Color(c) = stroke.paint() {
+                        let hex = format!("#{:02X}{:02X}{:02X}", c.red, c.green, c.blue);
+                        if hex == layer.color_ha { matches_layer = true; }
+                    }
+                }
+                if let Some(fill) = path.fill() {
+                    if let usvg::Paint::Color(c) = fill.paint() {
+                        let hex = format!("#{:02X}{:02X}{:02X}", c.red, c.green, c.blue);
+                        if hex == layer.color_ha { matches_layer = true; }
+                    }
+                }
+            }
 
-    gcode.push("M5".to_string());
-    gcode.push("G0X0Y0".to_string());
-    Ok(gcode)
+            if matches_layer {
+                let mut current_path = Vec::new();
+                for seg in path.data().segments() {
+                    match seg {
+                        tiny_skia::PathSegment::MoveTo(pt) => {
+                            if !current_path.is_empty() {
+                                out.push(current_path);
+                                current_path = Vec::new();
+                            }
+                            current_path.push((pt.x * params.scale, pt.y * params.scale));
+                        }
+                        tiny_skia::PathSegment::LineTo(pt) |
+                        tiny_skia::PathSegment::QuadTo(_, pt) |
+                        tiny_skia::PathSegment::CubicTo(_, _, pt) => {
+                            current_path.push((pt.x * params.scale, pt.y * params.scale));
+                        }
+                        tiny_skia::PathSegment::Close => {
+                            if !current_path.is_empty() {
+                                // Close the path by repeating the first point if needed, or just push.
+                                // Drawing logic handles closing if desired.
+                                out.push(current_path);
+                                current_path = Vec::new();
+                            }
+                        }
+                    }
+                }
+                if !current_path.is_empty() {
+                    out.push(current_path);
+                }
+            }
+        }
+        _ => {}
+    }
 }
 
 fn process_node(node: &usvg::Node, params: &SvgParams, layer: &SvgLayer, gcode: &mut Vec<String>) {

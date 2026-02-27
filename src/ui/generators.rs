@@ -77,21 +77,24 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState) -> GeneratorAction {
 
             if ui.button("🚀 Generate Box Components").clicked() {
                 let mut gcode = Vec::new();
-                gcode.push("; Parametric Box Components".into());
-                gcode.push("G90".into());
-                
-                // Front Face (W x D)
-                add_face_gcode(&mut gcode, state.box_w, state.box_d, state.box_thickness, state.box_tab_size, 0.0, 0.0);
-                // Back Face
-                add_face_gcode(&mut gcode, state.box_w, state.box_d, state.box_thickness, state.box_tab_size, state.box_w + 10.0, 0.0);
-                // Left
-                add_face_gcode(&mut gcode, state.box_h, state.box_d, state.box_thickness, state.box_tab_size, 0.0, state.box_d + 10.0);
-                // Right
-                add_face_gcode(&mut gcode, state.box_h, state.box_d, state.box_thickness, state.box_tab_size, state.box_h + 10.0, state.box_d + 10.0);
-                // Top
-                add_face_gcode(&mut gcode, state.box_w, state.box_h, state.box_thickness, state.box_tab_size, 0.0, (state.box_d + 10.0) * 2.0);
-                // Bottom
-                add_face_gcode(&mut gcode, state.box_w, state.box_h, state.box_thickness, state.box_tab_size, state.box_w + 10.0, (state.box_d + 10.0) * 2.0);
+                let w = state.box_w;
+                let h = state.box_h;
+                let d = state.box_d;
+                let t = state.box_thickness;
+                let ts = state.box_tab_size;
+
+                // Edge types: true = Male (starts with tab at boundary), false = Female (starts with recess)
+                // Bottom/Top Faces (W x H)
+                add_tabbed_face(&mut gcode, w, h, t, ts, 0.0, 0.0, [true, true, true, true]); // Bottom face
+                add_tabbed_face(&mut gcode, w, h, t, ts, w + 10.0, 0.0, [true, true, true, true]); // Top face
+
+                // Front/Back Faces (W x D)
+                add_tabbed_face(&mut gcode, w, d, t, ts, 0.0, h + 10.0, [false, true, false, true]); // Front
+                add_tabbed_face(&mut gcode, w, d, t, ts, w + 10.0, h + 10.0, [false, true, false, true]); // Back
+
+                // Left/Right Faces (H x D)
+                add_tabbed_face(&mut gcode, h, d, t, ts, 0.0, h + d + 20.0, [false, false, false, false]); // Left
+                add_tabbed_face(&mut gcode, h, d, t, ts, h + 10.0, h + d + 20.0, [false, false, false, false]); // Right
 
                 action.generate_gcode = Some(gcode);
             }
@@ -101,17 +104,47 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState) -> GeneratorAction {
     action
 }
 
-fn add_face_gcode(gcode: &mut Vec<String>, w: f32, h: f32, t: f32, tab: f32, ox: f32, oy: f32) {
+fn add_tabbed_face(gcode: &mut Vec<String>, w: f32, h: f32, t: f32, ts: f32, ox: f32, oy: f32, edges: [bool; 4]) {
     gcode.push(format!("; Face {}x{}", w, h));
     gcode.push(format!("G0 X{} Y{}", ox, oy));
     gcode.push("M3 S1000".into());
-    
-    // Simple rectangular outline with tabs placeholder (simulated)
-    // For a real finger joint box, we need to stagger the tabs.
-    // This is a simplified version for now.
-    gcode.push(format!("G1 X{} Y{} F800", ox + w, oy));
-    gcode.push(format!("G1 X{} Y{}", ox + w, oy + h));
-    gcode.push(format!("G1 X{} Y{}", ox, oy + h));
-    gcode.push(format!("G1 X{} Y{}", ox, oy));
+
+    // Edges: 0: Bottom (+X), 1: Right (+Y), 2: Top (-X), 3: Left (-Y)
+    draw_edge(gcode, ox, oy, w, 0.0, t, ts, edges[0]);
+    draw_edge(gcode, ox + w, oy, 0.0, h, t, ts, edges[1]);
+    draw_edge(gcode, ox + w, oy + h, -w, 0.0, t, ts, edges[2]);
+    draw_edge(gcode, ox, oy + h, 0.0, -h, t, ts, edges[3]);
+
     gcode.push("M5".into());
+}
+
+fn draw_edge(gcode: &mut Vec<String>, sx: f32, sy: f32, dx: f32, dy: f32, t: f32, ts: f32, is_male: bool) {
+    let length = (dx*dx + dy*dy).sqrt();
+    let num_tabs = (length / ts).floor() as i32;
+    if num_tabs < 1 {
+        gcode.push(format!("G1 X{} Y{} F800", sx + dx, sy + dy));
+        return;
+    }
+
+    let (nx, ny) = if dy == 0.0 {
+        if dx > 0.0 { (0.0, -1.0) } else { (0.0, 1.0) }
+    } else {
+        if dy > 0.0 { (1.0, 0.0) } else { (-1.0, 0.0) }
+    };
+
+    for i in 0..num_tabs {
+        let is_tab = (i % 2 == 0) == is_male;
+        let offset = if is_tab { 0.0 } else { -t };
+        
+        let p_start_x = sx + (dx * (i as f32 / num_tabs as f32));
+        let p_start_y = sy + (dy * (i as f32 / num_tabs as f32));
+        
+        let p_end_x = sx + (dx * ((i + 1) as f32 / num_tabs as f32));
+        let p_end_y = sy + (dy * ((i + 1) as f32 / num_tabs as f32));
+
+        // Move to offset starting point
+        gcode.push(format!("G1 X{} Y{}", p_start_x + nx * offset, p_start_y + ny * offset));
+        // Cut the segment
+        gcode.push(format!("G1 X{} Y{}", p_end_x + nx * offset, p_end_y + ny * offset));
+    }
 }
