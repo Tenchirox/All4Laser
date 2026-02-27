@@ -124,13 +124,23 @@ fn apply_align(state: &mut DrawingState, selection: &[usize], cmd: AlignCmd, wor
 
 // Returns (x, y, w, h) bounding box where x,y is bottom-left
 fn get_shape_rect(s: &ShapeParams) -> (f32, f32, f32, f32) {
-    match s.shape {
+    match &s.shape {
         ShapeKind::Rectangle => (s.x, s.y, s.width, s.height),
         ShapeKind::Circle => (s.x - s.radius, s.y - s.radius, s.radius * 2.0, s.radius * 2.0),
         ShapeKind::TextLine => {
              let char_w = s.font_size_mm * 0.6;
              let w = s.text.len() as f32 * char_w;
              (s.x, s.y, w, s.font_size_mm)
+        },
+        ShapeKind::Path(pts) => {
+            let mut min_x = f32::MAX; let mut max_x = f32::MIN;
+            let mut min_y = f32::MAX; let mut max_y = f32::MIN;
+            if pts.is_empty() { return (s.x, s.y, 0.0, 0.0); }
+            for p in pts {
+                min_x = min_x.min(p.0); max_x = max_x.max(p.0);
+                min_y = min_y.min(p.1); max_y = max_y.max(p.1);
+            }
+            (s.x + min_x, s.y + min_y, max_x - min_x, max_y - min_y)
         }
     }
 }

@@ -101,6 +101,9 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                         ui.label("Image Adjustments:");
                         if state.vectorize {
                             ui.add(egui::Slider::new(&mut state.raster_params.threshold, 0..=255).text("Threshold"));
+                            if ui.checkbox(&mut state.raster_params.use_skeleton, "Centerline / Skeleton").on_hover_text("Use thinning algorithm for centerline tracing").changed() {
+                                // Potentially update preview if we supported vector preview, but currently texture is raster.
+                            }
                         } else {
                             let b_res = ui.add(egui::Slider::new(&mut state.raster_params.brightness, -1.0..=1.0).text("Brightness"));
                             let c_res = ui.add(egui::Slider::new(&mut state.raster_params.contrast, 0.0..=5.0).text("Contrast"));

@@ -98,6 +98,25 @@ pub fn show(ui: &mut Ui, state: &mut MaterialsState) -> MaterialApplyAction {
     ui.group(|ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new("📦 Material Presets").color(theme::LAVENDER).strong());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("📤 Export").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).save_file() {
+                        if let Ok(json) = serde_json::to_string_pretty(&state.presets) {
+                            let _ = std::fs::write(path, json);
+                        }
+                    }
+                }
+                if ui.button("📥 Import").clicked() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
+                        if let Ok(data) = std::fs::read_to_string(path) {
+                            if let Ok(new_presets) = serde_json::from_str::<Vec<MaterialPreset>>(&data) {
+                                state.presets.extend(new_presets);
+                                state.save();
+                            }
+                        }
+                    }
+                }
+            });
         });
         ui.add_space(4.0);
 

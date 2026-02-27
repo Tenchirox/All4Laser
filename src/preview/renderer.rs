@@ -25,6 +25,7 @@ pub struct PreviewRenderer {
     pub workspace_size: Vec2,
     pub simulation_progress: Option<f32>, // 0.0 to 1.0
     pub show_rapids: bool, // Toggle for G0 moves
+    pub realistic_preview: bool, // Toggle for realistic material texture
     _drag_start: Option<Pos2>,
     pub selected_shape_idx: HashSet<usize>, // Selected indices in DrawingState (Multi-select)
 }
@@ -38,6 +39,7 @@ impl Default for PreviewRenderer {
             workspace_size: Vec2::new(400.0, 400.0), // conservative default
             simulation_progress: None,
             show_rapids: true,
+            realistic_preview: false,
             _drag_start: None,
             selected_shape_idx: HashSet::new(),
         }
@@ -98,7 +100,13 @@ impl PreviewRenderer {
         };
 
         // Background
-        let bg_color = if is_light { Color32::from_rgb(250, 250, 250) } else { theme::CRUST };
+        let bg_color = if self.realistic_preview {
+            Color32::from_rgb(222, 184, 135) // Wood texture color (Burlywood)
+        } else if is_light {
+            Color32::from_rgb(250, 250, 250)
+        } else {
+            theme::CRUST
+        };
         painter.rect_filled(rect, 0.0, bg_color);
 
         // Draw camera image if available and enabled
@@ -186,13 +194,15 @@ impl PreviewRenderer {
     fn draw_gcode_segments<F>(&self, painter: &Painter, segments: &[PreviewSegment], rect: Rect, is_light: bool, transform: F)
     where F: Fn(f32, f32) -> Pos2
     {
-        let rapid_stroke = if is_light {
+        let rapid_stroke = if is_light || self.realistic_preview {
             Stroke::new(0.5, Color32::from_rgba_premultiplied(200, 200, 200, 150))
         } else {
             Stroke::new(0.5, Color32::from_rgba_premultiplied(69, 71, 90, 180))
         };
 
         let mut current_accumulated_line: Option<(Pos2, Pos2, f32, usize)> = None;
+
+        let realistic = self.realistic_preview;
 
         let flush_accumulated = |painter: &egui::Painter, accum: &mut Option<(Pos2, Pos2, f32, usize)>| {
             if let Some((p1, p2, total_power, count)) = accum.take() {
@@ -208,7 +218,10 @@ impl PreviewRenderer {
                 
                 stroke_width = stroke_width.min(2.5);
 
-                let color = if is_light {
+                let color = if realistic {
+                    // Burn effect (Dark Brown)
+                    Color32::from_rgba_premultiplied(60, 30, 10, (avg_power * 255.0) as u8)
+                } else if is_light {
                     Color32::from_rgba_premultiplied(0, 0, 0, final_alpha as u8)
                 } else {
                     Color32::from_rgba_premultiplied(255, 255, 255, final_alpha as u8)
@@ -279,7 +292,7 @@ impl PreviewRenderer {
 
     fn draw_shape_overlay(&self, painter: &Painter, shape: &ShapeParams, rect: Rect, is_selected: bool) {
         // Calculate shape bounds in world
-        let bounds = match shape.shape {
+        let bounds = match &shape.shape {
             ShapeKind::Rectangle => Rect::from_min_size(
                 Pos2::new(shape.x, shape.y),
                 Vec2::new(shape.width, shape.height)
@@ -296,6 +309,19 @@ impl PreviewRenderer {
                     Pos2::new(shape.x, shape.y),
                     Vec2::new(w, shape.font_size_mm)
                 )
+            },
+            ShapeKind::Path(pts) => {
+                let mut min_x = f32::MAX; let mut max_x = f32::MIN;
+                let mut min_y = f32::MAX; let mut max_y = f32::MIN;
+                if pts.is_empty() {
+                    Rect::from_min_max(Pos2::new(shape.x, shape.y), Pos2::new(shape.x, shape.y))
+                } else {
+                    for p in pts {
+                        min_x = min_x.min(p.0); max_x = max_x.max(p.0);
+                        min_y = min_y.min(p.1); max_y = max_y.max(p.1);
+                    }
+                    Rect::from_min_max(Pos2::new(shape.x + min_x, shape.y + min_y), Pos2::new(shape.x + max_x, shape.y + max_y))
+                }
             }
         };
 
@@ -408,13 +434,26 @@ impl PreviewRenderer {
                 let mut hit_idx = None;
                 // Simple hit testing against shape bounds
                 for (idx, shape) in shapes.iter().enumerate() {
-                    let bounds = match shape.shape {
+                    let bounds = match &shape.shape {
                         ShapeKind::Rectangle => Rect::from_min_size(Pos2::new(shape.x, shape.y), Vec2::new(shape.width, shape.height)),
                         ShapeKind::Circle => Rect::from_min_size(Pos2::new(shape.x - shape.radius, shape.y - shape.radius), Vec2::new(shape.radius * 2.0, shape.radius * 2.0)),
                         ShapeKind::TextLine => {
                              let char_w = shape.font_size_mm * 0.6;
                              let w = shape.text.len() as f32 * char_w;
                              Rect::from_min_size(Pos2::new(shape.x, shape.y), Vec2::new(w, shape.font_size_mm))
+                        },
+                        ShapeKind::Path(pts) => {
+                            let mut min_x = f32::MAX; let mut max_x = f32::MIN;
+                            let mut min_y = f32::MAX; let mut max_y = f32::MIN;
+                            if pts.is_empty() {
+                                Rect::from_min_max(Pos2::new(shape.x, shape.y), Pos2::new(shape.x, shape.y))
+                            } else {
+                                for p in pts {
+                                    min_x = min_x.min(p.0); max_x = max_x.max(p.0);
+                                    min_y = min_y.min(p.1); max_y = max_y.max(p.1);
+                                }
+                                Rect::from_min_max(Pos2::new(shape.x + min_x, shape.y + min_y), Pos2::new(shape.x + max_x, shape.y + max_y))
+                            }
                         }
                     };
 
@@ -448,8 +487,36 @@ impl PreviewRenderer {
             if !self.selected_shape_idx.is_empty() {
                 let delta = response.drag_delta();
                 // Convert screen delta to world delta
-                let world_dx = delta.x / self.zoom;
-                let world_dy = -delta.y / self.zoom; // Flip Y
+                let mut world_dx = delta.x / self.zoom;
+                let mut world_dy = -delta.y / self.zoom; // Flip Y
+
+                // --- SNAPPING LOGIC ---
+                // If dragging a single item, try to snap its new position
+                if self.selected_shape_idx.len() == 1 {
+                    // Check shift key to disable snap
+                    if !ui.input(|i| i.modifiers.shift) {
+                        let idx = *self.selected_shape_idx.iter().next().unwrap();
+                        if let Some(shape) = shapes.get(idx) {
+                            let new_x = shape.x + world_dx;
+                            let new_y = shape.y + world_dy;
+
+                            // Snap to grid (e.g. 5mm)
+                            let snap_dist = 5.0 / self.zoom; // Snap within 5 screen pixels? Or world units?
+                            // Let's snap to 1mm grid if close
+                            let grid_sz = 5.0;
+
+                            let snap_x = (new_x / grid_sz).round() * grid_sz;
+                            let snap_y = (new_y / grid_sz).round() * grid_sz;
+
+                            if (new_x - snap_x).abs() < 0.5 {
+                                world_dx = snap_x - shape.x;
+                            }
+                            if (new_y - snap_y).abs() < 0.5 {
+                                world_dy = snap_y - shape.y;
+                            }
+                        }
+                    }
+                }
 
                 action = InteractiveAction::DragSelection {
                     delta: Vec2::new(world_dx, world_dy)
