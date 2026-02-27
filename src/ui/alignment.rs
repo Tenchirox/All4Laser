@@ -142,5 +142,6 @@ fn get_shape_rect(s: &ShapeParams) -> (f32, f32, f32, f32) {
             }
             (s.x + min_x, s.y + min_y, max_x - min_x, max_y - min_y)
         }
+        ShapeKind::RasterImage { params, .. } => (s.x, s.y, params.width_mm, params.height_mm),
     }
 }

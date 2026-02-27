@@ -4,6 +4,24 @@ use egui::{Ui, RichText};
 use crate::theme;
 use crate::ui::layers_new::{CutLayer, CutMode};
 use crate::gcode::generator::GCodeBuilder;
+use std::sync::Arc;
+use crate::imaging::raster::RasterParams;
+
+#[derive(Clone)]
+pub struct ImageData(pub Arc<image::DynamicImage>);
+
+impl std::fmt::Debug for ImageData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (w, h) = (self.0.width(), self.0.height());
+        write!(f, "ImageData({}x{})", w, h)
+    }
+}
+
+impl PartialEq for ImageData {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShapeKind {
@@ -11,6 +29,7 @@ pub enum ShapeKind {
     Circle,
     TextLine,
     Path(Vec<(f32, f32)>), // Centerline or Vector path
+    RasterImage { data: ImageData, params: RasterParams },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -24,6 +43,38 @@ pub struct ShapeParams {
     pub layer_idx: usize,
     pub text: String,
     pub font_size_mm: f32,
+    pub rotation: f32, // Degrees
+}
+impl ShapeParams {
+    pub fn world_pos(&self, lx: f32, ly: f32) -> (f32, f32) {
+        let angle = self.rotation.to_radians();
+        let rx = lx * angle.cos() - ly * angle.sin();
+        let ry = lx * angle.sin() + ly * angle.cos();
+        (self.x + rx, self.y + ry)
+    }
+
+    pub fn local_center(&self) -> (f32, f32) {
+        match &self.shape {
+            ShapeKind::Rectangle => (self.width / 2.0, self.height / 2.0),
+            ShapeKind::Circle => (0.0, 0.0), // Circles are anchored at center
+            ShapeKind::TextLine => {
+                let char_w = self.font_size_mm * 0.6;
+                let w = self.text.len() as f32 * char_w;
+                (w / 2.0, self.font_size_mm / 2.0)
+            }
+            ShapeKind::Path(pts) => {
+                if pts.is_empty() { return (0.0, 0.0); }
+                let mut min_x: f32 = f32::MAX; let mut max_x: f32 = f32::MIN;
+                let mut min_y: f32 = f32::MAX; let mut max_y: f32 = f32::MIN;
+                for p in pts {
+                    min_x = min_x.min(p.0); max_x = max_x.max(p.0);
+                    min_y = min_y.min(p.1); max_y = max_y.max(p.1);
+                }
+                ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
+            }
+            ShapeKind::RasterImage { params, .. } => (params.width_mm / 2.0, params.height_mm / 2.0),
+        }
+    }
 }
 
 impl Default for ShapeParams {
@@ -38,6 +89,7 @@ impl Default for ShapeParams {
             layer_idx: 0,
             text: "Hello".into(),
             font_size_mm: 10.0,
+            rotation: 0.0,
         }
     }
 }
@@ -115,6 +167,9 @@ pub fn show(ui: &mut Ui, state: &mut DrawingState, layers: &[CutLayer], active_l
             }
             ShapeKind::Path(pts) => {
                 ui.label(format!("Path with {} points", pts.len()));
+            }
+            ShapeKind::RasterImage { params, .. } => {
+                ui.label(format!("Image: {}x{} mm", params.width_mm, params.height_mm));
             }
         }
 
@@ -229,6 +284,7 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
                     ShapeKind::Circle => gen_circle(&mut builder, shape, layer),
                     ShapeKind::TextLine => gen_text(&mut builder, shape, layer),
                     ShapeKind::Path(pts) => gen_path(&mut builder, pts, shape, layer),
+                    ShapeKind::RasterImage { data, params } => gen_raster(&mut builder, data, params, shape),
                 }
             }
         }
@@ -245,26 +301,26 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
 }
 
 fn gen_rect(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
-    let (x0, y0) = (s.x, s.y);
-    let (x1, y1) = (s.x + s.width, s.y + s.height);
-    let path = vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)];
+    let (x0, y0) = (0.0, 0.0);
+    let (x1, y1) = (s.width, s.height);
+    let pts = vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)];
+    let path: Vec<(f32, f32)> = pts.into_iter().map(|p| rotate_point(p.0, p.1, s)).collect();
     crate::gcode::path_utils::apply_tabs(builder, &path, layer);
 }
 
 fn gen_circle(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
     use std::f32::consts::PI;
-    let cx = s.x;
-    let cy = s.y;
     let r = s.radius;
     let steps = 64;
 
-    let mut path = Vec::with_capacity(steps + 1);
+    let mut pts = Vec::with_capacity(steps + 1);
     for i in 0..=steps {
         let angle = 2.0 * PI * (i as f32) / (steps as f32);
-        let px = cx + r * angle.cos();
-        let py = cy + r * angle.sin();
-        path.push((px, py));
+        let px = r * angle.cos();
+        let py = r * angle.sin();
+        pts.push((px, py));
     }
+    let path: Vec<(f32, f32)> = pts.into_iter().map(|p| rotate_point(p.0, p.1, s)).collect();
     crate::gcode::path_utils::apply_tabs(builder, &path, layer);
 }
 
@@ -272,7 +328,7 @@ fn gen_path(builder: &mut GCodeBuilder, points: &[(f32, f32)], s: &ShapeParams, 
     if points.is_empty() { return; }
 
     let abs_path: Vec<(f32, f32)> = points.iter()
-        .map(|p| (s.x + p.0, s.y + p.1))
+        .map(|p| rotate_point(p.0, p.1, s))
         .collect();
 
     crate::gcode::path_utils::apply_tabs(builder, &abs_path, layer);
@@ -283,11 +339,13 @@ fn gen_text(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
     let char_h = s.font_size_mm;
     let sp = layer.speed;
     let pw = layer.power;
-    let mut cursor_x = s.x;
+    let mut cursor_x = 0.0; // Local X
 
     for ch in s.text.chars() {
-        let strokes = get_char_strokes(ch, cursor_x, s.y, char_w, char_h);
-        for (x0, y0, x1, y1) in strokes {
+        let strokes = get_char_strokes(ch, cursor_x, 0.0, char_w, char_h);
+        for (lx0, ly0, lx1, ly1) in strokes {
+            let (x0, y0) = rotate_point(lx0, ly0, s);
+            let (x1, y1) = rotate_point(lx1, ly1, s);
             builder.laser_off();
             builder.rapid(x0, y0);
             builder.linear(x1, y1, sp, pw);
@@ -320,4 +378,61 @@ fn get_char_strokes(c: char, ox: f32, oy: f32, w: f32, h: f32) -> Vec<(f32, f32,
         // Space/fallback: no strokes
         _ => vec![],
     }
+}
+
+fn gen_raster(builder: &mut GCodeBuilder, img_data: &ImageData, params: &RasterParams, s: &ShapeParams) {
+    let processed = crate::imaging::raster::preprocess_image(&img_data.0, params);
+    let gray = processed.to_luma8();
+    
+    let target_w = (params.width_mm * params.dpi / 25.4) as u32;
+    let target_h = (params.height_mm * params.dpi / 25.4) as u32;
+
+    let resized = ::image::imageops::resize(
+        &gray, target_w, target_h,
+        ::image::imageops::FilterType::Lanczos3,
+    );
+
+    let (rw, rh) = resized.dimensions();
+    let x_scale = params.width_mm / rw as f32;
+    let y_scale = params.height_mm / rh as f32;
+
+    builder.laser_off();
+    builder.raw("M4"); // Dynamic power
+
+    for row in 0..rh {
+        let ly = (rh - 1 - row) as f32 * y_scale;
+        let reverse = row % 2 == 1;
+
+        let cols: Vec<u32> = if reverse {
+            (0..rw).rev().collect()
+        } else {
+            (0..rw).collect()
+        };
+
+        let mut first = true;
+        for col in cols {
+            let pixel = resized.get_pixel(col, row)[0];
+            let power = ((255 - pixel) as f32 / 255.0 * params.max_power) as u32;
+            let lx = col as f32 * x_scale;
+            
+            let (wx, wy) = rotate_point(lx, ly, s);
+            
+            if first {
+                builder.laser_off();
+                builder.rapid(wx, wy);
+                builder.linear(wx, wy, params.max_speed, power as f32);
+                first = false;
+            } else {
+                builder.linear(wx, wy, params.max_speed, power as f32);
+            }
+        }
+    }
+    builder.laser_off();
+}
+
+fn rotate_point(lx: f32, ly: f32, s: &ShapeParams) -> (f32, f32) {
+    let angle = s.rotation.to_radians();
+    let rx = lx * angle.cos() - ly * angle.sin();
+    let ry = lx * angle.sin() + ly * angle.cos();
+    (s.x + rx, s.y + ry)
 }

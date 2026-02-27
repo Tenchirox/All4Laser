@@ -23,6 +23,7 @@ rusttype = "0.9"
 qrcode = "0.14"
 font-kit = "0.14"
 geo = "0.32"
+lazy_static = "1.5"
 
 [profile.release]
 opt-level = 3

@@ -231,6 +231,7 @@ pub fn tr(key: &str) -> String {
     }
 
     if let Some(map) = DICTIONARY.get(&lang) {
+        let map: &HashMap<&'static str, &'static str> = map;
         if let Some(val) = map.get(key) {
             return val.to_string();
         }

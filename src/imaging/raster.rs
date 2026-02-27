@@ -1,7 +1,7 @@
 use image::{GrayImage, Luma};
 
 /// Parameters for a cutting frame (outline) around the image
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OutlineParams {
     pub enabled: bool,
     pub speed: f32,
@@ -20,7 +20,7 @@ impl Default for OutlineParams {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DitherMode {
     None,
     FloydSteinberg,
@@ -28,6 +28,7 @@ pub enum DitherMode {
 }
 
 /// Parameters for raster-to-GCode conversion
+#[derive(Clone, Debug, PartialEq)]
 pub struct RasterParams {
     pub width_mm: f32,
     pub height_mm: f32,

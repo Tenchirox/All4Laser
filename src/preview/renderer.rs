@@ -1,7 +1,8 @@
-use egui::{Color32, Painter, Pos2, Rect, Stroke, Vec2};
+use egui::{Color32, Painter, Pos2, Rect, Stroke, Vec2, Ui};
 use crate::gcode::types::PreviewSegment;
 use crate::theme;
 use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
+use crate::ui::layers_new::CutLayer;
 use std::collections::HashSet;
 
 /// An object visible in the preview that can be interacted with.
@@ -30,6 +31,9 @@ pub struct PreviewRenderer {
     pub selected_shape_idx: HashSet<usize>, // Selected indices in DrawingState (Multi-select)
     pub node_edit_mode: bool,
     pub selected_node: Option<(usize, usize)>, // (shape_idx, point_idx)
+    pub hover_shape_idx: Option<usize>,
+    pub dragging_rotation: Option<usize>, // shape_idx being rotated
+    pub image_textures: std::collections::HashMap<usize, egui::TextureHandle>, // shape_idx -> texture
 }
 
 impl Default for PreviewRenderer {
@@ -46,6 +50,9 @@ impl Default for PreviewRenderer {
             selected_shape_idx: HashSet::new(),
             node_edit_mode: false,
             selected_node: None,
+            hover_shape_idx: None,
+            dragging_rotation: None,
+            image_textures: std::collections::HashMap::new(),
         }
     }
 }
@@ -55,6 +62,7 @@ pub enum InteractiveAction {
     SelectShape(usize, bool), // idx, is_multi (ctrl/shift)
     Deselect,
     DragSelection { delta: Vec2 }, // Drag all selected
+    RotateSelection { shape_idx: usize, delta_deg: f32 },
     MoveNode { shape_idx: usize, node_idx: usize, new_pos: Pos2 },
 }
 
@@ -65,12 +73,13 @@ impl PreviewRenderer {
         ui: &mut egui::Ui,
         segments: &[PreviewSegment],
         shapes: &[ShapeParams], // Drawing shapes
+        _layers: &[CutLayer],   // New: to get colors
         is_light: bool,
         job_offset: Vec2,
         job_rotation_deg: f32,
         camera_state: &crate::ui::camera::CameraState,
     ) -> InteractiveAction {
-        let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::drag());
+        let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
         let rect = response.rect;
         let mut action = InteractiveAction::None;
 
@@ -154,7 +163,7 @@ impl PreviewRenderer {
         // Draw interactive shapes (Overlay)
         for (idx, shape) in shapes.iter().enumerate() {
             let is_selected = self.selected_shape_idx.contains(&idx);
-            self.draw_shape_overlay(&painter, shape, rect, is_selected, idx);
+            self.draw_shape_overlay(ui, &painter, shape, rect, is_selected, idx, _layers);
         }
 
         // Draw machine position
@@ -295,65 +304,169 @@ impl PreviewRenderer {
         flush_accumulated(&painter, &mut current_accumulated_line);
     }
 
-    fn draw_shape_overlay(&self, painter: &Painter, shape: &ShapeParams, rect: Rect, is_selected: bool, idx: usize) {
-        // Calculate shape bounds in world
-        let bounds = match &shape.shape {
-            ShapeKind::Rectangle => Rect::from_min_size(
-                Pos2::new(shape.x, shape.y),
-                Vec2::new(shape.width, shape.height)
-            ),
-            ShapeKind::Circle => Rect::from_min_size(
-                Pos2::new(shape.x - shape.radius, shape.y - shape.radius),
-                Vec2::new(shape.radius * 2.0, shape.radius * 2.0)
-            ),
-            ShapeKind::TextLine => {
-                // Rough estimation for text bounds
-                let char_w = shape.font_size_mm * 0.6;
-                let w = shape.text.len() as f32 * char_w;
-                Rect::from_min_size(
-                    Pos2::new(shape.x, shape.y),
-                    Vec2::new(w, shape.font_size_mm)
-                )
-            },
-            ShapeKind::Path(pts) => {
-                let mut min_x = f32::MAX; let mut max_x = f32::MIN;
-                let mut min_y = f32::MAX; let mut max_y = f32::MIN;
-                if pts.is_empty() {
-                    Rect::from_min_max(Pos2::new(shape.x, shape.y), Pos2::new(shape.x, shape.y))
-                } else {
-                    for p in pts {
-                        min_x = min_x.min(p.0); max_x = max_x.max(p.0);
-                        min_y = min_y.min(p.1); max_y = max_y.max(p.1);
-                    }
-                    Rect::from_min_max(Pos2::new(shape.x + min_x, shape.y + min_y), Pos2::new(shape.x + max_x, shape.y + max_y))
-                }
+    fn draw_shape_overlay(&self, ui: &Ui, painter: &Painter, shape: &ShapeParams, rect: Rect, is_selected: bool, idx: usize, layers: &[CutLayer]) {
+        let is_hovered = self.hover_shape_idx == Some(idx);
+        
+        let mut stroke_color = if is_selected {
+            theme::BLUE
+        } else if is_hovered {
+            theme::LAVENDER
+        } else {
+            // Use layer color if available
+            if let Some(layer) = layers.get(shape.layer_idx) {
+                layer.color
+            } else {
+                theme::TEXT.linear_multiply(0.5)
             }
         };
+        
+        let stroke = Stroke::new(1.0, stroke_color);
+        let angle = shape.rotation.to_radians();
 
-        // Correct Y flipping: world Y goes up, screen Y goes down.
-        // world_to_screen flips Y.
+        // Helper to transform local shape point to screen
+        let to_screen = |lx: f32, ly: f32| -> Pos2 {
+            let wx = shape.x + lx * angle.cos() - ly * angle.sin();
+            let wy = shape.y + lx * angle.sin() + ly * angle.cos();
+            self.world_to_screen(wx, wy, rect)
+        };
 
-        let p1 = self.world_to_screen(bounds.min.x, bounds.min.y, rect);
-        let p2 = self.world_to_screen(bounds.max.x, bounds.max.y, rect);
-        let screen_rect = Rect::from_min_max(p1, p2);
-
-        if is_selected {
-            // Draw marching ants or dashed line
-            painter.rect_stroke(screen_rect, 0.0, Stroke::new(1.0, theme::BLUE), egui::StrokeKind::Middle);
-            // Handles
-            let handle_size = 6.0;
-            let corners = [screen_rect.min, screen_rect.max, screen_rect.left_bottom(), screen_rect.right_top()];
-            for c in corners {
-                painter.rect_filled(Rect::from_center_size(c, Vec2::splat(handle_size)), 1.0, theme::BLUE);
+        // Draw the shape itself
+        match &shape.shape {
+            ShapeKind::Rectangle => {
+                let p1 = to_screen(0.0, 0.0);
+                let p2 = to_screen(shape.width, 0.0);
+                let p3 = to_screen(shape.width, shape.height);
+                let p4 = to_screen(0.0, shape.height);
+                painter.line_segment([p1, p2], stroke);
+                painter.line_segment([p2, p3], stroke);
+                painter.line_segment([p3, p4], stroke);
+                painter.line_segment([p4, p1], stroke);
             }
+            ShapeKind::Circle => {
+                let center = self.world_to_screen(shape.x, shape.y, rect);
+                painter.circle_stroke(center, shape.radius * self.zoom, stroke);
+            }
+            ShapeKind::TextLine => {
+                let center = self.world_to_screen(shape.x, shape.y, rect);
+                painter.text(
+                    center,
+                    egui::Align2::LEFT_BOTTOM,
+                    &shape.text,
+                    egui::FontId::proportional(shape.font_size_mm * self.zoom),
+                    stroke_color,
+                );
+            }
+            ShapeKind::Path(pts) => {
+                if pts.len() > 1 {
+                    for i in 0..pts.len() - 1 {
+                        let p1 = to_screen(pts[i].0, pts[i].1);
+                        let p2 = to_screen(pts[i+1].0, pts[i+1].1);
+                        painter.line_segment([p1, p2], stroke);
+                    }
+                }
+            }
+            ShapeKind::RasterImage { data, params } => {
+                // Get or Create texture
+                let texture = self.image_textures.entry(idx).or_insert_with(|| {
+                    let processed = crate::imaging::raster::preprocess_image(&data.0, params);
+                    let rgba = processed.to_rgba8();
+                    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                        [rgba.width() as _, rgba.height() as _],
+                        rgba.as_flat_samples().as_slice(),
+                    );
+                    ui.ctx().load_texture(
+                        format!("shape_{}", idx),
+                        color_image,
+                        Default::default()
+                    )
+                });
 
-            // Draw Node Handles if in Node Edit Mode
+                // Calculate the rotated quad
+                let p1 = to_screen(0.0, 0.0);
+                let p2 = to_screen(params.width_mm, 0.0);
+                let p3 = to_screen(params.width_mm, params.height_mm);
+                let p4 = to_screen(0.0, params.height_mm);
+
+                let mut mesh = egui::Mesh::with_texture(texture.id());
+                let base_idx = mesh.vertices.len() as u32;
+                mesh.add_triangle(base_idx, base_idx + 1, base_idx + 2);
+                mesh.add_triangle(base_idx, base_idx + 2, base_idx + 3);
+                
+                mesh.vertices.push(egui::epaint::Vertex { pos: p1, uv: egui::pos2(0.0, 0.0), color: Color32::WHITE });
+                mesh.vertices.push(egui::epaint::Vertex { pos: p2, uv: egui::pos2(1.0, 0.0), color: Color32::WHITE });
+                mesh.vertices.push(egui::epaint::Vertex { pos: p3, uv: egui::pos2(1.0, 1.0), color: Color32::WHITE });
+                mesh.vertices.push(egui::epaint::Vertex { pos: p4, uv: egui::pos2(0.0, 1.0), color: Color32::WHITE });
+
+                painter.add(mesh);
+
+                // Draw outline for clarity
+                painter.line_segment([p1, p2], stroke);
+                painter.line_segment([p2, p3], stroke);
+                painter.line_segment([p3, p4], stroke);
+                painter.line_segment([p4, p1], stroke);
+            }
+        }
+
+        // Draw Selection UI
+        if is_selected {
+            // Rotation Handle
+            let handle_pos = self.get_rotation_handle_pos(shape);
+            let s_handle = self.world_to_screen(handle_pos.x, handle_pos.y, rect);
+            let s_center = self.world_to_screen(shape.x, shape.y, rect);
+            
+            // Top-right corner in local space
+            let (tr_lx, tr_ly) = match &shape.shape {
+                ShapeKind::Rectangle => (shape.width, shape.height),
+                ShapeKind::Circle => (shape.radius, shape.radius), // "corner" of square bounding box
+                _ => (0.0, 0.0),
+            };
+            
+            // World pos of top-right corner
+            let angle = shape.rotation.to_radians();
+            let tr_wx = shape.x + tr_lx * angle.cos() - tr_ly * angle.sin();
+            let tr_wy = shape.y + tr_lx * angle.sin() + tr_ly * angle.cos();
+            let s_tr = self.world_to_screen(tr_wx, tr_wy, rect);
+
+            // Draw connection line from top-right corner to handle
+            painter.line_segment([s_tr, s_handle], Stroke::new(1.0, theme::SUBTEXT));
+            
+            // Draw an arc with arrows (Visual indicator for rotation)
+            let radius = s_center.distance(s_handle);
+            let angle_base = (s_handle - s_center).angle();
+            let arc_span = 0.2; // radians
+            
+            let mut points = vec![];
+            for i in -5..=5 {
+                let a = angle_base + (i as f32 * arc_span / 10.0);
+                points.push(s_center + Vec2::angled(a) * radius);
+            }
+            painter.add(egui::Shape::line(points.clone(), Stroke::new(1.2, theme::BLUE)));
+            
+            // Arrows at ends of arc
+            let draw_arrow = |p: Pos2, angle: f32| {
+                let head_len = 2.5;
+                let head_angle = 0.5;
+                painter.line_segment([p, p - Vec2::angled(angle + head_angle) * head_len], Stroke::new(1.2, theme::BLUE));
+                painter.line_segment([p, p - Vec2::angled(angle - head_angle) * head_len], Stroke::new(1.2, theme::BLUE));
+            };
+            
+            draw_arrow(*(points.last().unwrap()), angle_base + arc_span/2.0 + std::f32::consts::FRAC_PI_2);
+            draw_arrow(*(points.first().unwrap()), angle_base - arc_span/2.0 - std::f32::consts::FRAC_PI_2);
+
+            painter.circle_filled(s_handle, 3.5, theme::BLUE);
+            painter.circle_stroke(s_handle, 5.0, Stroke::new(1.0, Color32::WHITE));
+
+            // Small square handles at corners for movement feedback (placeholder for full transform handles)
+            let handle_size = 4.0;
+            painter.rect_filled(Rect::from_center_size(s_center, Vec2::splat(handle_size)), 1.0, theme::BLUE);
+            
+            // Node Editing Handles
             if self.node_edit_mode {
                 if let ShapeKind::Path(pts) = &shape.shape {
                     for (v_idx, p) in pts.iter().enumerate() {
-                        let vp = self.world_to_screen(shape.x + p.0, shape.y + p.1, rect);
-                        let is_sel = self.selected_node == Some((idx, v_idx));
-                        let color = if is_sel { theme::RED } else { theme::GREEN };
+                        let vp = to_screen(p.0, p.1);
+                        let is_node_sel = self.selected_node == Some((idx, v_idx));
+                        let color = if is_node_sel { theme::RED } else { theme::GREEN };
                         painter.circle_filled(vp, 4.0, color);
                     }
                 }
@@ -426,7 +539,7 @@ impl PreviewRenderer {
         self.zoom /= 1.3;
     }
 
-    fn handle_input(&mut self, ui: &egui::Ui, response: &egui::Response, rect: Rect, shapes: &[ShapeParams]) -> InteractiveAction {
+    fn handle_input(&mut self, ui: &egui::Ui, response: &egui::Response, _rect: Rect, shapes: &[ShapeParams]) -> InteractiveAction {
         let mut action = InteractiveAction::None;
 
         if let Some(hover) = response.hover_pos() {
@@ -440,54 +553,42 @@ impl PreviewRenderer {
                 self.pan.y = hover.y - (hover.y - self.pan.y) * (self.zoom / old_zoom);
             }
 
-            // Selection Logic (Click)
-            if response.clicked() {
-                // Convert screen hover to world
-                let wx = (hover.x - self.pan.x) / self.zoom;
-                let wy = -(hover.y - self.pan.y) / self.zoom;
+            // Convert screen hover to world
+            let wx = (hover.x - self.pan.x) / self.zoom;
+            let wy = -(hover.y - self.pan.y) / self.zoom;
+            let is_multi = ui.input(|i| i.modifiers.ctrl || i.modifiers.shift);
 
-                let is_multi = ui.input(|i| i.modifiers.ctrl || i.modifiers.shift);
+            // 1. Detect Hover
+            self.hover_shape_idx = None;
+            for (idx, shape) in shapes.iter().enumerate() {
+                if self.is_point_in_shape(wx, wy, shape) {
+                    self.hover_shape_idx = Some(idx);
+                }
+            }
 
-                let mut hit_idx = None;
-                // Simple hit testing against shape bounds
-                for (idx, shape) in shapes.iter().enumerate() {
-                    let bounds = match &shape.shape {
-                        ShapeKind::Rectangle => Rect::from_min_size(Pos2::new(shape.x, shape.y), Vec2::new(shape.width, shape.height)),
-                        ShapeKind::Circle => Rect::from_min_size(Pos2::new(shape.x - shape.radius, shape.y - shape.radius), Vec2::new(shape.radius * 2.0, shape.radius * 2.0)),
-                        ShapeKind::TextLine => {
-                             let char_w = shape.font_size_mm * 0.6;
-                             let w = shape.text.len() as f32 * char_w;
-                             Rect::from_min_size(Pos2::new(shape.x, shape.y), Vec2::new(w, shape.font_size_mm))
-                        },
-                        ShapeKind::Path(pts) => {
-                            let mut min_x = f32::MAX; let mut max_x = f32::MIN;
-                            let mut min_y = f32::MAX; let mut max_y = f32::MIN;
-                            if pts.is_empty() {
-                                Rect::from_min_max(Pos2::new(shape.x, shape.y), Pos2::new(shape.x, shape.y))
-                            } else {
-                                for p in pts {
-                                    min_x = min_x.min(p.0); max_x = max_x.max(p.0);
-                                    min_y = min_y.min(p.1); max_y = max_y.max(p.1);
-                                }
-                                Rect::from_min_max(Pos2::new(shape.x + min_x, shape.y + min_y), Pos2::new(shape.x + max_x, shape.y + max_y))
-                            }
+            // 2. Click/Drag Selection Logic
+            if response.drag_started() {
+                // Check for rotation handle first if a single shape is selected
+                if self.selected_shape_idx.len() == 1 {
+                    let s_idx = *self.selected_shape_idx.iter().next().unwrap();
+                    if let Some(shape) = shapes.get(s_idx) {
+                        let handle_pos = self.get_rotation_handle_pos(shape);
+                        if (handle_pos.x - wx).abs() < 8.0 / self.zoom && (handle_pos.y - wy).abs() < 8.0 / self.zoom {
+                            self.dragging_rotation = Some(s_idx);
                         }
-                    };
-
-                    if bounds.contains(Pos2::new(wx, wy)) {
-                        hit_idx = Some(idx);
                     }
                 }
+            }
 
-                if let Some(idx) = hit_idx {
+            if response.clicked() && self.dragging_rotation.is_none() {
+                if let Some(idx) = self.hover_shape_idx {
                     if self.node_edit_mode {
-                        // Check for node hit first
                         let mut node_hit = None;
                         if let Some(shape) = shapes.get(idx) {
                             if let ShapeKind::Path(pts) = &shape.shape {
                                 for (v_idx, p) in pts.iter().enumerate() {
                                     let vp = Pos2::new(shape.x + p.0, shape.y + p.1);
-                                    if (vp.x - wx).abs() < 2.0 / self.zoom && (vp.y - wy).abs() < 2.0 / self.zoom {
+                                    if (vp.x - wx).abs() < 4.0 / self.zoom && (vp.y - wy).abs() < 4.0 / self.zoom {
                                         node_hit = Some(v_idx);
                                         break;
                                     }
@@ -495,10 +596,6 @@ impl PreviewRenderer {
                             }
                         }
                         self.selected_node = node_hit.map(|n| (idx, n));
-                        if node_hit.is_some() {
-                             // If we hit a node, we don't necessarily want to change shape selection?
-                             // Standard CAD: selection stays, we just pick a node.
-                        }
                     }
 
                     if is_multi {
@@ -521,7 +618,45 @@ impl PreviewRenderer {
         }
 
         if response.dragged() {
-            if self.node_edit_mode && self.selected_node.is_some() {
+            if let Some(s_idx) = self.dragging_rotation {
+                if let Some(pos) = response.interact_pointer_pos() {
+                    let wx = (pos.x - self.pan.x) / self.zoom;
+                    let wy = -(pos.y - self.pan.y) / self.zoom;
+                    if let Some(shape) = shapes.get(s_idx) {
+                        let (lcx, lcy) = shape.local_center();
+                        let (wcx, wcy) = shape.world_pos(lcx, lcy);
+                        let dx = wx - wcx;
+                        let dy = wy - wcy;
+                        
+                        // Handle is at (width + offset, height + offset) in local coords
+                        let offset = 2.0;
+                        let (local_lx, local_ly) = match &shape.shape {
+                            ShapeKind::Rectangle => (shape.width, shape.height),
+                            ShapeKind::Circle => (shape.radius, shape.radius),
+                            ShapeKind::TextLine => {
+                                let char_w = shape.font_size_mm * 0.6;
+                                (shape.text.len() as f32 * char_w, shape.font_size_mm)
+                            }
+                            ShapeKind::Path(pts) => {
+                                let mut max_x: f32 = 0.0; let mut max_y: f32 = 0.0;
+                                for p in pts {
+                                    max_x = max_x.max(p.0);
+                                    max_y = max_y.max(p.1);
+                                }
+                                (max_x, max_y)
+                            }
+                        };
+                        
+                        // Angle from center to top-right handle in local space
+                        let base_angle = (local_ly + offset - lcy).atan2(local_lx + offset - lcx).to_degrees();
+                        let current_angle = dy.atan2(dx).to_degrees();
+                        let new_rotation = current_angle - base_angle;
+                        let delta = new_rotation - shape.rotation;
+                        
+                        action = InteractiveAction::RotateSelection { shape_idx: s_idx, delta_deg: delta };
+                    }
+                }
+            } else if self.node_edit_mode && self.selected_node.is_some() {
                  let (s_idx, v_idx) = self.selected_node.unwrap();
                  if let Some(pos) = response.interact_pointer_pos() {
                      let dx = (pos.x - self.pan.x) / self.zoom;
@@ -530,48 +665,90 @@ impl PreviewRenderer {
                  }
             } else if !self.selected_shape_idx.is_empty() {
                 let delta = response.drag_delta();
-                // Convert screen delta to world delta
-                let mut world_dx = delta.x / self.zoom;
-                let mut world_dy = -delta.y / self.zoom; // Flip Y
-
-                // --- SNAPPING LOGIC ---
-                // If dragging a single item, try to snap its new position
-                if self.selected_shape_idx.len() == 1 {
-                    // Check shift key to disable snap
-                    if !ui.input(|i| i.modifiers.shift) {
-                        let idx = *self.selected_shape_idx.iter().next().unwrap();
-                        if let Some(shape) = shapes.get(idx) {
-                            let new_x = shape.x + world_dx;
-                            let new_y = shape.y + world_dy;
-
-                            // Snap to grid (e.g. 5mm)
-                            let snap_dist = 5.0 / self.zoom; // Snap within 5 screen pixels? Or world units?
-                            // Let's snap to 1mm grid if close
-                            let grid_sz = 5.0;
-
-                            let snap_x = (new_x / grid_sz).round() * grid_sz;
-                            let snap_y = (new_y / grid_sz).round() * grid_sz;
-
-                            if (new_x - snap_x).abs() < 0.5 {
-                                world_dx = snap_x - shape.x;
-                            }
-                            if (new_y - snap_y).abs() < 0.5 {
-                                world_dy = snap_y - shape.y;
-                            }
-                        }
-                    }
-                }
-
                 action = InteractiveAction::DragSelection {
-                    delta: Vec2::new(world_dx, world_dy)
+                    delta: Vec2::new(delta.x / self.zoom, -delta.y / self.zoom)
                 };
             } else {
-                // Pan if no selection
                 self.pan += response.drag_delta();
             }
+        } else {
+            self.dragging_rotation = None;
+        }
+
+        // Set cursor
+        if self.hover_shape_idx.is_some() || self.dragging_rotation.is_some() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
 
         action
+    }
+
+    fn is_point_in_shape(&self, wx: f32, wy: f32, shape: &ShapeParams) -> bool {
+        let (lx, ly) = self.world_to_local(wx, wy, shape);
+        match &shape.shape {
+            ShapeKind::Rectangle => lx >= 0.0 && lx <= shape.width && ly >= 0.0 && ly <= shape.height,
+            ShapeKind::Circle => (lx*lx + ly*ly).sqrt() <= shape.radius,
+            ShapeKind::TextLine => {
+                let char_w = shape.font_size_mm * 0.6;
+                let w = shape.text.len() as f32 * char_w;
+                lx >= 0.0 && lx <= w && ly >= 0.0 && ly <= shape.font_size_mm
+            }
+            ShapeKind::Path(pts) => {
+                // Re-use bounding box for hit test for paths (simplified)
+                let mut min_x = f32::MAX; let mut max_x = f32::MIN;
+                let mut min_y = f32::MAX; let mut max_y = f32::MIN;
+                for p in pts {
+                    min_x = min_x.min(p.0); max_x = max_x.max(p.0);
+                    min_y = min_y.min(p.1); max_y = max_y.max(p.1);
+                }
+                lx >= min_x && lx <= max_x && ly >= min_y && ly <= max_y
+            }
+            ShapeKind::RasterImage { params, .. } => {
+                lx >= 0.0 && lx <= params.width_mm && ly >= 0.0 && ly <= params.height_mm
+            }
+        }
+    }
+
+    fn get_rotation_handle_pos(&self, shape: &ShapeParams) -> Pos2 {
+        let angle = shape.rotation.to_radians();
+        let offset = 2.0; // World units (mm) away from the corner
+        
+        // Find local top-right corner
+        let (lx, ly) = match &shape.shape {
+            ShapeKind::Rectangle => (shape.width, shape.height),
+            ShapeKind::Circle => (shape.radius, shape.radius),
+            ShapeKind::TextLine => {
+                let char_w = shape.font_size_mm * 0.6;
+                (shape.text.len() as f32 * char_w, shape.font_size_mm)
+            }
+            ShapeKind::Path(pts) => {
+                let mut max_x: f32 = 0.0;
+                let mut max_y: f32 = 0.0;
+                for p in pts {
+                    max_x = max_x.max(p.0);
+                    max_y = max_y.max(p.1);
+                }
+                (max_x, max_y)
+            }
+            ShapeKind::RasterImage { params, .. } => (params.width_mm, params.height_mm),
+        };
+        
+        // Add offset in local coordinates
+        let lx_f = lx + offset;
+        let ly_f = ly + offset;
+        
+        let wx = shape.x + lx_f * angle.cos() - ly_f * angle.sin();
+        let wy = shape.y + lx_f * angle.sin() + ly_f * angle.cos();
+        Pos2::new(wx, wy)
+    }
+
+    fn world_to_local(&self, wx: f32, wy: f32, shape: &ShapeParams) -> (f32, f32) {
+        let dx = wx - shape.x;
+        let dy = wy - shape.y;
+        let angle = -shape.rotation.to_radians();
+        let lx = dx * angle.cos() - dy * angle.sin();
+        let ly = dx * angle.sin() + dy * angle.cos();
+        (lx, ly)
     }
 
     fn world_to_screen(&self, wx: f32, wy: f32, _rect: Rect) -> Pos2 {
@@ -616,63 +793,88 @@ impl PreviewRenderer {
         let min_wy = (self.pan.y - rect.bottom()) / self.zoom;
         let max_wy = (self.pan.y - rect.top()) / self.zoom;
 
-        // Vertical lines
-        let start_x = (min_wx / minor_step).floor() * minor_step;
-        let mut wx = start_x;
-        while wx <= max_wx {
+        // Vertical lines (X axis) constrained to workspace
+        let mut wx = 0.0;
+        while wx <= self.workspace_size.x {
             let sx = wx * self.zoom + self.pan.x;
-            let is_major = (wx / major_step).round() * major_step == wx.round();
-            painter.line_segment(
-                [Pos2::new(sx, rect.top()), Pos2::new(sx, rect.bottom())],
-                if is_major { major_stroke } else { minor_stroke },
-            );
-            // Ruler label on major lines
-            if is_major && sx >= rect.left() + 4.0 {
-                painter.text(
-                    Pos2::new(sx + 2.0, rect.top() + 2.0),
-                    egui::Align2::LEFT_TOP,
-                    format!("{:.0}", wx),
-                    egui::FontId::monospace(9.0),
-                    label_color,
+            if sx >= rect.left() && sx <= rect.right() {
+                let is_major = (wx / major_step).round() * major_step == wx.round();
+                
+                // Screen Y bounds for vertical lines
+                let s_y_start = self.pan.y - self.workspace_size.y * self.zoom;
+                let s_y_end = self.pan.y;
+                
+                painter.line_segment(
+                    [Pos2::new(sx, s_y_start.max(rect.top())), Pos2::new(sx, s_y_end.min(rect.bottom()))],
+                    if is_major { major_stroke } else { minor_stroke },
                 );
+
+                // Ruler label on major lines (Top edge of workspace)
+                if is_major {
+                    // Stay on top edge of workspace, but clamp to visible screen area
+                    let label_y = s_y_start.max(rect.top() + 4.0);
+                    if label_y <= s_y_end - 10.0 { // Only draw if we're not squishing into the bottom edge
+                        painter.text(
+                            Pos2::new(sx + 2.0, label_y),
+                            egui::Align2::LEFT_TOP,
+                            format!("{:.0}", wx),
+                            egui::FontId::monospace(9.0),
+                            label_color,
+                        );
+                    }
+                }
             }
             wx += minor_step;
         }
 
-        // Horizontal lines
-        let start_y = (min_wy / minor_step).floor() * minor_step;
-        let mut wy = start_y;
-        while wy <= max_wy {
+        // Horizontal lines (Y axis) constrained to workspace
+        let mut wy = 0.0;
+        while wy <= self.workspace_size.y {
             let sy = -wy * self.zoom + self.pan.y;
-            let is_major = (wy / major_step).round() * major_step == wy.round();
-            painter.line_segment(
-                [Pos2::new(rect.left(), sy), Pos2::new(rect.right(), sy)],
-                if is_major { major_stroke } else { minor_stroke },
-            );
-            // Ruler label on major lines
-            if is_major && sy >= rect.top() + 14.0 && sy <= rect.bottom() - 4.0 {
-                painter.text(
-                    Pos2::new(rect.left() + 2.0, sy - 9.0),
-                    egui::Align2::LEFT_TOP,
-                    format!("{:.0}", wy),
-                    egui::FontId::monospace(9.0),
-                    label_color,
+            if sy >= rect.top() && sy <= rect.bottom() {
+                let is_major = (wy / major_step).round() * major_step == wy.round();
+                
+                // Screen X bounds for horizontal lines 
+                let s_x_start = self.pan.x;
+                let s_x_end = self.pan.x + self.workspace_size.x * self.zoom;
+                
+                painter.line_segment(
+                    [Pos2::new(s_x_start.max(rect.left()), sy), Pos2::new(s_x_end.min(rect.right()), sy)],
+                    if is_major { major_stroke } else { minor_stroke },
                 );
+
+                // Ruler label on major lines (Left edge of workspace)
+                if is_major {
+                    // Stay on left edge of workspace, but clamp to visible screen area
+                    let label_x = s_x_start.max(rect.left() + 2.0);
+                    if label_x <= s_x_end - 20.0 { // Only draw if we're not squishing into the right edge
+                        painter.text(
+                            Pos2::new(label_x, sy - 9.0),
+                            egui::Align2::LEFT_TOP,
+                            format!("{:.0}", wy),
+                            egui::FontId::monospace(9.0),
+                            label_color,
+                        );
+                    }
+                }
             }
             wy += minor_step;
         }
 
-        // Axis lines through origin
+        // Axis lines through origin (Only where they intersect workspace)
         let origin = Pos2::new(self.pan.x, self.pan.y);
+        let s_y_start = self.pan.y - self.workspace_size.y * self.zoom;
+        let s_x_end = self.pan.x + self.workspace_size.x * self.zoom;
+
         if origin.x >= rect.left() && origin.x <= rect.right() {
-            painter.line_segment(
-                [Pos2::new(origin.x, rect.top()), Pos2::new(origin.x, rect.bottom())],
+             painter.line_segment(
+                [Pos2::new(origin.x, s_y_start.max(rect.top())), Pos2::new(origin.x, origin.y.min(rect.bottom()))],
                 axis_stroke,
             );
         }
         if origin.y >= rect.top() && origin.y <= rect.bottom() {
             painter.line_segment(
-                [Pos2::new(rect.left(), origin.y), Pos2::new(rect.right(), origin.y)],
+                [Pos2::new(origin.x.max(rect.left()), origin.y), Pos2::new(s_x_end.min(rect.right()), origin.y)],
                 axis_stroke,
             );
         }
