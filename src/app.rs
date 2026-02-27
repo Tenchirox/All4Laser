@@ -17,6 +17,15 @@ const MAX_LOG_LINES: usize = 500;
 const STATUS_POLL_MS: u64 = 250;
 const LEFT_PANEL_WIDTH: f32 = 300.0;
 
+#[derive(PartialEq, Clone, Copy)]
+pub enum RightPanelTab {
+    Cuts,
+    Move,
+    Console,
+    Art,
+    Laser,
+}
+
 pub struct All4LaserApp {
     // GRBL state
     grbl_state: GrblState,
@@ -127,8 +136,13 @@ pub struct All4LaserApp {
     // Layers (New System)
     layers: Vec<ui::layers_new::CutLayer>,
     active_layer_idx: usize,
-    #[serde(skip)]
     cut_settings_state: ui::cut_settings::CutSettingsState,
+
+    // Language
+    language: crate::i18n::Language,
+
+    // Layout State
+    active_tab: RightPanelTab,
 
     // Timing
     last_poll: Instant,
@@ -193,6 +207,8 @@ impl All4LaserApp {
             layers: ui::layers_new::CutLayer::default_palette(),
             active_layer_idx: 0,
             cut_settings_state: ui::cut_settings::CutSettingsState::default(),
+            language: crate::i18n::Language::English,
+            active_tab: RightPanelTab::Cuts,
         };
 
         app.apply_theme(&cc.egui_ctx);
@@ -322,12 +338,19 @@ impl All4LaserApp {
 
             let mut cmd = if let (Some(file), Some(center)) = (&self.loaded_file, self.job_center) {
                 if let Some(parsed) = file.lines.get(line_idx) {
-                    let rotary_scale = if self.machine_profile.rotary_enabled && self.machine_profile.rotary_diameter_mm > 0.1 {
-                        50.0 / self.machine_profile.rotary_diameter_mm // Default reference 50mm
+                    // Standard transform (offset/rotate)
+                    let transformed = parsed.transform(egui::vec2(self.job_offset_x, self.job_offset_y), self.job_rotation, center, 1.0);
+
+                    // Apply Rotary transformation if enabled
+                    if self.machine_profile.rotary_enabled {
+                        crate::gcode::transform::apply_rotary(
+                            &transformed,
+                            self.machine_profile.rotary_diameter_mm,
+                            self.machine_profile.rotary_axis
+                        )
                     } else {
-                        1.0
-                    };
-                    parsed.transform(egui::vec2(self.job_offset_x, self.job_offset_y), self.job_rotation, center, rotary_scale)
+                        transformed
+                    }
                 } else {
                     self.program_lines[line_idx].clone()
                 }
@@ -773,7 +796,7 @@ impl All4LaserApp {
 
         // Machine Profile settings
         let mut profile_changed = false;
-        egui::CollapsingHeader::new(egui::RichText::new("⚙ Machine Profile").color(crate::theme::LAVENDER).strong())
+        egui::CollapsingHeader::new(egui::RichText::new(format!("⚙ {}", crate::i18n::tr("Machine Profile"))).color(crate::theme::LAVENDER).strong())
             .show(ui, |ui| {
                 egui::Grid::new("mp_grid").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
                     ui.label("Name:"); 
@@ -888,7 +911,7 @@ impl All4LaserApp {
                 }
             }
             ui.add_space(4.0);
-            ui.label(RichText::new("📐 Job Transformation").color(theme::LAVENDER).strong());
+            ui.label(RichText::new(format!("📐 {}", crate::i18n::tr("Job Transformation"))).color(theme::LAVENDER).strong());
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label("Offset X:");
@@ -943,7 +966,7 @@ impl All4LaserApp {
         // Z-Probe & Focus (Pro Tier)
         ui.group(|ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("📏 Z-Probe & Focus").color(theme::LAVENDER).strong());
+                ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
             });
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -963,6 +986,11 @@ impl All4LaserApp {
                 ui.horizontal(|ui| {
                     ui.label("Cylinder Ø:");
                     ui.add(egui::DragValue::new(&mut self.machine_profile.rotary_diameter_mm).suffix(" mm"));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Rotary Axis:");
+                    ui.selectable_value(&mut self.machine_profile.rotary_axis, 'Y', "Y (Roller)");
+                    ui.selectable_value(&mut self.machine_profile.rotary_axis, 'A', "A (Chuck)");
                 });
             }
         });
@@ -1004,6 +1032,150 @@ impl All4LaserApp {
                         }
                     }
                 });
+        });
+    }
+
+    fn ui_right_tabs(&mut self, ui: &mut egui::Ui, connected: bool) {
+        use crate::i18n::tr;
+
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.active_tab, RightPanelTab::Cuts, tr("Cuts"));
+            ui.selectable_value(&mut self.active_tab, RightPanelTab::Move, tr("Move"));
+            ui.selectable_value(&mut self.active_tab, RightPanelTab::Console, tr("Console"));
+            ui.selectable_value(&mut self.active_tab, RightPanelTab::Art, tr("Art"));
+            ui.selectable_value(&mut self.active_tab, RightPanelTab::Laser, tr("Laser"));
+        });
+        ui.separator();
+
+        egui::ScrollArea::vertical().id_salt("tab_scroll").show(ui, |ui| {
+            match self.active_tab {
+                RightPanelTab::Cuts => {
+                    // Layer List Table (to be implemented more fully)
+                    ui.label(RichText::new("Layers").strong());
+                    // Reuse palette for now, but vertical?
+                    // We need a list view.
+                    // For now, I'll put Materials here too.
+                    ui.add_space(8.0);
+                    let mat_action = ui::materials::show(ui, &mut self.materials_state);
+                    if let Some(s) = mat_action.apply_speed { self.jog_feed = s; }
+                    if let Some(p) = mat_action.apply_power { self.test_fire_power = p / 10.0; }
+
+                    ui.separator();
+                    // Show full layers list with details
+                    let list_action = ui::cut_list::show(ui, &mut self.layers, self.active_layer_idx);
+                    if let Some(idx) = list_action.select_layer {
+                        self.active_layer_idx = idx;
+                        self.drawing_state.current.layer_idx = idx;
+                    }
+                    if let Some(idx) = list_action.open_settings {
+                        self.cut_settings_state.editing_layer_idx = Some(idx);
+                        self.cut_settings_state.is_open = true;
+                    }
+                }
+                RightPanelTab::Move => {
+                    // Machine State + Jog
+                    let ms_action = ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected);
+                    if ms_action.toggle_focus && connected {
+                        self.is_focus_on = !self.is_focus_on;
+                        if self.is_focus_on { self.send_command("M3 S10"); } else { self.send_command("M5"); }
+                    }
+                    if let Some(pos) = ms_action.quick_pos { self.quick_move_to(pos); }
+
+                    ui.add_space(8.0);
+                    let jog_action = ui::jog::show(ui, &mut self.jog_step, &mut self.jog_feed);
+                    if let Some(dir) = jog_action.direction { self.jog(dir); }
+
+                    ui.add_space(8.0);
+                    // Z-Probe & Focus
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
+                        });
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            if ui.button("⇊ Run Z-Probe").clicked() {
+                                self.send_command("G38.2 Z-50 F100");
+                                self.send_command("G92 Z0");
+                                self.send_command("G0 Z5 F500");
+                            }
+                            if ui.button("🎯 Focus Point").clicked() {
+                                self.send_command("G0 Z20 F1000");
+                            }
+                        });
+                    });
+                }
+                RightPanelTab::Console => {
+                     let console_action = ui::console::show(ui, &self.console_log, &mut self.console_input);
+                     if let Some(cmd) = console_action.send_command { self.send_command(&cmd); }
+
+                     ui.separator();
+                     // Show GCode here too?
+                     self.ui_right_content(ui); // The GCode list
+                }
+                RightPanelTab::Art => {
+                    // Drawing Tools
+                    let draw_action = ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
+                    if let Some(lines) = draw_action.generate_gcode {
+                        let file = GCodeFile::from_lines("drawing", &lines);
+                        self.set_loaded_file(file, lines);
+                    }
+                    ui.add_space(8.0);
+                    // Alignment
+                    let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+                    let ws = self.renderer.workspace_size;
+                    ui::alignment::show(ui, &mut self.drawing_state, &selection, ws);
+
+                    ui.add_space(8.0);
+                    // Properties (Shape Properties)
+                    ui.label(RichText::new("Shape Properties").strong());
+                    if selection.len() == 1 {
+                        let idx = selection[0];
+                        if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
+                            let mut changed = false;
+                            ui.horizontal(|ui| {
+                                ui.label("X:"); if ui.add(egui::DragValue::new(&mut shape.x).speed(1.0)).changed() { changed = true; }
+                                ui.label("Y:"); if ui.add(egui::DragValue::new(&mut shape.y).speed(1.0)).changed() { changed = true; }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("W:"); if ui.add(egui::DragValue::new(&mut shape.width).speed(1.0)).changed() { changed = true; }
+                                ui.label("H:"); if ui.add(egui::DragValue::new(&mut shape.height).speed(1.0)).changed() { changed = true; }
+                            });
+
+                            if changed {
+                                let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                                let file = GCodeFile::from_lines("drawing", &lines);
+                                self.set_loaded_file(file, lines);
+                            }
+                        }
+                    } else if selection.len() > 1 {
+                        ui.label(format!("{} items selected", selection.len()));
+                    } else {
+                        ui.label("Select a shape to edit properties.");
+                    }
+                }
+                RightPanelTab::Laser => {
+                     // Connection
+                    let conn_action = ui::connection::show(ui, &self.ports, &mut self.selected_port, &self.baud_rates, &mut self.selected_baud, connected);
+                    if conn_action.connect { self.connect(); }
+                    if conn_action.disconnect { self.disconnect(); }
+                    if conn_action.refresh_ports { self.ports = connection::list_ports(); }
+
+                    ui.add_space(8.0);
+                    // Macros
+                    let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
+                    if let Some(gcode) = macros_action.execute_macro {
+                        for line in gcode.lines() { self.send_command(line.trim()); }
+                    }
+
+                    // Machine Profile
+                    ui.separator();
+                    ui.label(RichText::new("Machine Profile").strong());
+                    ui.horizontal(|ui| {
+                         if ui.checkbox(&mut self.machine_profile.rotary_enabled, "Rotary").changed() { self.machine_profile.save(); }
+                         if ui.checkbox(&mut self.machine_profile.air_assist, "Air Assist").changed() { self.machine_profile.save(); }
+                    });
+                }
+            }
         });
     }
 }
@@ -1329,6 +1501,10 @@ impl eframe::App for All4LaserApp {
             if let Some(l) = actions.set_layout {
                 self.ui_layout = l;
             }
+            if let Some(lang) = actions.set_language {
+                self.language = lang;
+                crate::i18n::set_language(lang);
+            }
             if actions.toggle_light_mode {
                 self.light_mode = !self.light_mode;
                 self.apply_theme(ctx);
@@ -1486,11 +1662,8 @@ impl eframe::App for All4LaserApp {
             if self.ui_layout == theme::UiLayout::Modern {
                 self.ui_right_content(ui);
             } else {
-                // Classic Right: Machine, Jog, Transform, Console, GCode
-                egui::ScrollArea::vertical().id_salt("right_scroll").show(ui, |ui| {
-                    self.ui_left_content(ui, connected); // Reuse most content
-                    self.ui_right_content(ui);       // Plus GCode viewer
-                });
+                // Classic Right: Tabbed interface
+                self.ui_right_tabs(ui, connected);
             }
         });
 

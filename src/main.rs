@@ -9,6 +9,7 @@ mod preview;
 mod imaging;
 mod ui;
 mod config;
+mod i18n;
 
 fn main() -> eframe::Result {
     env_logger::init();

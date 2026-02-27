@@ -1,22 +1,50 @@
 use egui::{Ui, RichText};
 use rusttype::{Font, Scale, point, OutlineBuilder};
+use font_kit::source::SystemSource;
+use font_kit::family_name::FamilyName;
+use font_kit::properties::Properties;
+use std::sync::Arc;
 
 pub struct TextToolState {
     pub is_open: bool,
     pub text: String,
     pub font_size: f32,
-    pub font_path: String,
     pub font_data: Option<Vec<u8>>,
+    pub system_fonts: Vec<String>,
+    pub selected_font: String,
+    pub font_source: FontSource,
+}
+
+#[derive(PartialEq)]
+pub enum FontSource {
+    System,
+    File,
 }
 
 impl Default for TextToolState {
     fn default() -> Self {
+        // Initialize with system fonts
+        let mut fonts = Vec::new();
+        if let Ok(handles) = SystemSource::new().all_fonts() {
+             for handle in handles {
+                 if let Ok(font) = handle.load() {
+                    let family = font.family_name();
+                    if !fonts.contains(&family) {
+                        fonts.push(family);
+                    }
+                 }
+             }
+        }
+        fonts.sort();
+
         Self {
             is_open: false,
             text: "All4Laser".to_string(),
             font_size: 40.0,
-            font_path: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf".to_string(),
             font_data: None,
+            selected_font: fonts.first().cloned().unwrap_or_else(|| "Arial".to_string()),
+            system_fonts: fonts,
+            font_source: FontSource::System,
         }
     }
 }
@@ -92,21 +120,60 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState) -> TextAction {
         });
 
         ui.horizontal(|ui| {
-            if ui.button("📁 Load Font").clicked() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("TrueType Font", &["ttf", "otf"])
-                    .pick_file() 
-                {
-                    state.font_path = path.to_string_lossy().to_string();
-                    state.font_data = std::fs::read(&state.font_path).ok();
-                }
-            }
-            ui.label(format!("Font: {}", std::path::Path::new(&state.font_path).file_name().unwrap_or_default().to_string_lossy()));
+            ui.label("Source:");
+            ui.selectable_value(&mut state.font_source, FontSource::System, "System");
+            ui.selectable_value(&mut state.font_source, FontSource::File, "File");
         });
 
+        if state.font_source == FontSource::System {
+             ui.horizontal(|ui| {
+                ui.label("Font:");
+                egui::ComboBox::from_id_source("font_combo")
+                    .selected_text(&state.selected_font)
+                    .width(200.0)
+                    .show_ui(ui, |ui| {
+                        for font in &state.system_fonts {
+                            ui.selectable_value(&mut state.selected_font, font.clone(), font);
+                        }
+                    });
+            });
+        } else {
+             ui.horizontal(|ui| {
+                if ui.button("📁 Load Font File").clicked() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("TrueType Font", &["ttf", "otf"])
+                        .pick_file()
+                    {
+                        if let Ok(data) = std::fs::read(&path) {
+                            state.font_data = Some(data);
+                            state.selected_font = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                        }
+                    }
+                }
+                ui.label(format!("File: {}", state.selected_font));
+            });
+        }
+
+
         if ui.button("🚀 Generate Text Paths").clicked() {
-            if state.font_data.is_none() {
-                state.font_data = std::fs::read(&state.font_path).ok();
+            // If system font selected, load it now
+            if state.font_source == FontSource::System {
+                if let Ok(handle) = SystemSource::new().select_by_postscript_name(&state.selected_font) {
+                     if let Ok(font) = handle.load() {
+                         state.font_data = Some(font.copy_font_data().unwrap_or_default().to_vec());
+                     }
+                }
+                // Fallback: try by family name if postscript failed (often user sees family name)
+                if state.font_data.is_none() {
+                     if let Ok(handle) = SystemSource::new().select_best_match(
+                         &[FamilyName::Title(state.selected_font.clone())],
+                         &Properties::new()
+                     ) {
+                          if let Ok(font) = handle.load() {
+                             state.font_data = Some(font.copy_font_data().unwrap_or_default().to_vec());
+                         }
+                     }
+                }
             }
 
             if let Some(data) = &state.font_data {

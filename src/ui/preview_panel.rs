@@ -36,8 +36,9 @@ pub fn show(
 
     // Zoom toolbar
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Preview").color(theme::LAVENDER).strong().size(14.0));
-        ui.checkbox(&mut renderer.show_rapids, "Show Rapids").on_hover_text("Show G0 rapid moves");
+        ui.label(RichText::new(crate::i18n::tr("Preview")).color(theme::LAVENDER).strong().size(14.0));
+        ui.checkbox(&mut renderer.show_rapids, "Rapids");
+        ui.checkbox(&mut renderer.realistic_preview, "Realistic");
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.button("⊞ Fit").clicked() {
                 action.auto_fit = true;
