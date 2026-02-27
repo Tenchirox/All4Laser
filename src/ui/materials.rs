@@ -97,7 +97,7 @@ pub fn show(ui: &mut Ui, state: &mut MaterialsState) -> MaterialApplyAction {
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new(format!("📦 {}", crate::i18n::tr("Material Library"))).color(theme::LAVENDER).strong());
+            ui.label(RichText::new("📦 Material Presets").color(theme::LAVENDER).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("📤 Export").clicked() {
                     if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).save_file() {

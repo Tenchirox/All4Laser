@@ -141,9 +141,12 @@ pub struct All4LaserApp {
     // Language
     language: crate::i18n::Language,
 
+<<<<<<< font-discovery-10009174142615310891
     // Layout State
     active_tab: RightPanelTab,
 
+=======
+>>>>>>> main
     // Timing
     last_poll: Instant,
 }
@@ -208,7 +211,10 @@ impl All4LaserApp {
             active_layer_idx: 0,
             cut_settings_state: ui::cut_settings::CutSettingsState::default(),
             language: crate::i18n::Language::English,
+<<<<<<< font-discovery-10009174142615310891
             active_tab: RightPanelTab::Cuts,
+=======
+>>>>>>> main
         };
 
         app.apply_theme(&cc.egui_ctx);
