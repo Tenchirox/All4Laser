@@ -2,7 +2,7 @@
 
 use egui::{Ui, RichText};
 use crate::theme;
-use crate::ui::layers_new::CutLayer;
+use crate::ui::layers_new::{CutLayer, CutMode};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShapeKind {
@@ -204,10 +204,18 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
 
         for pass in 0..layer.passes {
             if layer.passes > 1 { lines.push(format!("; Pass {}", pass + 1)); }
-            match shape.shape {
-                ShapeKind::Rectangle => gen_rect(&mut lines, shape, layer),
-                ShapeKind::Circle => gen_circle(&mut lines, shape, layer),
-                ShapeKind::TextLine => gen_text(&mut lines, shape, layer),
+
+            // Check for Fill mode
+            if layer.mode == CutMode::Fill || layer.mode == CutMode::FillAndLine {
+                crate::gcode::fill::generate_fill(&mut lines, shape, layer, 0.1); // 0.1mm interval default
+            }
+
+            if layer.mode == CutMode::Line || layer.mode == CutMode::FillAndLine {
+                match shape.shape {
+                    ShapeKind::Rectangle => gen_rect(&mut lines, shape, layer),
+                    ShapeKind::Circle => gen_circle(&mut lines, shape, layer),
+                    ShapeKind::TextLine => gen_text(&mut lines, shape, layer),
+                }
             }
         }
 
