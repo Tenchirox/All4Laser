@@ -96,6 +96,7 @@ pub fn show(ctx: &egui::Context, state: &mut CutSettingsState, layers: &[CutLaye
                 ui.add_space(8.0);
                 ui.checkbox(&mut layer.air_assist, "Air Assist (M8)");
                 ui.checkbox(&mut layer.visible, "Output Enabled");
+                ui.checkbox(&mut layer.show, "Show in Preview");
 
                 ui.add_space(16.0);
                 ui.horizontal(|ui| {

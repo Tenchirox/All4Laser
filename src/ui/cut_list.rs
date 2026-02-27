@@ -77,14 +77,8 @@ pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize) -> CutListA
                     // 4. Output Toggle
                     ui.checkbox(&mut layer.visible, "");
 
-                    // 5. Show (Visibility on preview? Actually `visible` usually means "Output to Laser").
-                    // In LightBurn "Output" means send to laser, "Show" means show in preview.
-                    // My struct `CutLayer` only has `visible`.
-                    // Let's assume `visible` = Output.
-                    // I don't have a separate "Hide from Preview" flag.
-                    // Let's just use `visible` for "Output" column and skip "Show" column or duplicate it?
-                    // Let's rename column 4 to "Enabled".
-                    ui.label(if layer.visible { "👁" } else { "Ø" });
+                    // 5. Show in preview toggle
+                    ui.checkbox(&mut layer.show, "");
 
                     ui.end_row();
                 }

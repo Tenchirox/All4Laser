@@ -169,6 +169,13 @@ impl PreviewRenderer {
 
         // Draw interactive shapes (Overlay)
         for (idx, shape) in shapes.iter().enumerate() {
+            let layer = _layers.get(shape.layer_idx);
+            if let Some(l) = layer {
+                if !l.show {
+                    continue; // Skip rendering shapes on hidden layers
+                }
+            }
+
             let is_selected = self.selected_shape_idx.contains(&idx);
             self.draw_shape_overlay(ui, &painter, shape, rect, is_selected, idx, _layers);
         }
