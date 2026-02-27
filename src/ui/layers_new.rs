@@ -28,6 +28,11 @@ pub struct CutLayer {
     pub air_assist: bool,
     pub z_offset: f32,
     pub visible: bool,      // Output enabled?
+
+    // Tabs / Bridges
+    pub tab_enabled: bool,
+    pub tab_spacing: f32,   // Distance between tabs in mm
+    pub tab_size: f32,      // Size of the gap in mm
 }
 
 fn serialize_color<S>(color: &Color32, serializer: S) -> Result<S::Ok, S::Error>
@@ -94,6 +99,9 @@ impl CutLayer {
                 air_assist: false,
                 z_offset: 0.0,
                 visible: true,
+                tab_enabled: false,
+                tab_spacing: 50.0,
+                tab_size: 0.5,
             });
         }
         layers

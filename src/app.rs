@@ -7,7 +7,8 @@ use crate::config::recent_files::RecentFiles;
 use crate::gcode::file::GCodeFile;
 use crate::grbl::types::*;
 use crate::grbl::protocol;
-use crate::preview::renderer::PreviewRenderer;
+use crate::preview::renderer::{PreviewRenderer, InteractiveAction};
+use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
 use crate::serial::connection::{self, SerialConnection, SerialMsg};
 use crate::theme;
 use crate::ui;
@@ -119,6 +120,9 @@ pub struct All4LaserApp {
 
     // Camera
     camera_state: ui::camera::CameraState,
+    circular_array_state: ui::circular_array::CircularArrayState,
+    offset_state: ui::offset::OffsetState,
+    boolean_ops_state: ui::boolean_ops::BooleanOpsState,
 
     // Professional Tier
     text_state: ui::text::TextToolState,
@@ -187,6 +191,9 @@ impl All4LaserApp {
             spindle_override_pct: 100.0,
             estimation: crate::gcode::estimation::EstimationResult::default(),
             camera_state: ui::camera::CameraState::default(),
+            circular_array_state: ui::circular_array::CircularArrayState::default(),
+            offset_state: ui::offset::OffsetState::default(),
+            boolean_ops_state: ui::boolean_ops::BooleanOpsState::default(),
             text_state: ui::text::TextToolState::default(),
             generator_state: ui::generators::GeneratorState::default(),
             layers: ui::layers_new::CutLayer::default_palette(),
@@ -866,7 +873,47 @@ impl All4LaserApp {
             let gen_action = ui::generators::show(ui, &mut self.generator_state);
             if let Some(lines) = gen_action.generate_gcode {
                 let file = GCodeFile::from_lines("generator", &lines);
+
                 self.set_loaded_file(file, lines);
+            }
+            ui.add_space(8.0);
+            if ui.button(RichText::new("🌀 Circular Array").color(theme::LAVENDER).strong()).clicked() {
+                self.circular_array_state.is_open = true;
+            }
+            if ui.button(RichText::new("📐 Offset Path").color(theme::LAVENDER).strong()).clicked() {
+                self.offset_state.is_open = true;
+            }
+            if ui.button(RichText::new("🧩 Boolean Ops").color(theme::LAVENDER).strong()).clicked() {
+                self.boolean_ops_state.is_open = true;
+            }
+
+            ui.add_space(8.0);
+            let node_edit_text = if self.renderer.node_edit_mode { "✅ Node Editing" } else { "🖱 Node Editing" };
+            if ui.selectable_label(self.renderer.node_edit_mode, RichText::new(node_edit_text).color(theme::PEACH).strong()).clicked() {
+                self.renderer.node_edit_mode = !self.renderer.node_edit_mode;
+                if !self.renderer.node_edit_mode {
+                    self.renderer.selected_node = None;
+                }
+            }
+
+            if self.renderer.selected_shape_idx.len() == 1 {
+                let idx = *self.renderer.selected_shape_idx.iter().next().unwrap();
+                if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                    if !matches!(shape.shape, ShapeKind::Path(_)) {
+                         if ui.button("🛤 Convert to Path").clicked() {
+                             if let Some(poly) = ui::offset::shape_to_polygon(shape) {
+                                  let exterior = poly.exterior();
+                                  let pts: Vec<(f32, f32)> = exterior.coords().map(|c| (c.x as f32, c.y as f32)).collect();
+                                  let mut new_shape = shape.clone();
+                                  new_shape.shape = ShapeKind::Path(pts);
+                                  new_shape.x = 0.0;
+                                  new_shape.y = 0.0;
+                                  self.drawing_state.shapes[idx] = new_shape;
+                                  self.log("Converted to path.".into());
+                             }
+                         }
+                    }
+                }
             }
         }
 
@@ -1138,6 +1185,45 @@ impl eframe::App for All4LaserApp {
                 let file = GCodeFile::from_lines("tiled", &lines);
                 self.set_loaded_file(file, lines);
                 self.log("Tiling applied.".into());
+            }
+        }
+
+        // === Circular Array Window ===
+        {
+            let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+            let ca_action = ui::circular_array::show(ctx, &mut self.circular_array_state);
+            if ca_action.apply {
+                ui::circular_array::apply_array(&self.circular_array_state, &mut self.drawing_state, &selection);
+                let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                let file = GCodeFile::from_lines("drawing", &lines);
+                self.set_loaded_file(file, lines);
+                self.log("Circular array applied.".into());
+            }
+        }
+
+        // === Offset Window ===
+        {
+            let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+            let off_action = ui::offset::show(ctx, &mut self.offset_state);
+            if off_action.apply {
+                ui::offset::apply_offset(&self.offset_state, &mut self.drawing_state, &selection);
+                let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                let file = GCodeFile::from_lines("drawing", &lines);
+                self.set_loaded_file(file, lines);
+                self.log("Offset applied.".into());
+            }
+        }
+
+        // === Boolean Ops Window ===
+        {
+            let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+            let bool_action = ui::boolean_ops::show(ctx, &mut self.boolean_ops_state);
+            if bool_action.apply {
+                ui::boolean_ops::apply_boolean(&self.boolean_ops_state, &mut self.drawing_state, &selection);
+                let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                let file = GCodeFile::from_lines("drawing", &lines);
+                self.set_loaded_file(file, lines);
+                self.log("Boolean operation applied.".into());
             }
         }
 
@@ -1588,6 +1674,21 @@ impl eframe::App for All4LaserApp {
                     let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
                     let file = GCodeFile::from_lines("drawing", &lines);
                     self.set_loaded_file(file, lines);
+                }
+                crate::preview::renderer::InteractiveAction::MoveNode { shape_idx, node_idx, new_pos } => {
+                    if let Some(shape) = self.drawing_state.shapes.get_mut(shape_idx) {
+                        if let ShapeKind::Path(pts) = &mut shape.shape {
+                             if let Some(p) = pts.get_mut(node_idx) {
+                                 p.0 = new_pos.x - shape.x;
+                                 p.1 = new_pos.y - shape.y;
+                                 
+                                 // Regenerate G-code for preview
+                                 let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                                 let file = GCodeFile::from_lines("drawing", &lines);
+                                 self.set_loaded_file(file, lines);
+                             }
+                        }
+                    }
                 }
                 _ => {}
             }

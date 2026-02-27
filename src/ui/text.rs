@@ -13,6 +13,15 @@ pub struct TextToolState {
     pub system_fonts: Vec<String>,
     pub selected_font: String,
     pub font_source: FontSource,
+
+    // Variable Text
+    pub is_variable: bool,
+    pub var_prefix: String,
+    pub var_suffix: String,
+    pub var_start: i32,
+    pub var_inc: i32,
+    pub var_padding: usize,
+    pub var_count: i32,
 }
 
 #[derive(PartialEq)]
@@ -45,6 +54,13 @@ impl Default for TextToolState {
             selected_font: fonts.first().cloned().unwrap_or_else(|| "Arial".to_string()),
             system_fonts: fonts,
             font_source: FontSource::System,
+            is_variable: false,
+            var_prefix: "SN-".to_string(),
+            var_suffix: "".to_string(),
+            var_start: 1,
+            var_inc: 1,
+            var_padding: 3,
+            var_count: 10,
         }
     }
 }
@@ -110,9 +126,36 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState) -> TextAction {
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.label("Text:");
-            ui.text_edit_singleline(&mut state.text);
+            ui.checkbox(&mut state.is_variable, "🔢 Variable Text (Serial Numbers)");
         });
+
+        if state.is_variable {
+            ui.group(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Prefix:");
+                    ui.text_edit_singleline(&mut state.var_prefix);
+                    ui.label("Suffix:");
+                    ui.text_edit_singleline(&mut state.var_suffix);
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Start:");
+                    ui.add(egui::DragValue::new(&mut state.var_start));
+                    ui.label("Inc:");
+                    ui.add(egui::DragValue::new(&mut state.var_inc));
+                    ui.label("Pad:");
+                    ui.add(egui::DragValue::new(&mut state.var_padding).range(0..=10));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Batch Count:");
+                    ui.add(egui::DragValue::new(&mut state.var_count).range(1..=100));
+                });
+            });
+        } else {
+            ui.horizontal(|ui| {
+                ui.label("Text:");
+                ui.text_edit_singleline(&mut state.text);
+            });
+        }
 
         ui.horizontal(|ui| {
             ui.label("Size:");
@@ -180,43 +223,57 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState) -> TextAction {
                 if let Some(font) = Font::try_from_vec(data.clone()) {
                     let scale = Scale::uniform(state.font_size);
                     let v_metrics = font.v_metrics(scale);
-                    let mut builder = GCodeBuilder::new(1.0); // rusttype coordinates are fine
-
-                    let glyphs: Vec<_> = font.layout(&state.text, scale, point(0.0, v_metrics.ascent)).collect();
-                    for glyph in glyphs {
-                        glyph.unpositioned().build_outline(&mut builder);
-                    }
-
-                    // Redo with positioning
-                    let mut final_paths = Vec::new();
-                    for glyph in font.layout(&state.text, scale, point(0.0, v_metrics.ascent)) {
-                        let pos = glyph.position();
-                        let mut g_builder = GCodeBuilder::new(1.0);
-                        glyph.unpositioned().build_outline(&mut g_builder);
-                        for mut path in g_builder.paths {
-                            for p in &mut path {
-                                p.0 += pos.x;
-                                p.1 -= pos.y - v_metrics.ascent; // Flip Y properly
-                            }
-                            final_paths.push(path);
-                        }
-                    }
-
-                    let mut gcode = Vec::new();
-                    gcode.push("; Text: ".to_string() + &state.text);
-                    gcode.push("G90".to_string());
-                    gcode.push("G21".to_string());
-                    gcode.push("M5".to_string());
                     
-                    for path in final_paths {
-                        if path.is_empty() { continue; }
-                        gcode.push(format!("G0 X{:.3} Y{:.3}", path[0].0, path[0].1));
-                        gcode.push("M3 S500".to_string());
-                        for p in &path[1..] {
-                            gcode.push(format!("G1 X{:.3} Y{:.3} F1000", p.0, p.1));
+                    let mut gcode = Vec::new();
+                    gcode.push("; Generated Text — All4Laser".into());
+                    gcode.push("G90".into());
+                    gcode.push("G21".into());
+
+                    // Determine batch of strings to generate
+                    let texts_to_gen = if state.is_variable {
+                        let mut v = Vec::new();
+                        for i in 0..state.var_count {
+                            let val = state.var_start + (i * state.var_inc);
+                            let val_str = format!("{:0>width$}", val, width = state.var_padding);
+                            v.push(format!("{}{}{}", state.var_prefix, val_str, state.var_suffix));
                         }
-                        gcode.push("M5".to_string());
+                        v
+                    } else {
+                        vec![state.text.clone()]
+                    };
+
+                    let mut current_y_offset = 0.0;
+                    for text_str in texts_to_gen {
+                        gcode.push(format!("; Content: {}", text_str));
+                        
+                        let mut final_paths = Vec::new();
+                        for glyph in font.layout(&text_str, scale, point(0.0, v_metrics.ascent)) {
+                            let pos = glyph.position();
+                            let mut g_builder = GCodeBuilder::new(1.0);
+                            glyph.unpositioned().build_outline(&mut g_builder);
+                            for mut path in g_builder.paths {
+                                for p in &mut path {
+                                    p.0 += pos.x;
+                                    p.1 -= pos.y - v_metrics.ascent + current_y_offset; // Flip and offset
+                                }
+                                final_paths.push(path);
+                            }
+                        }
+
+                        for path in final_paths {
+                            if path.is_empty() { continue; }
+                            gcode.push(format!("G0 X{:.3} Y{:.3}", path[0].0, path[0].1));
+                            gcode.push("M3 S500".to_string());
+                            for p in &path[1..] {
+                                gcode.push(format!("G1 X{:.3} Y{:.3} F1000", p.0, p.1));
+                            }
+                            gcode.push("M5".to_string());
+                        }
+
+                        // Shift down for next entry if batching
+                        current_y_offset += state.font_size * 1.5;
                     }
+                    
                     action.generate_gcode = Some(gcode);
                 }
             }

@@ -6,3 +6,4 @@ pub mod optimizer;
 pub mod fill;
 pub mod generator;
 pub mod transform;
+pub mod path_utils;
