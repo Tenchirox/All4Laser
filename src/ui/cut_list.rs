@@ -7,7 +7,7 @@ pub struct CutListAction {
     pub open_settings: Option<usize>,
 }
 
-pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize) -> CutListAction {
+pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize, hide_unused: bool, used_layers: &std::collections::HashSet<usize>) -> CutListAction {
     let mut action = CutListAction { select_layer: None, open_settings: None };
 
     ui.group(|ui| {
@@ -25,17 +25,15 @@ pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize) -> CutListA
                 ui.label("Show");
                 ui.end_row();
 
-                // Only show active layers? Or allow user to see all?
-                // LightBurn only shows used layers usually, but we don't track "used" status easily unless we scan all shapes.
-                // For simplicity, let's show ALL 30 layers but maybe compact or scrollable.
-                // Or better: Show only layers that are "visible" OR have been modified from default?
-                // Let's show all for now inside the ScrollArea provided by the parent tab.
-
                 // Note: The parent `ui` is already in a scroll area in `app.rs`.
                 // Grid inside ScrollArea works fine.
 
                 for (i, layer) in layers.iter_mut().enumerate() {
                     let is_active = i == active_idx;
+
+                    if hide_unused && !is_active && !used_layers.contains(&i) {
+                        continue;
+                    }
 
                     // Row background for active
                     // Grid doesn't support full row selection easily without custom paint or tricks.

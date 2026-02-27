@@ -143,6 +143,7 @@ pub struct All4LaserApp {
     layers: Vec<ui::layers_new::CutLayer>,
     active_layer_idx: usize,
     cut_settings_state: ui::cut_settings::CutSettingsState,
+    hide_unused_layers: bool,
 
     // Language
     language: crate::i18n::Language,
@@ -217,6 +218,7 @@ impl All4LaserApp {
             layers: ui::layers_new::CutLayer::default_palette(),
             active_layer_idx: 0,
             cut_settings_state: ui::cut_settings::CutSettingsState::default(),
+            hide_unused_layers: false,
             language: crate::i18n::Language::English, // Will be overridden
             active_tab: RightPanelTab::Cuts,         // Will be overridden
             settings: AppSettings::load(),
@@ -1222,10 +1224,14 @@ impl All4LaserApp {
         egui::ScrollArea::vertical().id_salt("tab_scroll").show(ui, |ui| {
             match self.active_tab {
                 RightPanelTab::Cuts => {
-                    // Layer List Table (to be implemented more fully)
-                    ui.label(RichText::new("Layers").strong());
-                    // Reuse palette for now, but vertical?
-                    // We need a list view.
+                    // Layer List Table
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("Layers").strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.checkbox(&mut self.hide_unused_layers, "Hide Unused");
+                        });
+                    });
+
                     // For now, I'll put Materials here too.
                     ui.add_space(8.0);
                     let mat_action = ui::materials::show(ui, &mut self.materials_state);
@@ -1233,8 +1239,14 @@ impl All4LaserApp {
                     if let Some(p) = mat_action.apply_power { self.test_fire_power = p / 10.0; }
 
                     ui.separator();
+
+                    let mut used_layers = std::collections::HashSet::new();
+                    for shape in &self.drawing_state.shapes {
+                        used_layers.insert(shape.layer_idx);
+                    }
+
                     // Show full layers list with details
-                    let list_action = ui::cut_list::show(ui, &mut self.layers, self.active_layer_idx);
+                    let list_action = ui::cut_list::show(ui, &mut self.layers, self.active_layer_idx, self.hide_unused_layers, &used_layers);
                     if let Some(idx) = list_action.select_layer {
                         self.active_layer_idx = idx;
                         self.drawing_state.current.layer_idx = idx;

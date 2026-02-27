@@ -78,6 +78,13 @@ pub fn show(ctx: &egui::Context, state: &mut CutSettingsState, layers: &[CutLaye
                     ui.add(egui::DragValue::new(&mut layer.z_offset).speed(0.1));
                     ui.end_row();
 
+                    if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine) {
+                        ui.label(RichText::new("🏃 Fast Whitespace:").strong());
+                        ui.checkbox(&mut layer.fast_whitespace, "Enabled")
+                            .on_hover_text("Use rapid moves (G0) instead of linear feed (G1) when scanning empty gaps");
+                        ui.end_row();
+                    }
+
                     ui.label(RichText::new("🏗 Tabs / Bridges:").strong());
                     ui.checkbox(&mut layer.tab_enabled, "Enabled");
                     ui.end_row();

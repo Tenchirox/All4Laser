@@ -31,6 +31,9 @@ pub struct CutLayer {
     #[serde(default = "default_show")]
     pub show: bool,         // Show in preview?
 
+    #[serde(default = "default_fast_whitespace")]
+    pub fast_whitespace: bool, // LightBurn-style fast traversal over empty areas
+
     // Tabs / Bridges
     pub tab_enabled: bool,
     pub tab_spacing: f32,   // Distance between tabs in mm
@@ -54,6 +57,10 @@ where
 }
 
 fn default_show() -> bool {
+    true
+}
+
+fn default_fast_whitespace() -> bool {
     true
 }
 
@@ -106,6 +113,7 @@ impl CutLayer {
                 z_offset: 0.0,
                 visible: true,
                 show: true,
+                fast_whitespace: true,
                 tab_enabled: false,
                 tab_spacing: 50.0,
                 tab_size: 0.5,
