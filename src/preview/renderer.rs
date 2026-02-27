@@ -304,10 +304,10 @@ impl PreviewRenderer {
         flush_accumulated(&painter, &mut current_accumulated_line);
     }
 
-    fn draw_shape_overlay(&self, ui: &Ui, painter: &Painter, shape: &ShapeParams, rect: Rect, is_selected: bool, idx: usize, layers: &[CutLayer]) {
+    fn draw_shape_overlay(&mut self, ui: &Ui, painter: &Painter, shape: &ShapeParams, rect: Rect, is_selected: bool, idx: usize, layers: &[CutLayer]) {
         let is_hovered = self.hover_shape_idx == Some(idx);
         
-        let mut stroke_color = if is_selected {
+        let stroke_color = if is_selected {
             theme::BLUE
         } else if is_hovered {
             theme::LAVENDER
@@ -323,20 +323,29 @@ impl PreviewRenderer {
         let stroke = Stroke::new(1.0, stroke_color);
         let angle = shape.rotation.to_radians();
 
-        // Helper to transform local shape point to screen
-        let to_screen = |lx: f32, ly: f32| -> Pos2 {
-            let wx = shape.x + lx * angle.cos() - ly * angle.sin();
-            let wy = shape.y + lx * angle.sin() + ly * angle.cos();
-            self.world_to_screen(wx, wy, rect)
-        };
-
         // Draw the shape itself
         match &shape.shape {
             ShapeKind::Rectangle => {
-                let p1 = to_screen(0.0, 0.0);
-                let p2 = to_screen(shape.width, 0.0);
-                let p3 = to_screen(shape.width, shape.height);
-                let p4 = to_screen(0.0, shape.height);
+                let p1 = {
+                    let wx = shape.x + 0.0 * angle.cos() - 0.0 * angle.sin();
+                    let wy = shape.y + 0.0 * angle.sin() + 0.0 * angle.cos();
+                    self.world_to_screen(wx, wy, rect)
+                };
+                let p2 = {
+                    let wx = shape.x + shape.width * angle.cos() - 0.0 * angle.sin();
+                    let wy = shape.y + shape.width * angle.sin() + 0.0 * angle.cos();
+                    self.world_to_screen(wx, wy, rect)
+                };
+                let p3 = {
+                    let wx = shape.x + shape.width * angle.cos() - shape.height * angle.sin();
+                    let wy = shape.y + shape.width * angle.sin() + shape.height * angle.cos();
+                    self.world_to_screen(wx, wy, rect)
+                };
+                let p4 = {
+                    let wx = shape.x + 0.0 * angle.cos() - shape.height * angle.sin();
+                    let wy = shape.y + 0.0 * angle.sin() + shape.height * angle.cos();
+                    self.world_to_screen(wx, wy, rect)
+                };
                 painter.line_segment([p1, p2], stroke);
                 painter.line_segment([p2, p3], stroke);
                 painter.line_segment([p3, p4], stroke);
@@ -359,35 +368,62 @@ impl PreviewRenderer {
             ShapeKind::Path(pts) => {
                 if pts.len() > 1 {
                     for i in 0..pts.len() - 1 {
-                        let p1 = to_screen(pts[i].0, pts[i].1);
-                        let p2 = to_screen(pts[i+1].0, pts[i+1].1);
+                        let p1 = {
+                            let wx = shape.x + pts[i].0 * angle.cos() - pts[i].1 * angle.sin();
+                            let wy = shape.y + pts[i].0 * angle.sin() + pts[i].1 * angle.cos();
+                            self.world_to_screen(wx, wy, rect)
+                        };
+                        let p2 = {
+                            let wx = shape.x + pts[i+1].0 * angle.cos() - pts[i+1].1 * angle.sin();
+                            let wy = shape.y + pts[i+1].0 * angle.sin() + pts[i+1].1 * angle.cos();
+                            self.world_to_screen(wx, wy, rect)
+                        };
                         painter.line_segment([p1, p2], stroke);
                     }
                 }
             }
             ShapeKind::RasterImage { data, params } => {
-                // Get or Create texture
-                let texture = self.image_textures.entry(idx).or_insert_with(|| {
-                    let processed = crate::imaging::raster::preprocess_image(&data.0, params);
-                    let rgba = processed.to_rgba8();
-                    let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                        [rgba.width() as _, rgba.height() as _],
-                        rgba.as_flat_samples().as_slice(),
-                    );
-                    ui.ctx().load_texture(
-                        format!("shape_{}", idx),
-                        color_image,
-                        Default::default()
-                    )
-                });
+                let texture_id = {
+                    // Get or Create texture
+                    let texture = self.image_textures.entry(idx).or_insert_with(|| {
+                        let processed = crate::imaging::raster::preprocess_image(&data.0, params);
+                        let rgba = processed.to_rgba8();
+                        let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                            [rgba.width() as _, rgba.height() as _],
+                            rgba.as_flat_samples().as_slice(),
+                        );
+                        ui.ctx().load_texture(
+                            format!("shape_{}", idx),
+                            color_image,
+                            Default::default()
+                        )
+                    });
+                    texture.id()
+                };
 
                 // Calculate the rotated quad
-                let p1 = to_screen(0.0, 0.0);
-                let p2 = to_screen(params.width_mm, 0.0);
-                let p3 = to_screen(params.width_mm, params.height_mm);
-                let p4 = to_screen(0.0, params.height_mm);
+                let p1 = {
+                    let wx = shape.x + 0.0 * angle.cos() - 0.0 * angle.sin();
+                    let wy = shape.y + 0.0 * angle.sin() + 0.0 * angle.cos();
+                    self.world_to_screen(wx, wy, rect)
+                };
+                let p2 = {
+                    let wx = shape.x + params.width_mm * angle.cos() - 0.0 * angle.sin();
+                    let wy = shape.y + params.width_mm * angle.sin() + 0.0 * angle.cos();
+                    self.world_to_screen(wx, wy, rect)
+                };
+                let p3 = {
+                    let wx = shape.x + params.width_mm * angle.cos() - params.height_mm * angle.sin();
+                    let wy = shape.y + params.width_mm * angle.sin() + params.height_mm * angle.cos();
+                    self.world_to_screen(wx, wy, rect)
+                };
+                let p4 = {
+                    let wx = shape.x + 0.0 * angle.cos() - params.height_mm * angle.sin();
+                    let wy = shape.y + 0.0 * angle.sin() + params.height_mm * angle.cos();
+                    self.world_to_screen(wx, wy, rect)
+                };
 
-                let mut mesh = egui::Mesh::with_texture(texture.id());
+                let mut mesh = egui::Mesh::with_texture(texture_id);
                 let base_idx = mesh.vertices.len() as u32;
                 mesh.add_triangle(base_idx, base_idx + 1, base_idx + 2);
                 mesh.add_triangle(base_idx, base_idx + 2, base_idx + 3);
@@ -464,7 +500,11 @@ impl PreviewRenderer {
             if self.node_edit_mode {
                 if let ShapeKind::Path(pts) = &shape.shape {
                     for (v_idx, p) in pts.iter().enumerate() {
-                        let vp = to_screen(p.0, p.1);
+                        let vp = {
+                            let wx = shape.x + p.0 * angle.cos() - p.1 * angle.sin();
+                            let wy = shape.y + p.0 * angle.sin() + p.1 * angle.cos();
+                            self.world_to_screen(wx, wy, rect)
+                        };
                         let is_node_sel = self.selected_node == Some((idx, v_idx));
                         let color = if is_node_sel { theme::RED } else { theme::GREEN };
                         painter.circle_filled(vp, 4.0, color);
@@ -645,6 +685,7 @@ impl PreviewRenderer {
                                 }
                                 (max_x, max_y)
                             }
+                            ShapeKind::RasterImage { params, .. } => (params.width_mm, params.height_mm),
                         };
                         
                         // Angle from center to top-right handle in local space
@@ -788,10 +829,10 @@ impl PreviewRenderer {
             (1.0, 5.0)
         };
 
-        let min_wx = (rect.left() - self.pan.x) / self.zoom;
-        let max_wx = (rect.right() - self.pan.x) / self.zoom;
-        let min_wy = (self.pan.y - rect.bottom()) / self.zoom;
-        let max_wy = (self.pan.y - rect.top()) / self.zoom;
+        let _min_wx = (rect.left() - self.pan.x) / self.zoom;
+        let _max_wx = (rect.right() - self.pan.x) / self.zoom;
+        let _min_wy = (self.pan.y - rect.bottom()) / self.zoom;
+        let _max_wy = (self.pan.y - rect.top()) / self.zoom;
 
         // Vertical lines (X axis) constrained to workspace
         let mut wx = 0.0;
