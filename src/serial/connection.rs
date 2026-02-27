@@ -78,21 +78,37 @@ impl SerialConnection {
             loop {
                 match cmd_rx.recv() {
                     Ok(SerialCmd::SendLine(line)) => {
-                        if let Some(ref mut port) = *port_for_writer.lock().unwrap() {
-                            let data = format!("{line}\n");
-                            let _ = port.write_all(data.as_bytes());
-                            let _ = port.flush();
+                        // Use match to handle lock poisoning gracefully
+                        match port_for_writer.lock() {
+                            Ok(mut guard) => {
+                                if let Some(ref mut port) = *guard {
+                                    let data = format!("{line}\n");
+                                    let _ = port.write_all(data.as_bytes());
+                                    let _ = port.flush();
+                                }
+                            }
+                            Err(_) => break, // Exit if poisoned
                         }
                     }
                     Ok(SerialCmd::SendByte(byte)) => {
-                        if let Some(ref mut port) = *port_for_writer.lock().unwrap() {
-                            let _ = port.write_all(&[byte]);
-                            let _ = port.flush();
+                        match port_for_writer.lock() {
+                            Ok(mut guard) => {
+                                if let Some(ref mut port) = *guard {
+                                    let _ = port.write_all(&[byte]);
+                                    let _ = port.flush();
+                                }
+                            }
+                            Err(_) => break,
                         }
                     }
                     Ok(SerialCmd::Disconnect) | Err(_) => {
-                        if let Some(ref mut _port) = port_for_writer.lock().unwrap().take() {
-                            // port dropped = closed
+                        match port_for_writer.lock() {
+                            Ok(mut guard) => {
+                                if let Some(ref mut _port) = guard.take() {
+                                    // port dropped = closed
+                                }
+                            }
+                            Err(_) => {} // Already poisoned, just exit
                         }
                         break;
                     }
@@ -120,7 +136,10 @@ impl SerialConnection {
     }
 
     pub fn is_connected(&self) -> bool {
-        self.port_handle.lock().unwrap().is_some()
+        match self.port_handle.lock() {
+            Ok(guard) => guard.is_some(),
+            Err(_) => false,
+        }
     }
 }
 

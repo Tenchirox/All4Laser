@@ -2,7 +2,8 @@
 
 use egui::{Ui, RichText};
 use crate::theme;
-use crate::ui::layers_new::CutLayer;
+use crate::ui::layers_new::{CutLayer, CutMode};
+use crate::gcode::generator::GCodeBuilder;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShapeKind {
@@ -167,10 +168,11 @@ pub fn show(ui: &mut Ui, state: &mut DrawingState, layers: &[CutLayer], active_l
 }
 
 pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<String> {
-    let mut lines = Vec::new();
-    lines.push("; Compiled Drawing — All4Laser".into());
-    lines.push("G90".into());
-    lines.push("G21".into());
+    let mut builder = GCodeBuilder::new();
+
+    builder.comment("Compiled Drawing — All4Laser");
+    builder.raw("G90");
+    builder.raw("G21");
 
     // Create a default layer fallback once, outside the loop
     let default_layer = if !layers.is_empty() {
@@ -190,54 +192,69 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
             continue;
         }
 
-        lines.push(format!("; Shape {}: {:?} [Layer C{:02}]", idx + 1, shape.shape, layer.id));
+        builder.comment(&format!("Shape {}: {:?} [Layer C{:02}]", idx + 1, shape.shape, layer.id));
 
         // Apply Z-offset if needed (simple implementation: move Z before start)
         if layer.z_offset != 0.0 {
-            lines.push(format!("G0 Z{:.2}", layer.z_offset));
+            builder.raw(&format!("G0 Z{:.2}", layer.z_offset));
         }
 
         // Air Assist
         if layer.air_assist {
-             lines.push("M8".into());
+             builder.raw("M8");
         }
 
         for pass in 0..layer.passes {
-            if layer.passes > 1 { lines.push(format!("; Pass {}", pass + 1)); }
-            match shape.shape {
-                ShapeKind::Rectangle => gen_rect(&mut lines, shape, layer),
-                ShapeKind::Circle => gen_circle(&mut lines, shape, layer),
-                ShapeKind::TextLine => gen_text(&mut lines, shape, layer),
+            if layer.passes > 1 { builder.comment(&format!("Pass {}", pass + 1)); }
+
+            // Check for Fill mode
+            if layer.mode == CutMode::Fill || layer.mode == CutMode::FillAndLine {
+                let mut temp_lines = Vec::new();
+                crate::gcode::fill::generate_fill(&mut temp_lines, shape, layer, 0.1);
+                // Ingest lines into builder (or ideally generate_fill should accept builder, but for now we mix)
+                // Actually, since generate_fill uses its own builder and returns lines, let's just append.
+                // But GCodeBuilder tracks state. We should probably reset state or make generate_fill use *our* builder.
+                // For this refactor, let's just dump the strings and reset builder state to unknown.
+                builder.lines.extend(temp_lines);
+                builder.reset_state(); // Because generate_fill might have left laser on or moved without us knowing
+            }
+
+            if layer.mode == CutMode::Line || layer.mode == CutMode::FillAndLine {
+                match shape.shape {
+                    ShapeKind::Rectangle => gen_rect(&mut builder, shape, layer),
+                    ShapeKind::Circle => gen_circle(&mut builder, shape, layer),
+                    ShapeKind::TextLine => gen_text(&mut builder, shape, layer),
+                }
             }
         }
 
         if layer.air_assist {
-            lines.push("M9".into());
+            builder.raw("M9");
         }
     }
 
-    lines.push("M5".into());
-    lines.push("G0 X0 Y0".into());
-    lines
+    builder.laser_off();
+    builder.rapid(0.0, 0.0);
+
+    builder.finish()
 }
 
-fn gen_rect(lines: &mut Vec<String>, s: &ShapeParams, layer: &CutLayer) {
+fn gen_rect(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
     let (x0, y0) = (s.x, s.y);
     let (x1, y1) = (s.x + s.width, s.y + s.height);
     let sp = layer.speed;
     let pw = layer.power;
 
-    lines.push(format!("M5"));
-    lines.push(format!("G0 X{:.3} Y{:.3}", x0, y0));
-    lines.push(format!("M3 S{:.0}", pw));
-    lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", x1, y0, sp));
-    lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", x1, y1, sp));
-    lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", x0, y1, sp));
-    lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", x0, y0, sp));
-    lines.push("M5".into());
+    builder.laser_off();
+    builder.rapid(x0, y0);
+    builder.linear(x1, y0, sp, pw);
+    builder.linear(x1, y1, sp, pw);
+    builder.linear(x0, y1, sp, pw);
+    builder.linear(x0, y0, sp, pw);
+    builder.laser_off();
 }
 
-fn gen_circle(lines: &mut Vec<String>, s: &ShapeParams, layer: &CutLayer) {
+fn gen_circle(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
     use std::f32::consts::PI;
     let cx = s.x;
     let cy = s.y;
@@ -250,20 +267,19 @@ fn gen_circle(lines: &mut Vec<String>, s: &ShapeParams, layer: &CutLayer) {
     let start_x = cx + r;
     let start_y = cy;
 
-    lines.push("M5".into());
-    lines.push(format!("G0 X{:.3} Y{:.3}", start_x, start_y));
-    lines.push(format!("M3 S{:.0}", pw));
+    builder.laser_off();
+    builder.rapid(start_x, start_y);
 
     for i in 1..=steps {
         let angle = 2.0 * PI * (i as f32) / (steps as f32);
         let px = cx + r * angle.cos();
         let py = cy + r * angle.sin();
-        lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", px, py, sp));
+        builder.linear(px, py, sp, pw);
     }
-    lines.push("M5".into());
+    builder.laser_off();
 }
 
-fn gen_text(lines: &mut Vec<String>, s: &ShapeParams, layer: &CutLayer) {
+fn gen_text(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
     let char_w = s.font_size_mm * 0.6;
     let char_h = s.font_size_mm;
     let sp = layer.speed;
@@ -273,14 +289,13 @@ fn gen_text(lines: &mut Vec<String>, s: &ShapeParams, layer: &CutLayer) {
     for ch in s.text.chars() {
         let strokes = get_char_strokes(ch, cursor_x, s.y, char_w, char_h);
         for (x0, y0, x1, y1) in strokes {
-            lines.push("M5".into());
-            lines.push(format!("G0 X{:.3} Y{:.3}", x0, y0));
-            lines.push(format!("M3 S{:.0}", pw));
-            lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", x1, y1, sp));
+            builder.laser_off();
+            builder.rapid(x0, y0);
+            builder.linear(x1, y1, sp, pw);
         }
         cursor_x += char_w + (s.font_size_mm * 0.1);
     }
-    lines.push("M5".into());
+    builder.laser_off();
 }
 
 /// Returns a list of (x0, y0, x1, y1) strokes approximating a character

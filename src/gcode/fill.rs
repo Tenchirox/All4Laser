@@ -3,9 +3,13 @@
 
 use crate::ui::drawing::{ShapeParams, ShapeKind};
 use crate::ui::layers_new::CutLayer;
+use crate::gcode::generator::GCodeBuilder;
 
 pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLayer, interval_mm: f32) {
     if interval_mm <= 0.001 { return; }
+
+    let mut builder = GCodeBuilder::new();
+    // Inherit existing lines if we wanted to reuse builder, but here we append later.
 
     let bounds = match shape.shape {
         ShapeKind::Rectangle => (shape.x, shape.y, shape.x + shape.width, shape.y + shape.height),
@@ -17,11 +21,11 @@ pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLa
     let mut y = min_y;
     let mut left_to_right = true;
 
-    lines.push(format!("; Fill Scan (Layer C{:02})", layer.id));
-    lines.push(format!("M5"));
+    builder.comment(&format!("Fill Scan (Layer C{:02})", layer.id));
+    builder.laser_off();
 
     // Move to start
-    lines.push(format!("G0 X{:.3} Y{:.3}", if left_to_right { min_x } else { max_x }, y));
+    builder.rapid(if left_to_right { min_x } else { max_x }, y);
 
     while y <= max_y {
         let (x_start, x_end) = match shape.shape {
@@ -42,22 +46,38 @@ pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLa
         };
 
         if left_to_right {
-            // Rapid to start if not already there (should be close)
-            // lines.push(format!("G0 X{:.3} Y{:.3}", x_start, y)); // Optimization: assumed connected
-            lines.push(format!("M3 S{:.0}", layer.power));
-            lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", x_end, y, layer.speed));
+            // We are at x_start (or close to it)
+            // If the last move ended exactly where we start, the generator handles it.
+            // But if we stepped down, we are already at the correct Y, possibly slightly offset X.
+            // Rapid to start if distance is large? For scan, we usually assume connected path.
+            // However, circle edges change X every line.
+
+            // Standard scan: rapid to start of line, burn to end.
+            // Bi-directional scan connects ends.
+
+            // To ensure we start exactly at x_start:
+            // But wait, previous line ended at prev_x_end. We stepped Y down.
+            // We need to move from (prev_x_end, y) to (x_start, y) if not same.
+
+            // Actually, the generator's `linear` will do G1. If we want G0 for the step-over if it's large (whitespace), we should check.
+            // For simple shapes, step over is small (interval).
+            // We rely on G1 F(Speed) for step over to keep motion smooth (no stop/start accel penalty of M5/G0 if possible).
+            // But we must turn laser OFF for step over if we are outside the shape.
+            // The step-over logic is below. Here is the burn stroke:
+
+            builder.linear(x_end, y, layer.speed, layer.power);
         } else {
-            lines.push(format!("M3 S{:.0}", layer.power));
-            lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", x_start, y, layer.speed));
+            builder.linear(x_start, y, layer.speed, layer.power);
         }
 
-        // Turnaround
+        // Turnaround / Step over
         y += interval_mm;
         if y <= max_y {
-            lines.push("M5".into()); // Turn off for step over? Or keep on for "Overcut"? Usually OFF.
-            // Rapid move Y step? Or G1?
-            // LightBurn usually does G1 with Laser OFF for smooth motion, or G0 if 'Fast Whitespace' is on.
-            // Let's use G1 F(Speed) to keep motion smooth.
+            // Turn off laser for the step down
+            builder.laser_off();
+            // Note: LightBurn uses "Fast Whitespace" scan which uses G0.
+            // Simple scan uses G1 for smoothness.
+            // Let's use rapid (G0) which automatically does M5 if needed via our builder.
 
             let next_x_start = if !left_to_right {
                 // Next line is Left->Right, so start at Left X
@@ -89,10 +109,13 @@ pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLa
                 }
             };
 
-            lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", next_x_start, y, layer.speed));
+            // Use Rapid G0 for step over.
+            builder.rapid(next_x_start, y);
         }
 
         left_to_right = !left_to_right;
     }
-    lines.push("M5".into());
+
+    builder.laser_off();
+    lines.extend(builder.finish());
 }
