@@ -835,6 +835,13 @@ impl All4LaserApp {
                 let file = GCodeFile::from_lines("drawing", &lines);
                 self.set_loaded_file(file, lines);
             }
+            ui.add_space(4.0);
+
+            // Alignment Tools
+            let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+            let ws = self.renderer.workspace_size; // Vec2
+            ui::alignment::show(ui, &mut self.drawing_state, &selection, ws);
+
             ui.add_space(8.0);
 
             // Camera Overlay
@@ -1528,7 +1535,8 @@ impl eframe::App for All4LaserApp {
             let preview_action = ui::preview_panel::show(
                 ui, 
                 &mut self.renderer, 
-                &segments, 
+                &segments,
+                &self.drawing_state.shapes,
                 self.light_mode, 
                 offset, 
                 self.job_rotation,
@@ -1543,6 +1551,34 @@ impl eframe::App for All4LaserApp {
                     let rect = ui.max_rect();
                     self.renderer.auto_fit(&segments, rect, offset, self.job_rotation);
                 }
+            }
+
+            // Handle Interaction from Preview
+            match preview_action.interactive_action {
+                crate::preview::renderer::InteractiveAction::SelectShape(idx, _is_multi) => {
+                    // Update drawing tool to reflect selection (of the most recently clicked)
+                    if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                        self.drawing_state.current = shape.clone();
+                    }
+                }
+                crate::preview::renderer::InteractiveAction::Deselect => {
+                    // Selection cleared in renderer, app doesn't need to do much
+                }
+                crate::preview::renderer::InteractiveAction::DragSelection { delta } => {
+                    // Iterate over all selected shapes in renderer
+                    for &idx in &self.renderer.selected_shape_idx {
+                        if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
+                            shape.x += delta.x;
+                            shape.y += delta.y;
+                        }
+                    }
+
+                    // Trigger Live Update
+                    let lines = ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                    let file = GCodeFile::from_lines("drawing", &lines);
+                    self.set_loaded_file(file, lines);
+                }
+                _ => {}
             }
 
             // Update machine position in preview

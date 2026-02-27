@@ -1,8 +1,22 @@
 use egui::{Color32, Painter, Pos2, Rect, Stroke, Vec2};
 use crate::gcode::types::PreviewSegment;
 use crate::theme;
+use crate::ui::drawing::{ShapeParams, ShapeKind};
+use std::collections::HashSet;
 
-/// 2D GCode preview renderer with pan/zoom
+/// An object visible in the preview that can be interacted with.
+#[derive(Clone)]
+pub enum PreviewObject {
+    /// A raw GCode segment (from file)
+    GCode(PreviewSegment),
+    /// A structured shape (from drawing tools)
+    Shape {
+        params: ShapeParams,
+        idx: usize, // Index in the DrawingState shapes list
+    },
+}
+
+/// 2D GCode preview renderer with pan/zoom and interactivity
 pub struct PreviewRenderer {
     pub zoom: f32,
     pub pan: Vec2,
@@ -12,6 +26,7 @@ pub struct PreviewRenderer {
     pub simulation_progress: Option<f32>, // 0.0 to 1.0
     pub show_rapids: bool, // Toggle for G0 moves
     _drag_start: Option<Pos2>,
+    pub selected_shape_idx: HashSet<usize>, // Selected indices in DrawingState (Multi-select)
 }
 
 impl Default for PreviewRenderer {
@@ -24,8 +39,16 @@ impl Default for PreviewRenderer {
             simulation_progress: None,
             show_rapids: true,
             _drag_start: None,
+            selected_shape_idx: HashSet::new(),
         }
     }
+}
+
+pub enum InteractiveAction {
+    None,
+    SelectShape(usize, bool), // idx, is_multi (ctrl/shift)
+    Deselect,
+    DragSelection { delta: Vec2 }, // Drag all selected
 }
 
 impl PreviewRenderer {
@@ -34,15 +57,17 @@ impl PreviewRenderer {
         &mut self,
         ui: &mut egui::Ui,
         segments: &[PreviewSegment],
+        shapes: &[ShapeParams], // Drawing shapes
         is_light: bool,
         job_offset: Vec2,
         job_rotation_deg: f32,
         camera_state: &crate::ui::camera::CameraState,
-    ) {
+    ) -> InteractiveAction {
         let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::drag());
         let rect = response.rect;
+        let mut action = InteractiveAction::None;
 
-        // Bounding box for rotation center
+        // Bounding box for rotation center (calculated from GCode segments for now)
         let mut job_min = Pos2::new(f32::MAX, f32::MAX);
         let mut job_max = Pos2::new(f32::MIN, f32::MIN);
         if !segments.is_empty() {
@@ -52,6 +77,10 @@ impl PreviewRenderer {
                 job_max.x = job_max.x.max(seg.x1).max(seg.x2);
                 job_max.y = job_max.y.max(seg.y1).max(seg.y2);
             }
+        } else {
+            // Default center if no GCode
+            job_min = Pos2::ZERO;
+            job_max = Pos2::ZERO;
         }
         let job_center = job_min + (job_max - job_min) * 0.5;
         let angle = job_rotation_deg.to_radians();
@@ -77,13 +106,9 @@ impl PreviewRenderer {
             if let Some(texture) = &camera_state.texture {
                 let calib = &camera_state.calibration;
                 
-                // Camera space -> screen space
-                // Camera 0,0 is top-left of the image. 
-                // Scaling and offset applied in world relative units (mm)
-                
                 let cam_rect_w = Rect::from_min_size(
                     Pos2::new(calib.offset_x, calib.offset_y),
-                    Vec2::new(400.0 * calib.scale, 400.0 * calib.scale) // Aspect of 1:1 for simplicity
+                    Vec2::new(400.0 * calib.scale, 400.0 * calib.scale)
                 );
                 
                 let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
@@ -99,13 +124,68 @@ impl PreviewRenderer {
             }
         }
 
-        // Handle input
-        self.handle_input(ui, &response, rect);
+        // Handle generic input (Pan/Zoom) vs Selection input
+        let handled_interaction = self.handle_input(ui, &response, rect, shapes);
+        if let InteractiveAction::None = handled_interaction {
+             // If interaction wasn't a selection/drag, proceed standard input handling
+        } else {
+            action = handled_interaction;
+        }
 
         // Draw grid
         self.draw_grid(&painter, rect, is_light);
 
-        // Draw segments
+        // Draw GCode segments
+        self.draw_gcode_segments(&painter, segments, rect, is_light, transform);
+
+        // Draw interactive shapes (Overlay)
+        for (idx, shape) in shapes.iter().enumerate() {
+            let is_selected = self.selected_shape_idx.contains(&idx);
+            self.draw_shape_overlay(&painter, shape, rect, is_selected);
+        }
+
+        // Draw machine position
+        let machine_screen = self.world_to_screen(self.machine_pos.x, self.machine_pos.y, rect);
+        painter.circle_filled(machine_screen, 5.0, theme::RED);
+
+        // Draw Simulation Playhead
+        if let Some(progress) = self.simulation_progress {
+            if !segments.is_empty() {
+                let idx = ((segments.len() - 1) as f32 * progress) as usize;
+                let seg = &segments[idx % segments.len()];
+                let p = self.world_to_screen(seg.x2, seg.y2, rect);
+                painter.circle_filled(p, 4.0, Color32::from_rgb(255, 100, 0));
+                painter.circle_stroke(p, 6.0, Stroke::new(1.0, Color32::WHITE));
+            }
+        }
+
+        // Draw origin crosshair
+        let origin = self.world_to_screen(0.0, 0.0, rect);
+        painter.line_segment(
+            [Pos2::new(origin.x - 15.0, origin.y), Pos2::new(origin.x + 15.0, origin.y)],
+            Stroke::new(1.0, theme::SURFACE2),
+        );
+        painter.line_segment(
+            [Pos2::new(origin.x, origin.y - 15.0), Pos2::new(origin.x, origin.y + 15.0)],
+            Stroke::new(1.0, theme::SURFACE2),
+        );
+
+        if segments.is_empty() && shapes.is_empty() {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "Load a GCode file or draw shapes to preview",
+                egui::FontId::proportional(16.0),
+                theme::OVERLAY0,
+            );
+        }
+
+        action
+    }
+
+    fn draw_gcode_segments<F>(&self, painter: &Painter, segments: &[PreviewSegment], rect: Rect, is_light: bool, transform: F)
+    where F: Fn(f32, f32) -> Pos2
+    {
         let rapid_stroke = if is_light {
             Stroke::new(0.5, Color32::from_rgba_premultiplied(200, 200, 200, 150))
         } else {
@@ -118,8 +198,6 @@ impl PreviewRenderer {
             if let Some((p1, p2, total_power, count)) = accum.take() {
                 let avg_power = total_power / (count as f32);
                 let base_alpha = 40.0 + 215.0 * avg_power;
-                // Accumulated horizontal scanlines can be drawn physically a bit thicker if zoomed out
-                // or just standard thickness.
                 let mut stroke_width = 0.1 * self.zoom;
                 let mut final_alpha = base_alpha;
                 
@@ -145,9 +223,7 @@ impl PreviewRenderer {
             let p1 = self.world_to_screen(p1_w.x, p1_w.y, rect);
             let p2 = self.world_to_screen(p2_w.x, p2_w.y, rect);
 
-            // Clip
             if !rect_contains_approx(rect, p1) && !rect_contains_approx(rect, p2) {
-                // If it's clipped, make sure we flush any pending line
                 flush_accumulated(&painter, &mut current_accumulated_line);
                 continue;
             }
@@ -156,13 +232,9 @@ impl PreviewRenderer {
                 let is_horizontal = (p1.y - p2.y).abs() < 0.5;
                 let length_sq = (p1.x - p2.x).powi(2) + (p1.y - p2.y).powi(2);
 
-                // If it's a very short horizontal line (e.g. part of a raster scan)
-                // and we are zoomed out enough that it's sub-pixel or close to it
-                if is_horizontal && length_sq < 4.0 { // < 2 pixels
+                if is_horizontal && length_sq < 4.0 {
                     if let Some((acc_p1, acc_p2, total_power, count)) = current_accumulated_line.as_mut() {
-                        // Check if it's reasonably close to the accumulated line vertically
                         if (acc_p1.y - p1.y).abs() < 1.0 && (acc_p2.x - p1.x).abs() < 2.0 {
-                            // Extend the line
                             acc_p2.x = p2.x;
                             *total_power += seg.power;
                             *count += 1;
@@ -174,7 +246,6 @@ impl PreviewRenderer {
                         current_accumulated_line = Some((p1, p2, seg.power, 1));
                     }
                 } else {
-                    // Not a short horizontal raster segment, flush and draw normally
                     flush_accumulated(&painter, &mut current_accumulated_line);
 
                     let base_alpha = 40.0 + 215.0 * seg.power;
@@ -204,42 +275,46 @@ impl PreviewRenderer {
             }
         }
         flush_accumulated(&painter, &mut current_accumulated_line);
+    }
 
-        // Draw machine position
-        let machine_screen = self.world_to_screen(self.machine_pos.x, self.machine_pos.y, rect);
-        painter.circle_filled(machine_screen, 5.0, theme::RED);
-
-        // Draw Simulation Playhead
-        if let Some(progress) = self.simulation_progress {
-            if !segments.is_empty() {
-                let idx = ((segments.len() - 1) as f32 * progress) as usize;
-                let seg = &segments[idx % segments.len()];
-                let p = self.world_to_screen(seg.x2, seg.y2, rect);
-                painter.circle_filled(p, 4.0, Color32::from_rgb(255, 100, 0));
-                painter.circle_stroke(p, 6.0, Stroke::new(1.0, Color32::WHITE));
+    fn draw_shape_overlay(&self, painter: &Painter, shape: &ShapeParams, rect: Rect, is_selected: bool) {
+        // Calculate shape bounds in world
+        let bounds = match shape.shape {
+            ShapeKind::Rectangle => Rect::from_min_size(
+                Pos2::new(shape.x, shape.y),
+                Vec2::new(shape.width, shape.height)
+            ),
+            ShapeKind::Circle => Rect::from_min_size(
+                Pos2::new(shape.x - shape.radius, shape.y - shape.radius),
+                Vec2::new(shape.radius * 2.0, shape.radius * 2.0)
+            ),
+            ShapeKind::TextLine => {
+                // Rough estimation for text bounds
+                let char_w = shape.font_size_mm * 0.6;
+                let w = shape.text.len() as f32 * char_w;
+                Rect::from_min_size(
+                    Pos2::new(shape.x, shape.y),
+                    Vec2::new(w, shape.font_size_mm)
+                )
             }
-        }
+        };
 
-        // Draw origin crosshair
-        let origin = self.world_to_screen(0.0, 0.0, rect);
-        painter.line_segment(
-            [Pos2::new(origin.x - 15.0, origin.y), Pos2::new(origin.x + 15.0, origin.y)],
-            Stroke::new(1.0, theme::SURFACE2),
-        );
-        painter.line_segment(
-            [Pos2::new(origin.x, origin.y - 15.0), Pos2::new(origin.x, origin.y + 15.0)],
-            Stroke::new(1.0, theme::SURFACE2),
-        );
+        // Correct Y flipping: world Y goes up, screen Y goes down.
+        // world_to_screen flips Y.
 
-        // Placeholder text if empty
-        if segments.is_empty() {
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "Load a GCode file to preview",
-                egui::FontId::proportional(16.0),
-                theme::OVERLAY0,
-            );
+        let p1 = self.world_to_screen(bounds.min.x, bounds.min.y, rect);
+        let p2 = self.world_to_screen(bounds.max.x, bounds.max.y, rect);
+        let screen_rect = Rect::from_min_max(p1, p2);
+
+        if is_selected {
+            // Draw marching ants or dashed line
+            painter.rect_stroke(screen_rect, 0.0, Stroke::new(1.0, theme::BLUE), egui::StrokeKind::Middle);
+            // Handles
+            let handle_size = 6.0;
+            let corners = [screen_rect.min, screen_rect.max, screen_rect.left_bottom(), screen_rect.right_top()];
+            for c in corners {
+                painter.rect_filled(Rect::from_center_size(c, Vec2::splat(handle_size)), 1.0, theme::BLUE);
+            }
         }
     }
 
@@ -308,25 +383,84 @@ impl PreviewRenderer {
         self.zoom /= 1.3;
     }
 
-    fn handle_input(&mut self, ui: &egui::Ui, response: &egui::Response, _rect: Rect) {
-        // Zoom with mouse wheel
+    fn handle_input(&mut self, ui: &egui::Ui, response: &egui::Response, rect: Rect, shapes: &[ShapeParams]) -> InteractiveAction {
+        let mut action = InteractiveAction::None;
+
         if let Some(hover) = response.hover_pos() {
+            // Zoom logic
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll != 0.0 {
                 let old_zoom = self.zoom;
                 let factor = if scroll > 0.0 { 1.1 } else { 1.0 / 1.1 };
                 self.zoom = (self.zoom * factor).clamp(0.01, 10000.0);
-
-                // Zoom towards cursor
                 self.pan.x = hover.x - (hover.x - self.pan.x) * (self.zoom / old_zoom);
                 self.pan.y = hover.y - (hover.y - self.pan.y) * (self.zoom / old_zoom);
             }
+
+            // Selection Logic (Click)
+            if response.clicked() {
+                // Convert screen hover to world
+                let wx = (hover.x - self.pan.x) / self.zoom;
+                let wy = -(hover.y - self.pan.y) / self.zoom;
+
+                let is_multi = ui.input(|i| i.modifiers.ctrl || i.modifiers.shift);
+
+                let mut hit_idx = None;
+                // Simple hit testing against shape bounds
+                for (idx, shape) in shapes.iter().enumerate() {
+                    let bounds = match shape.shape {
+                        ShapeKind::Rectangle => Rect::from_min_size(Pos2::new(shape.x, shape.y), Vec2::new(shape.width, shape.height)),
+                        ShapeKind::Circle => Rect::from_min_size(Pos2::new(shape.x - shape.radius, shape.y - shape.radius), Vec2::new(shape.radius * 2.0, shape.radius * 2.0)),
+                        ShapeKind::TextLine => {
+                             let char_w = shape.font_size_mm * 0.6;
+                             let w = shape.text.len() as f32 * char_w;
+                             Rect::from_min_size(Pos2::new(shape.x, shape.y), Vec2::new(w, shape.font_size_mm))
+                        }
+                    };
+
+                    if bounds.contains(Pos2::new(wx, wy)) {
+                        hit_idx = Some(idx);
+                    }
+                }
+
+                if let Some(idx) = hit_idx {
+                    if is_multi {
+                        if self.selected_shape_idx.contains(&idx) {
+                            self.selected_shape_idx.remove(&idx);
+                        } else {
+                            self.selected_shape_idx.insert(idx);
+                        }
+                    } else {
+                        self.selected_shape_idx.clear();
+                        self.selected_shape_idx.insert(idx);
+                    }
+                    action = InteractiveAction::SelectShape(idx, is_multi);
+                } else if !is_multi {
+                    self.selected_shape_idx.clear();
+                    action = InteractiveAction::Deselect;
+                }
+            }
         }
 
-        // Pan with drag
+        // Dragging Logic
+        // If we have a selection, and we are dragging, move the shapes
         if response.dragged() {
-            self.pan += response.drag_delta();
+            if !self.selected_shape_idx.is_empty() {
+                let delta = response.drag_delta();
+                // Convert screen delta to world delta
+                let world_dx = delta.x / self.zoom;
+                let world_dy = -delta.y / self.zoom; // Flip Y
+
+                action = InteractiveAction::DragSelection {
+                    delta: Vec2::new(world_dx, world_dy)
+                };
+            } else {
+                // Pan if no selection
+                self.pan += response.drag_delta();
+            }
         }
+
+        action
     }
 
     fn world_to_screen(&self, wx: f32, wy: f32, _rect: Rect) -> Pos2 {
