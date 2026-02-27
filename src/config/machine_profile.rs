@@ -14,6 +14,8 @@ pub struct MachineProfile {
     pub air_assist: bool,
     pub rotary_enabled: bool,
     pub rotary_diameter_mm: f32,
+    pub rotary_axis: char, // 'Y' (roller) or 'A' (chuck)
+    pub rotary_steps_per_deg: f32,
 }
 
 impl Default for MachineProfile {
@@ -30,6 +32,8 @@ impl Default for MachineProfile {
             air_assist: false,
             rotary_enabled: false,
             rotary_diameter_mm: 50.0,
+            rotary_axis: 'Y',
+            rotary_steps_per_deg: 1.0, // Used if we calculate degrees explicitly, but usually Y is swapped.
         }
     }
 }

@@ -127,8 +127,10 @@ pub struct All4LaserApp {
     // Layers (New System)
     layers: Vec<ui::layers_new::CutLayer>,
     active_layer_idx: usize,
-    #[serde(skip)]
     cut_settings_state: ui::cut_settings::CutSettingsState,
+
+    // Language
+    language: crate::i18n::Language,
 
     // Timing
     last_poll: Instant,
@@ -193,6 +195,7 @@ impl All4LaserApp {
             layers: ui::layers_new::CutLayer::default_palette(),
             active_layer_idx: 0,
             cut_settings_state: ui::cut_settings::CutSettingsState::default(),
+            language: crate::i18n::Language::English,
         };
 
         app.apply_theme(&cc.egui_ctx);
@@ -322,12 +325,19 @@ impl All4LaserApp {
 
             let mut cmd = if let (Some(file), Some(center)) = (&self.loaded_file, self.job_center) {
                 if let Some(parsed) = file.lines.get(line_idx) {
-                    let rotary_scale = if self.machine_profile.rotary_enabled && self.machine_profile.rotary_diameter_mm > 0.1 {
-                        50.0 / self.machine_profile.rotary_diameter_mm // Default reference 50mm
+                    // Standard transform (offset/rotate)
+                    let transformed = parsed.transform(egui::vec2(self.job_offset_x, self.job_offset_y), self.job_rotation, center, 1.0);
+
+                    // Apply Rotary transformation if enabled
+                    if self.machine_profile.rotary_enabled {
+                        crate::gcode::transform::apply_rotary(
+                            &transformed,
+                            self.machine_profile.rotary_diameter_mm,
+                            self.machine_profile.rotary_axis
+                        )
                     } else {
-                        1.0
-                    };
-                    parsed.transform(egui::vec2(self.job_offset_x, self.job_offset_y), self.job_rotation, center, rotary_scale)
+                        transformed
+                    }
                 } else {
                     self.program_lines[line_idx].clone()
                 }
@@ -773,7 +783,7 @@ impl All4LaserApp {
 
         // Machine Profile settings
         let mut profile_changed = false;
-        egui::CollapsingHeader::new(egui::RichText::new("⚙ Machine Profile").color(crate::theme::LAVENDER).strong())
+        egui::CollapsingHeader::new(egui::RichText::new(format!("⚙ {}", crate::i18n::tr("Machine Profile"))).color(crate::theme::LAVENDER).strong())
             .show(ui, |ui| {
                 egui::Grid::new("mp_grid").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
                     ui.label("Name:"); 
@@ -888,7 +898,7 @@ impl All4LaserApp {
                 }
             }
             ui.add_space(4.0);
-            ui.label(RichText::new("📐 Job Transformation").color(theme::LAVENDER).strong());
+            ui.label(RichText::new(format!("📐 {}", crate::i18n::tr("Job Transformation"))).color(theme::LAVENDER).strong());
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label("Offset X:");
@@ -943,7 +953,7 @@ impl All4LaserApp {
         // Z-Probe & Focus (Pro Tier)
         ui.group(|ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("📏 Z-Probe & Focus").color(theme::LAVENDER).strong());
+                ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
             });
             ui.add_space(4.0);
             ui.horizontal(|ui| {
@@ -963,6 +973,11 @@ impl All4LaserApp {
                 ui.horizontal(|ui| {
                     ui.label("Cylinder Ø:");
                     ui.add(egui::DragValue::new(&mut self.machine_profile.rotary_diameter_mm).suffix(" mm"));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Rotary Axis:");
+                    ui.selectable_value(&mut self.machine_profile.rotary_axis, 'Y', "Y (Roller)");
+                    ui.selectable_value(&mut self.machine_profile.rotary_axis, 'A', "A (Chuck)");
                 });
             }
         });
@@ -1328,6 +1343,10 @@ impl eframe::App for All4LaserApp {
             }
             if let Some(l) = actions.set_layout {
                 self.ui_layout = l;
+            }
+            if let Some(lang) = actions.set_language {
+                self.language = lang;
+                crate::i18n::set_language(lang);
             }
             if actions.toggle_light_mode {
                 self.light_mode = !self.light_mode;

@@ -9,7 +9,7 @@ pub fn show(ui: &mut Ui, log: &[String], input: &mut String) -> ConsoleAction {
     let mut action = ConsoleAction { send_command: None };
 
     ui.group(|ui| {
-        ui.label(RichText::new("Console").color(theme::LAVENDER).strong().size(14.0));
+        ui.label(RichText::new(crate::i18n::tr("Console")).color(theme::LAVENDER).strong().size(14.0));
         ui.add_space(4.0);
 
         let available = ui.available_height() - 30.0;

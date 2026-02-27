@@ -21,8 +21,14 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 rusttype = "0.9"
 qrcode = "0.14"
+font-kit = "0.14"
+lazy_static = "1.5.0"
 
 [profile.release]
 opt-level = 3
 lto = true
 strip = true
+
+[[test]]
+name = "test_fonts"
+path = "src/test_fonts.rs"

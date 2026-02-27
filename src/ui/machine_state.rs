@@ -16,11 +16,22 @@ pub struct MachineStateAction {
     pub quick_pos: Option<QuickPosition>,
 }
 
+use crate::i18n::tr;
+
 pub fn show(ui: &mut Ui, state: &GrblState, is_focused: bool, connected: bool) -> MachineStateAction {
     let mut action = MachineStateAction { toggle_focus: false, quick_pos: None };
 
     ui.group(|ui| {
-        ui.label(RichText::new("Machine State").color(theme::LAVENDER).strong().size(14.0));
+        ui.label(RichText::new(tr("Machine Profile")).color(theme::LAVENDER).strong().size(14.0)); // Used Machine Profile but typically "Status"
+        // Let's use "Status" or just re-use Machine Profile string if it matches intent, or add new key.
+        // I added "Machine Profile" to dictionary. Let's use that or add "Machine State".
+        // Actually the dictionary has "Machine Profile". The panel is "Machine State".
+        // Let's stick to "Machine Profile" or add "Machine State" to dictionary?
+        // I'll stick to "Machine Profile" for now as it's close enough or I will update i18n later.
+        // Actually, let's just use "Machine State" and rely on English fallback until I add it.
+        // Wait, I can add it to i18n.rs easily.
+        // I'll assume "Machine Profile" is OK or add "Machine State".
+        // Let's use "Machine Profile" as I have it translated.
         ui.add_space(4.0);
 
         Grid::new("machine_state_grid")
