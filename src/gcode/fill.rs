@@ -109,13 +109,8 @@ pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLa
                 }
             };
 
-            if layer.fast_whitespace {
-                // Use Rapid G0 for step over.
-                builder.rapid(next_x_start, y);
-            } else {
-                // Use Linear G1 for step over to maintain smoothness.
-                builder.linear(next_x_start, y, layer.speed, 0.0);
-            }
+            // Use Rapid G0 for step over.
+            builder.rapid(next_x_start, y);
         }
 
         left_to_right = !left_to_right;

@@ -24,6 +24,7 @@ qrcode = "0.14"
 font-kit = "0.14"
 geo = "0.32"
 lazy_static = "1.5"
+indexmap = "2.13.0"
 
 [profile.release]
 opt-level = 3

@@ -143,7 +143,6 @@ pub struct All4LaserApp {
     layers: Vec<ui::layers_new::CutLayer>,
     active_layer_idx: usize,
     cut_settings_state: ui::cut_settings::CutSettingsState,
-    hide_unused_layers: bool,
 
     // Language
     language: crate::i18n::Language,
@@ -218,7 +217,6 @@ impl All4LaserApp {
             layers: ui::layers_new::CutLayer::default_palette(),
             active_layer_idx: 0,
             cut_settings_state: ui::cut_settings::CutSettingsState::default(),
-            hide_unused_layers: false,
             language: crate::i18n::Language::English, // Will be overridden
             active_tab: RightPanelTab::Cuts,         // Will be overridden
             settings: AppSettings::load(),
@@ -1224,14 +1222,10 @@ impl All4LaserApp {
         egui::ScrollArea::vertical().id_salt("tab_scroll").show(ui, |ui| {
             match self.active_tab {
                 RightPanelTab::Cuts => {
-                    // Layer List Table
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new("Layers").strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.checkbox(&mut self.hide_unused_layers, "Hide Unused");
-                        });
-                    });
-
+                    // Layer List Table (to be implemented more fully)
+                    ui.label(RichText::new("Layers").strong());
+                    // Reuse palette for now, but vertical?
+                    // We need a list view.
                     // For now, I'll put Materials here too.
                     ui.add_space(8.0);
                     let mat_action = ui::materials::show(ui, &mut self.materials_state);
@@ -1239,14 +1233,8 @@ impl All4LaserApp {
                     if let Some(p) = mat_action.apply_power { self.test_fire_power = p / 10.0; }
 
                     ui.separator();
-
-                    let mut used_layers = std::collections::HashSet::new();
-                    for shape in &self.drawing_state.shapes {
-                        used_layers.insert(shape.layer_idx);
-                    }
-
                     // Show full layers list with details
-                    let list_action = ui::cut_list::show(ui, &mut self.layers, self.active_layer_idx, self.hide_unused_layers, &used_layers);
+                    let list_action = ui::cut_list::show(ui, &mut self.layers, self.active_layer_idx);
                     if let Some(idx) = list_action.select_layer {
                         self.active_layer_idx = idx;
                         self.drawing_state.current.layer_idx = idx;
@@ -1600,18 +1588,28 @@ impl eframe::App for All4LaserApp {
             } else if import_triggered {
                 match &state.import_type {
                     ui::image_dialog::ImportType::Raster(img) => {
-                        let shape = crate::ui::drawing::ShapeParams {
-                            shape: crate::ui::drawing::ShapeKind::RasterImage {
-                                data: crate::ui::drawing::ImageData(std::sync::Arc::new(img.clone())),
-                                params: state.raster_params.clone(),
-                            },
-                            x: 0.0,
-                            y: 0.0,
-                            width: state.raster_params.width_mm,
-                            height: state.raster_params.height_mm,
-                            ..Default::default()
-                        };
-                        self.drawing_state.shapes.push(shape);
+                        if state.vectorize {
+                            let mut vector_shapes = crate::imaging::tracing::trace_image(img, &state.raster_params);
+                            // Ensure shapes are placed correctly
+                            for shape in vector_shapes.iter_mut() {
+                                shape.layer_idx = self.active_layer_idx;
+                            }
+                            self.drawing_state.shapes.extend(vector_shapes);
+                        } else {
+                            let shape = crate::ui::drawing::ShapeParams {
+                                shape: crate::ui::drawing::ShapeKind::RasterImage {
+                                    data: crate::ui::drawing::ImageData(std::sync::Arc::new(img.clone())),
+                                    params: state.raster_params.clone(),
+                                },
+                                x: 0.0,
+                                y: 0.0,
+                                width: state.raster_params.width_mm,
+                                height: state.raster_params.height_mm,
+                                ..Default::default()
+                            };
+                            self.drawing_state.shapes.push(shape);
+                        }
+
                         let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
                         let file = GCodeFile::from_lines("drawing", &lines);
                         self.set_loaded_file(file, lines);

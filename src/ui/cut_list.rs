@@ -7,7 +7,7 @@ pub struct CutListAction {
     pub open_settings: Option<usize>,
 }
 
-pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize, hide_unused: bool, used_layers: &std::collections::HashSet<usize>) -> CutListAction {
+pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize) -> CutListAction {
     let mut action = CutListAction { select_layer: None, open_settings: None };
 
     ui.group(|ui| {
@@ -25,15 +25,17 @@ pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize, hide_unused
                 ui.label("Show");
                 ui.end_row();
 
+                // Only show active layers? Or allow user to see all?
+                // LightBurn only shows used layers usually, but we don't track "used" status easily unless we scan all shapes.
+                // For simplicity, let's show ALL 30 layers but maybe compact or scrollable.
+                // Or better: Show only layers that are "visible" OR have been modified from default?
+                // Let's show all for now inside the ScrollArea provided by the parent tab.
+
                 // Note: The parent `ui` is already in a scroll area in `app.rs`.
                 // Grid inside ScrollArea works fine.
 
                 for (i, layer) in layers.iter_mut().enumerate() {
                     let is_active = i == active_idx;
-
-                    if hide_unused && !is_active && !used_layers.contains(&i) {
-                        continue;
-                    }
 
                     // Row background for active
                     // Grid doesn't support full row selection easily without custom paint or tricks.
@@ -75,8 +77,14 @@ pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize, hide_unused
                     // 4. Output Toggle
                     ui.checkbox(&mut layer.visible, "");
 
-                    // 5. Show in preview toggle
-                    ui.checkbox(&mut layer.show, "");
+                    // 5. Show (Visibility on preview? Actually `visible` usually means "Output to Laser").
+                    // In LightBurn "Output" means send to laser, "Show" means show in preview.
+                    // My struct `CutLayer` only has `visible`.
+                    // Let's assume `visible` = Output.
+                    // I don't have a separate "Hide from Preview" flag.
+                    // Let's just use `visible` for "Output" column and skip "Show" column or duplicate it?
+                    // Let's rename column 4 to "Enabled".
+                    ui.label(if layer.visible { "👁" } else { "Ø" });
 
                     ui.end_row();
                 }

@@ -3,7 +3,7 @@ use crate::gcode::types::PreviewSegment;
 use crate::theme;
 use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
 use crate::ui::layers_new::CutLayer;
-use std::collections::HashSet;
+use indexmap::IndexSet;
 
 /// An object visible in the preview that can be interacted with.
 #[derive(Clone)]
@@ -28,7 +28,7 @@ pub struct PreviewRenderer {
     pub show_rapids: bool, // Toggle for G0 moves
     pub realistic_preview: bool, // Toggle for realistic material texture
     _drag_start: Option<Pos2>,
-    pub selected_shape_idx: HashSet<usize>, // Selected indices in DrawingState (Multi-select)
+    pub selected_shape_idx: IndexSet<usize>, // Selected indices in DrawingState (Multi-select). Ordered so last selected is last.
     pub node_edit_mode: bool,
     pub selected_node: Option<(usize, usize)>, // (shape_idx, point_idx)
     pub hover_shape_idx: Option<usize>,
@@ -48,7 +48,7 @@ impl Default for PreviewRenderer {
             show_rapids: true,
             realistic_preview: false,
             _drag_start: None,
-            selected_shape_idx: HashSet::new(),
+            selected_shape_idx: IndexSet::new(),
             node_edit_mode: false,
             selected_node: None,
             hover_shape_idx: None,
@@ -169,13 +169,6 @@ impl PreviewRenderer {
 
         // Draw interactive shapes (Overlay)
         for (idx, shape) in shapes.iter().enumerate() {
-            let layer = _layers.get(shape.layer_idx);
-            if let Some(l) = layer {
-                if !l.show {
-                    continue; // Skip rendering shapes on hidden layers
-                }
-            }
-
             let is_selected = self.selected_shape_idx.contains(&idx);
             self.draw_shape_overlay(ui, &painter, shape, rect, is_selected, idx, _layers);
         }

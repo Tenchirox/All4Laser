@@ -52,36 +52,37 @@ fn apply_align(state: &mut DrawingState, selection: &[usize], cmd: AlignCmd, wor
     // 1. Calculate selection bounds or "Anchor" (Last selected? Or total bounds?)
     // LightBurn aligns to the *last selected* object if it's "Align to Selection".
     // Or aligns to the *page* if "Align to Page" is checked.
-    // For simplicity here, if 1 object -> Align to Page. If >1 object -> Align to Selection Bounds.
+    // For simplicity here, if 1 object -> Align to Page. If >1 object -> Align to Last Selected Object.
 
     let align_to_page = selection.len() == 1;
 
+    let last_selected_idx_opt = selection.last().copied();
+
     let target_bounds = if align_to_page {
         (0.0, 0.0, workspace_size.x, workspace_size.y)
-    } else {
-        // Calculate union bounds of selection
-        let mut min_x = f32::MAX;
-        let mut min_y = f32::MAX;
-        let mut max_x = f32::MIN;
-        let mut max_y = f32::MIN;
-
-        for &idx in selection {
-            if let Some(shape) = state.shapes.get(idx) {
-                let (sx, sy, sw, sh) = get_shape_rect(shape);
-                min_x = min_x.min(sx);
-                min_y = min_y.min(sy);
-                max_x = max_x.max(sx + sw);
-                max_y = max_y.max(sy + sh);
-            }
+    } else if let Some(last_selected_idx) = last_selected_idx_opt {
+        // Align to the last selected object
+        if let Some(shape) = state.shapes.get(last_selected_idx) {
+            get_shape_rect(shape)
+        } else {
+            (0.0, 0.0, workspace_size.x, workspace_size.y)
         }
-        (min_x, min_y, max_x, max_y)
+    } else {
+         (0.0, 0.0, workspace_size.x, workspace_size.y)
     };
 
     let (tx, ty, tw, th) = target_bounds;
     let t_mid_x = tx + tw / 2.0;
     let t_mid_y = ty + th / 2.0;
 
+    // Do not move the target shape if we are aligning to selection
+    let skip_anchor_idx = if align_to_page { None } else { last_selected_idx_opt };
+
     for &idx in selection {
+        if Some(idx) == skip_anchor_idx {
+            continue; // Skip moving the anchor object
+        }
+
         if let Some(shape) = state.shapes.get_mut(idx) {
             let (sx, sy, sw, sh) = get_shape_rect(shape);
 
