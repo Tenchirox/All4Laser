@@ -143,6 +143,7 @@ pub struct All4LaserApp {
     layers: Vec<ui::layers_new::CutLayer>,
     active_layer_idx: usize,
     cut_settings_state: ui::cut_settings::CutSettingsState,
+    hide_unused_layers: bool,
 
     // Language
     language: crate::i18n::Language,
@@ -217,6 +218,7 @@ impl All4LaserApp {
             layers: ui::layers_new::CutLayer::default_palette(),
             active_layer_idx: 0,
             cut_settings_state: ui::cut_settings::CutSettingsState::default(),
+            hide_unused_layers: false,
             language: crate::i18n::Language::English, // Will be overridden
             active_tab: RightPanelTab::Cuts,         // Will be overridden
             settings: AppSettings::load(),
@@ -1233,8 +1235,19 @@ impl All4LaserApp {
                     if let Some(p) = mat_action.apply_power { self.test_fire_power = p / 10.0; }
 
                     ui.separator();
+
+                    let mut used_layers = std::collections::HashSet::new();
+                    for shape in &self.drawing_state.shapes {
+                        used_layers.insert(shape.layer_idx);
+                    }
+                    if let Some(file) = &self.loaded_file {
+                        for seg in &file.segments {
+                            used_layers.insert(seg.layer_id);
+                        }
+                    }
+
                     // Show full layers list with details
-                    let list_action = ui::cut_list::show(ui, &mut self.layers, self.active_layer_idx);
+                    let list_action = ui::cut_list::show(ui, &mut self.layers, self.active_layer_idx, &used_layers, &mut self.hide_unused_layers);
                     if let Some(idx) = list_action.select_layer {
                         self.active_layer_idx = idx;
                         self.drawing_state.current.layer_idx = idx;
@@ -1891,15 +1904,22 @@ impl eframe::App for All4LaserApp {
             let segments = self.loaded_file
                 .as_ref()
                 .map(|f| {
-                    // Filter segments by layer visibility
+                    // Filter segments by layer show flag (preview visibility)
                     f.segments.iter()
                         .filter(|seg| {
-                            f.layers.get(seg.layer_id).map(|l| l.visible).unwrap_or(true)
+                            self.layers.get(seg.layer_id).map(|l| l.show).unwrap_or(true)
                         })
                         .cloned()
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+
+            let preview_shapes = self.drawing_state.shapes.iter()
+                .filter(|shape| {
+                    self.layers.get(shape.layer_idx).map(|l| l.show).unwrap_or(true)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
 
             let offset = egui::vec2(self.job_offset_x, self.job_offset_y);
 
@@ -1928,7 +1948,7 @@ impl eframe::App for All4LaserApp {
                 ui, 
                 &mut self.renderer, 
                 &segments,
-                &self.drawing_state.shapes,
+                &preview_shapes,
                 &self.layers,
                 self.light_mode, 
                 offset, 

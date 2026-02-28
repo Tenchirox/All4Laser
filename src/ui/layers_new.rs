@@ -28,6 +28,8 @@ pub struct CutLayer {
     pub air_assist: bool,
     pub z_offset: f32,
     pub visible: bool,      // Output enabled?
+    #[serde(default = "default_show")]
+    pub show: bool,         // Show in preview?
 
     // Tabs / Bridges
     pub tab_enabled: bool,
@@ -49,6 +51,10 @@ where
 {
     let rgba: [u8; 4] = <[u8; 4]>::deserialize(deserializer)?;
     Ok(Color32::from_rgba_premultiplied(rgba[0], rgba[1], rgba[2], rgba[3]))
+}
+
+fn default_show() -> bool {
+    true
 }
 
 impl CutLayer {
@@ -99,6 +105,7 @@ impl CutLayer {
                 air_assist: false,
                 z_offset: 0.0,
                 visible: true,
+                show: true,
                 tab_enabled: false,
                 tab_spacing: 50.0,
                 tab_size: 0.5,

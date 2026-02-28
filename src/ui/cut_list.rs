@@ -7,8 +7,14 @@ pub struct CutListAction {
     pub open_settings: Option<usize>,
 }
 
-pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize) -> CutListAction {
+use std::collections::HashSet;
+
+pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize, used_layers: &HashSet<usize>, hide_unused: &mut bool) -> CutListAction {
     let mut action = CutListAction { select_layer: None, open_settings: None };
+
+    ui.horizontal(|ui| {
+        ui.checkbox(hide_unused, "Hide Unused");
+    });
 
     ui.group(|ui| {
         Grid::new("cut_list_grid")
@@ -36,6 +42,10 @@ pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize) -> CutListA
 
                 for (i, layer) in layers.iter_mut().enumerate() {
                     let is_active = i == active_idx;
+
+                    if *hide_unused && !is_active && !used_layers.contains(&i) {
+                        continue;
+                    }
 
                     // Row background for active
                     // Grid doesn't support full row selection easily without custom paint or tricks.
@@ -77,14 +87,8 @@ pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize) -> CutListA
                     // 4. Output Toggle
                     ui.checkbox(&mut layer.visible, "");
 
-                    // 5. Show (Visibility on preview? Actually `visible` usually means "Output to Laser").
-                    // In LightBurn "Output" means send to laser, "Show" means show in preview.
-                    // My struct `CutLayer` only has `visible`.
-                    // Let's assume `visible` = Output.
-                    // I don't have a separate "Hide from Preview" flag.
-                    // Let's just use `visible` for "Output" column and skip "Show" column or duplicate it?
-                    // Let's rename column 4 to "Enabled".
-                    ui.label(if layer.visible { "👁" } else { "Ø" });
+                    // 5. Show (Visibility in preview).
+                    ui.checkbox(&mut layer.show, "");
 
                     ui.end_row();
                 }
