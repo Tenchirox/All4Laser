@@ -1588,18 +1588,28 @@ impl eframe::App for All4LaserApp {
             } else if import_triggered {
                 match &state.import_type {
                     ui::image_dialog::ImportType::Raster(img) => {
-                        let shape = crate::ui::drawing::ShapeParams {
-                            shape: crate::ui::drawing::ShapeKind::RasterImage {
-                                data: crate::ui::drawing::ImageData(std::sync::Arc::new(img.clone())),
-                                params: state.raster_params.clone(),
-                            },
-                            x: 0.0,
-                            y: 0.0,
-                            width: state.raster_params.width_mm,
-                            height: state.raster_params.height_mm,
-                            ..Default::default()
-                        };
-                        self.drawing_state.shapes.push(shape);
+                        if state.vectorize {
+                            let mut vector_shapes = crate::imaging::tracing::trace_image(img, &state.raster_params);
+                            // Ensure shapes are placed correctly
+                            for shape in vector_shapes.iter_mut() {
+                                shape.layer_idx = self.active_layer_idx;
+                            }
+                            self.drawing_state.shapes.extend(vector_shapes);
+                        } else {
+                            let shape = crate::ui::drawing::ShapeParams {
+                                shape: crate::ui::drawing::ShapeKind::RasterImage {
+                                    data: crate::ui::drawing::ImageData(std::sync::Arc::new(img.clone())),
+                                    params: state.raster_params.clone(),
+                                },
+                                x: 0.0,
+                                y: 0.0,
+                                width: state.raster_params.width_mm,
+                                height: state.raster_params.height_mm,
+                                ..Default::default()
+                            };
+                            self.drawing_state.shapes.push(shape);
+                        }
+
                         let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
                         let file = GCodeFile::from_lines("drawing", &lines);
                         self.set_loaded_file(file, lines);

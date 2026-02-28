@@ -104,10 +104,14 @@ pub fn apply_array(state: &CircularArrayState, drawing: &mut DrawingState, selec
                 new_shape.x = state.center_x + dx * cos_a - dy * sin_a;
                 new_shape.y = state.center_y + dx * sin_a + dy * cos_a;
 
-                // Also rotate the shape itself if requested?
-                // Currently our shapes are Axis-Aligned (Rectangle, Circle).
-                // If we want rotation, we need to upgrade ShapeParams to support rotation.
-                // For now, let's just move the origin.
+                if state.rotate_copies {
+                    // Update shape rotation explicitly
+                    let step_angle_deg = state.total_angle / (state.count as f32);
+                    new_shape.rotation += (i as f32) * step_angle_deg;
+
+                    // Keep rotation in -360.0 to 360.0 range
+                    new_shape.rotation %= 360.0;
+                }
                 
                 new_shapes.push(new_shape);
             }

@@ -17,7 +17,7 @@ pub fn trace_image(img: &DynamicImage, params: &RasterParams) -> Vec<ShapeParams
     for y in 0..height {
         for x in 0..width {
             let p = gray.get_pixel_mut(x, y);
-            p.0 = if p.0 < threshold { 0 } else { 255 }; // Black is object (0)
+            p.0 = if p.0[0] < threshold { [0] } else { [255] }; // Black is object (0)
         }
     }
 
@@ -27,7 +27,7 @@ pub fn trace_image(img: &DynamicImage, params: &RasterParams) -> Vec<ShapeParams
         // Here we have Black=0 (Object).
         // Let's invert so Object=255/1 for the algo.
         for p in gray.pixels_mut() {
-            p.0 = 255 - p.0;
+            p.0 = [255 - p.0[0]];
         }
 
         zhang_suen_thinning(&mut gray);
@@ -42,7 +42,7 @@ pub fn trace_image(img: &DynamicImage, params: &RasterParams) -> Vec<ShapeParams
         // If contour: foreground is black?
         // Let's just assume we trace White pixels (255) from here on.
         for p in gray.pixels_mut() {
-            p.0 = 255 - p.0;
+            p.0 = [255 - p.0[0]];
         }
     }
 
@@ -86,6 +86,7 @@ pub fn trace_image(img: &DynamicImage, params: &RasterParams) -> Vec<ShapeParams
                         layer_idx: 0,
                         text: "".into(),
                         font_size_mm: 0.0,
+                        rotation: 0.0,
                     });
                 }
             }
