@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::controller::ControllerKind;
+
 /// Machine profile saved to disk (port, baud, workspace, kinematics)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MachineProfile {
@@ -16,6 +18,12 @@ pub struct MachineProfile {
     pub rotary_diameter_mm: f32,
     pub rotary_axis: char, // 'Y' (roller) or 'A' (chuck)
     pub rotary_steps_per_deg: f32,
+    #[serde(default = "default_controller_kind")]
+    pub controller_kind: ControllerKind,
+}
+
+fn default_controller_kind() -> ControllerKind {
+    ControllerKind::Grbl
 }
 
 impl Default for MachineProfile {
@@ -34,6 +42,7 @@ impl Default for MachineProfile {
             rotary_diameter_mm: 50.0,
             rotary_axis: 'Y',
             rotary_steps_per_deg: 1.0, // Used if we calculate degrees explicitly, but usually Y is swapped.
+            controller_kind: default_controller_kind(),
         }
     }
 }

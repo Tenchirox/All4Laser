@@ -5,11 +5,12 @@ use crate::ui::drawing::{ShapeParams, ShapeKind};
 use crate::ui::layers_new::CutLayer;
 use crate::gcode::generator::GCodeBuilder;
 
-pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLayer, interval_mm: f32) {
-    if interval_mm <= 0.001 { return; }
+pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLayer) {
+    let interval_mm = layer.fill_interval_mm.max(0.01);
+    let overscan_mm = layer.fill_overscan_mm.max(0.0);
+    let min_power = layer.min_power.clamp(0.0, layer.power);
 
     let mut builder = GCodeBuilder::new();
-    // Inherit existing lines if we wanted to reuse builder, but here we append later.
 
     let bounds = match shape.shape {
         ShapeKind::Rectangle => (shape.x, shape.y, shape.x + shape.width, shape.y + shape.height),
@@ -24,11 +25,8 @@ pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLa
     builder.comment(&format!("Fill Scan (Layer C{:02})", layer.id));
     builder.laser_off();
 
-    // Move to start
-    builder.rapid(if left_to_right { min_x } else { max_x }, y);
-
-    while y <= max_y {
-        let (x_start, x_end) = match shape.shape {
+    while y <= max_y + 0.0001 {
+        let span = match shape.shape {
             ShapeKind::Rectangle => (min_x, max_x),
             ShapeKind::Circle => {
                 // Circle equation: (x-cx)^2 + (y-cy)^2 = r^2
@@ -37,6 +35,9 @@ pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLa
                 let dy = y - cy;
                 if dy.abs() > shape.radius {
                     y += interval_mm;
+                    if layer.fill_bidirectional {
+                        left_to_right = !left_to_right;
+                    }
                     continue;
                 }
                 let dx = (shape.radius.powi(2) - dy.powi(2)).sqrt();
@@ -45,75 +46,51 @@ pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLa
             _ => (min_x, max_x),
         };
 
-        if left_to_right {
-            // We are at x_start (or close to it)
-            // If the last move ended exactly where we start, the generator handles it.
-            // But if we stepped down, we are already at the correct Y, possibly slightly offset X.
-            // Rapid to start if distance is large? For scan, we usually assume connected path.
-            // However, circle edges change X every line.
+        let (x_start, x_end) = span;
+        let line_left_to_right = if layer.fill_bidirectional { left_to_right } else { true };
 
-            // Standard scan: rapid to start of line, burn to end.
-            // Bi-directional scan connects ends.
-
-            // To ensure we start exactly at x_start:
-            // But wait, previous line ended at prev_x_end. We stepped Y down.
-            // We need to move from (prev_x_end, y) to (x_start, y) if not same.
-
-            // Actually, the generator's `linear` will do G1. If we want G0 for the step-over if it's large (whitespace), we should check.
-            // For simple shapes, step over is small (interval).
-            // We rely on G1 F(Speed) for step over to keep motion smooth (no stop/start accel penalty of M5/G0 if possible).
-            // But we must turn laser OFF for step over if we are outside the shape.
-            // The step-over logic is below. Here is the burn stroke:
-
-            builder.linear(x_end, y, layer.speed, layer.power);
+        let (entry_x, body_start, body_end, exit_x) = if line_left_to_right {
+            (
+                x_start - overscan_mm,
+                x_start,
+                x_end,
+                x_end + overscan_mm,
+            )
         } else {
-            builder.linear(x_start, y, layer.speed, layer.power);
-        }
+            (
+                x_end + overscan_mm,
+                x_end,
+                x_start,
+                x_start - overscan_mm,
+            )
+        };
 
-        // Turnaround / Step over
-        y += interval_mm;
-        if y <= max_y {
-            // Turn off laser for the step down
-            builder.laser_off();
-            // Note: LightBurn uses "Fast Whitespace" scan which uses G0.
-            // Simple scan uses G1 for smoothness.
-            // Let's use rapid (G0) which automatically does M5 if needed via our builder.
-
-            let next_x_start = if !left_to_right {
-                // Next line is Left->Right, so start at Left X
-                match shape.shape {
-                    ShapeKind::Rectangle => min_x,
-                    ShapeKind::Circle => {
-                        let cy = shape.y;
-                        let dy = y - cy;
-                        if dy.abs() > shape.radius { shape.x } else {
-                             let dx = (shape.radius.powi(2) - dy.powi(2)).sqrt();
-                             shape.x - dx
-                        }
-                    },
-                    _ => min_x
-                }
+        // Entry: rapid to overscan edge, then optional low-power pre-fire into shape
+        builder.rapid(entry_x, y);
+        if overscan_mm > 0.0 {
+            if min_power > 0.0 {
+                builder.linear(body_start, y, layer.speed, min_power);
             } else {
-                // Next line is Right->Left, start at Right X
-                 match shape.shape {
-                    ShapeKind::Rectangle => max_x,
-                    ShapeKind::Circle => {
-                        let cy = shape.y;
-                        let dy = y - cy;
-                        if dy.abs() > shape.radius { shape.x } else {
-                             let dx = (shape.radius.powi(2) - dy.powi(2)).sqrt();
-                             shape.x + dx
-                        }
-                    },
-                    _ => max_x
-                }
-            };
-
-            // Use Rapid G0 for step over.
-            builder.rapid(next_x_start, y);
+                builder.rapid(body_start, y);
+            }
         }
 
-        left_to_right = !left_to_right;
+        // Main scan stroke at target power
+        builder.linear(body_end, y, layer.speed, layer.power);
+
+        // Exit overscan tail
+        if overscan_mm > 0.0 {
+            if min_power > 0.0 {
+                builder.linear(exit_x, y, layer.speed, min_power);
+            } else {
+                builder.rapid(exit_x, y);
+            }
+        }
+
+        y += interval_mm;
+        if layer.fill_bidirectional {
+            left_to_right = !left_to_right;
+        }
     }
 
     builder.laser_off();

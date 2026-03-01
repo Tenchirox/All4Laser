@@ -1,5 +1,6 @@
 use egui::{Ui, RichText};
 use crate::config::recent_files::RecentFiles;
+use crate::controller::ControllerCapabilities;
 use crate::theme;
 
 use crate::i18n::{self, tr, Language};
@@ -25,6 +26,7 @@ pub struct ToolbarAction {
     pub set_layout: Option<theme::UiLayout>,
     pub set_language: Option<Language>,
     pub toggle_light_mode: bool,
+    pub toggle_beginner_mode: bool,
     pub open_settings: bool,
     pub open_power_speed_test: bool,
     pub open_gcode_editor: bool,
@@ -56,6 +58,7 @@ impl Default for ToolbarAction {
             set_layout: None,
             set_language: None,
             toggle_light_mode: false,
+            toggle_beginner_mode: false,
             open_settings: false,
             open_power_speed_test: false,
             open_gcode_editor: false,
@@ -71,9 +74,11 @@ pub fn show(
     connected: bool,
     running: bool,
     light_mode: bool,
+    beginner_mode: bool,
     framing_active: bool,
     recent: &RecentFiles,
     has_file: bool,
+    caps: ControllerCapabilities,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::default();
 
@@ -155,44 +160,95 @@ pub fn show(
             }
         }
 
-        if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("⏸ {}", tr("Hold"))).size(13.0))).clicked() { action.hold = true; }
-        if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("▶ {}", tr("Resume"))).size(13.0))).clicked() { action.resume = true; }
+        if ui
+            .add_enabled(
+                connected && caps.supports_hold_resume,
+                egui::Button::new(RichText::new(format!("⏸ {}", tr("Hold"))).size(13.0)),
+            )
+            .clicked()
+        {
+            action.hold = true;
+        }
+        if ui
+            .add_enabled(
+                connected && caps.supports_hold_resume,
+                egui::Button::new(RichText::new(format!("▶ {}", tr("Resume"))).size(13.0)),
+            )
+            .clicked()
+        {
+            action.resume = true;
+        }
 
         ui.separator();
 
-        if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("🏠 {}", tr("Home"))).size(13.0))).clicked() { action.home = true; }
-        if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("🔓 {}", tr("Unlock"))).size(13.0))).clicked() { action.unlock = true; }
+        if ui
+            .add_enabled(
+                connected && caps.supports_home,
+                egui::Button::new(RichText::new(format!("🏠 {}", tr("Home"))).size(13.0)),
+            )
+            .clicked()
+        {
+            action.home = true;
+        }
+        if ui
+            .add_enabled(
+                connected && caps.supports_unlock,
+                egui::Button::new(RichText::new(format!("🔓 {}", tr("Unlock"))).size(13.0)),
+            )
+            .clicked()
+        {
+            action.unlock = true;
+        }
         if ui.add_enabled(connected, egui::Button::new(RichText::new("⊙ Zero").size(13.0))).clicked() { action.set_zero = true; }
 
         ui.separator();
 
-        if ui.add_enabled(connected, egui::Button::new(RichText::new(format!("↻ {}", tr("Reset"))).color(theme::PEACH).size(13.0))).clicked() { action.reset = true; }
+        if ui
+            .add_enabled(
+                connected && caps.supports_reset,
+                egui::Button::new(RichText::new(format!("↻ {}", tr("Reset"))).color(theme::PEACH).size(13.0)),
+            )
+            .clicked()
+        {
+            action.reset = true;
+        }
 
         // View menu
-        egui::menu::menu_button(ui, "👁 View", |ui| {
-            ui.label(RichText::new("Theme:").strong());
-            if ui.selectable_label(false, "Catppuccin (Modern)").clicked() {
+        egui::menu::menu_button(ui, format!("👁 {}", tr("View")), |ui| {
+            ui.label(RichText::new(format!("{}:", tr("Theme"))).strong());
+            if ui.selectable_label(false, tr("Modern (recommended)")).clicked() {
                 action.set_theme = Some(theme::UiTheme::Modern);
                 ui.close_menu();
             }
-            if ui.selectable_label(false, "LightBurn-ish (Industrial)").clicked() {
+            if ui.selectable_label(false, tr("Industrial (advanced)")).clicked() {
                 action.set_theme = Some(theme::UiTheme::Industrial);
                 ui.close_menu();
             }
             
             ui.separator();
-            ui.label(RichText::new("Layout:").strong());
-            if ui.selectable_label(false, "Modern Layout").clicked() {
+            ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());
+            if ui.selectable_label(false, tr("Modern layout (simple)")).clicked() {
                 action.set_layout = Some(theme::UiLayout::Modern);
                 ui.close_menu();
             }
-            if ui.selectable_label(false, "Classic (LightBurn Style)").clicked() {
+            if ui.selectable_label(false, tr("Classic layout (expert)")).clicked() {
                 action.set_layout = Some(theme::UiLayout::Classic);
                 ui.close_menu();
             }
 
             ui.separator();
-            ui.label(RichText::new("Language:").strong());
+            let beginner_label = if beginner_mode {
+                format!("✅ {}", tr("Beginner Mode"))
+            } else {
+                tr("Beginner Mode")
+            };
+            if ui.selectable_label(beginner_mode, beginner_label).clicked() {
+                action.toggle_beginner_mode = true;
+                ui.close_menu();
+            }
+
+            ui.separator();
+            ui.label(RichText::new(format!("{}:", tr("Language"))).strong());
             let current_lang = i18n::get_language();
             let langs = [
                 Language::English, Language::French, Language::Japanese,
@@ -238,7 +294,13 @@ pub fn show(
                 action.toggle_light_mode = true; 
             }
             ui.add_space(8.0);
-            if ui.button(RichText::new(format!("⚙ {}", tr("Settings"))).size(13.0)).clicked() {
+            if ui
+                .add_enabled(
+                    caps.supports_grbl_settings,
+                    egui::Button::new(RichText::new(format!("⚙ {}", tr("Settings"))).size(13.0)),
+                )
+                .clicked()
+            {
                 action.open_settings = true;
             }
         });

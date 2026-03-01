@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use egui::{CentralPanel, SidePanel, TopBottomPanel, RichText};
@@ -5,9 +6,12 @@ use egui::{CentralPanel, SidePanel, TopBottomPanel, RichText};
 use crate::config::machine_profile::MachineProfile;
 use crate::config::recent_files::RecentFiles;
 use crate::config::settings::AppSettings;
+use crate::controller::{
+    ControllerBackend, ControllerCapabilities, ControllerKind, ControllerResponse,
+    RealtimeCommand,
+};
 use crate::gcode::file::GCodeFile;
 use crate::grbl::types::*;
-use crate::grbl::protocol;
 use crate::preview::renderer::PreviewRenderer;
 use crate::ui::drawing::ShapeKind;
 use crate::serial::connection::{self, SerialConnection, SerialMsg};
@@ -18,7 +22,7 @@ use crate::imaging;
 
 const MAX_LOG_LINES: usize = 500;
 const STATUS_POLL_MS: u64 = 250;
-const LEFT_PANEL_WIDTH: f32 = 300.0;
+const LEFT_PANEL_WIDTH: f32 = 280.0;
 
 #[derive(Debug, PartialEq, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum RightPanelTab {
@@ -79,6 +83,7 @@ pub struct All4LaserApp {
 
     // Machine Profile
     machine_profile: MachineProfile,
+    controller_backend: Arc<dyn ControllerBackend>,
 
     // Job Transform
     job_offset_x: f32,
@@ -120,6 +125,7 @@ pub struct All4LaserApp {
     ui_theme: theme::UiTheme,
     ui_layout: theme::UiLayout,
     light_mode: bool,
+    beginner_mode: bool,
 
     // Focus Target
     is_focus_on: bool,
@@ -158,6 +164,8 @@ pub struct All4LaserApp {
 impl All4LaserApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let ports = connection::list_ports();
+        let machine_profile = MachineProfile::load();
+        let controller_backend = crate::controller::create_backend(machine_profile.controller_kind);
 
         let mut app = Self {
             grbl_state: GrblState::default(),
@@ -183,7 +191,8 @@ impl All4LaserApp {
             drawing_state: crate::ui::drawing::DrawingState::default(),
             power_speed_test: ui::power_speed_test::PowerSpeedTestState::default(),
             recent_files: RecentFiles::load(),
-            machine_profile: MachineProfile::load(),
+            machine_profile,
+            controller_backend,
             job_offset_x: 0.0,
             job_offset_y: 0.0,
             job_rotation: 0.0,
@@ -201,6 +210,7 @@ impl All4LaserApp {
             ui_theme: theme::UiTheme::Modern,
             ui_layout: theme::UiLayout::Modern,
             light_mode: false,
+            beginner_mode: true,
             is_focus_on: false,
             framing_active: false,
             framing_wait_idle: false,
@@ -226,6 +236,7 @@ impl All4LaserApp {
         app.ui_theme = app.settings.theme;
         app.ui_layout = app.settings.layout;
         app.light_mode = app.settings.light_mode;
+        app.beginner_mode = app.settings.beginner_mode;
         app.language = app.settings.language;
         app.active_tab = app.settings.active_tab;
 
@@ -238,6 +249,7 @@ impl All4LaserApp {
         self.settings.theme = self.ui_theme;
         self.settings.layout = self.ui_layout;
         self.settings.light_mode = self.light_mode;
+        self.settings.beginner_mode = self.beginner_mode;
         self.settings.language = self.language;
         self.settings.active_tab = self.active_tab;
         self.settings.save();
@@ -252,6 +264,50 @@ impl All4LaserApp {
 
     fn is_connected(&self) -> bool {
         self.connection.is_some()
+    }
+
+    fn sync_controller_backend(&mut self) {
+        self.controller_backend = crate::controller::create_backend(self.machine_profile.controller_kind);
+    }
+
+    fn apply_controller_kind_change(&mut self, previous_kind: ControllerKind) {
+        self.sync_controller_backend();
+        if previous_kind != self.machine_profile.controller_kind && self.is_connected() {
+            self.disconnect();
+            self.log("Controller backend changed. Reconnect to apply protocol changes.".to_string());
+        }
+    }
+
+    fn send_realtime(&self, command: RealtimeCommand) -> bool {
+        let Some(conn) = self.connection.as_ref() else {
+            return false;
+        };
+        if let Some(byte) = self.controller_backend.realtime_byte(command) {
+            conn.send_byte(byte);
+            return true;
+        }
+        if let Some(line) = self.controller_backend.realtime_line(command) {
+            conn.send(line);
+            return true;
+        }
+        false
+    }
+
+    fn controller_capabilities(&self) -> ControllerCapabilities {
+        self.controller_backend.capabilities()
+    }
+
+    fn send_realtime_or_warn(&mut self, command: RealtimeCommand, action_label: &str) -> bool {
+        if self.send_realtime(command) {
+            return true;
+        }
+        if self.is_connected() {
+            self.log(format!(
+                "{action_label} is not supported by {} backend.",
+                self.machine_profile.controller_kind.label()
+            ));
+        }
+        false
     }
 
     fn log(&mut self, msg: String) {
@@ -270,9 +326,7 @@ impl All4LaserApp {
     fn poll_serial(&mut self) {
         // Poll for status periodically
         if self.is_connected() && self.last_poll.elapsed() > Duration::from_millis(STATUS_POLL_MS) {
-            if let Some(conn) = self.connection.as_ref() {
-                conn.send_byte(protocol::CMD_STATUS_REPORT);
-            }
+            self.send_realtime(RealtimeCommand::StatusReport);
             self.last_poll = Instant::now();
         }
 
@@ -289,53 +343,60 @@ impl All4LaserApp {
 
         for msg in msgs {
             match msg {
-                SerialMsg::Response(GrblResponse::Status(state)) => {
-                    let old_status = self.grbl_state.status;
-                    // Store machine position in renderer for crosshair display
-                    self.renderer.machine_pos = egui::pos2(state.mpos.x, state.mpos.y);
-                    self.grbl_state = state;
-                    
-                    if self.framing_active {
-                        if self.grbl_state.status == MacStatus::Run {
-                            self.framing_wait_idle = true;
-                        } else if self.grbl_state.status == MacStatus::Idle && old_status == MacStatus::Run && self.framing_wait_idle {
-                            self.framing_wait_idle = false;
-                            self.send_frame_sequence();
+                SerialMsg::Response(ControllerResponse::Grbl(response)) => match response {
+                    GrblResponse::Status(state) => {
+                        let old_status = self.grbl_state.status;
+                        // Store machine position in renderer for crosshair display
+                        self.renderer.machine_pos = egui::pos2(state.mpos.x, state.mpos.y);
+                        self.grbl_state = state;
+
+                        if self.framing_active {
+                            if self.grbl_state.status == MacStatus::Run {
+                                self.framing_wait_idle = true;
+                            } else if self.grbl_state.status == MacStatus::Idle
+                                && old_status == MacStatus::Run
+                                && self.framing_wait_idle
+                            {
+                                self.framing_wait_idle = false;
+                                self.send_frame_sequence();
+                            }
                         }
                     }
-                }
-                SerialMsg::Response(GrblResponse::Ok) => {
-                    if self.running && self.program_index < self.program_lines.len() {
-                        self.send_next_program_line();
-                    } else if self.running && self.program_index >= self.program_lines.len() {
+                    GrblResponse::Ok => {
+                        if self.running && self.program_index < self.program_lines.len() {
+                            self.send_next_program_line();
+                        } else if self.running && self.program_index >= self.program_lines.len() {
+                            self.running = false;
+                            self.is_dry_run = false;
+                            // Air assist OFF
+                            if self.machine_profile.air_assist {
+                                self.send_command("M9");
+                            }
+                            self.log("Program complete.".to_string());
+                            self.notify_job_done = true;
+                        }
+                    }
+                    GrblResponse::Error(code) => {
+                        self.log(format!("error:{code}"));
+                    }
+                    GrblResponse::Alarm(code) => {
+                        self.log(format!("ALARM:{code}"));
                         self.running = false;
                         self.is_dry_run = false;
-                        // Air assist OFF
-                        if self.machine_profile.air_assist {
-                            self.send_command("M9");
-                        }
-                        self.log("Program complete.".to_string());
-                        self.notify_job_done = true;
                     }
-                }
-                SerialMsg::Response(GrblResponse::Error(code)) => {
-                    self.log(format!("error:{code}"));
-                }
-                SerialMsg::Response(GrblResponse::Alarm(code)) => {
-                    self.log(format!("ALARM:{code}"));
-                    self.running = false;
-                    self.is_dry_run = false;
-                }
-                SerialMsg::Response(GrblResponse::GrblVersion(ver)) => {
-                    self.log(format!("Grbl {ver}"));
-                }
-                SerialMsg::Response(GrblResponse::Setting(id, val)) => {
-                    if let Some(state) = &mut self.settings_state {
-                        if state.is_open {
-                            state.settings.insert(id, val);
+                    GrblResponse::GrblVersion(ver) => {
+                        self.log(format!("Grbl {ver}"));
+                    }
+                    GrblResponse::Setting(id, val) => {
+                        if let Some(state) = &mut self.settings_state {
+                            if state.is_open {
+                                state.settings.insert(id, val);
+                            }
                         }
                     }
-                }
+                    GrblResponse::Message(_) => {}
+                },
+                SerialMsg::Response(ControllerResponse::Message) => {}
                 SerialMsg::RawLine(line) => {
                     self.log(line);
                 }
@@ -354,7 +415,6 @@ impl All4LaserApp {
                 SerialMsg::Error(err) => {
                     self.log(format!("Serial error: {err}"));
                 }
-                _ => {}
             }
         }
     }
@@ -418,7 +478,7 @@ impl All4LaserApp {
         self.log(format!("Connecting to {port} @ {baud}…"));
         self.grbl_state.status = MacStatus::Connecting;
 
-        match SerialConnection::connect(&port, baud) {
+        match SerialConnection::connect(&port, baud, self.controller_backend.clone()) {
             Ok(conn) => {
                 self.connection = Some(conn);
             }
@@ -677,8 +737,11 @@ impl All4LaserApp {
     }
 
     fn abort_program(&mut self) {
-        if let Some(conn) = self.connection.as_ref() {
-            conn.send_byte(protocol::CMD_RESET);
+        if !self.send_realtime(RealtimeCommand::Reset) && self.is_connected() {
+            self.log(format!(
+                "Emergency reset not supported by {} backend.",
+                self.machine_profile.controller_kind.label()
+            ));
         }
         self.running = false;
         self.is_dry_run = false;
@@ -701,42 +764,68 @@ impl All4LaserApp {
 
     /// Send GRBL real-time feed override to pct% (10-200)
     fn send_feed_override(&mut self, pct: u8) {
-        if let Some(conn) = self.connection.as_ref() {
-            conn.send_byte(protocol::FEED_OV_RESET);
+        if self.send_realtime(RealtimeCommand::FeedOverrideReset) {
             let diff = pct as i32 - 100;
             let tens = diff / 10;
             let ones = diff % 10;
             let (ten_cmd, one_cmd) = if diff >= 0 {
-                (protocol::FEED_OV_PLUS_10, protocol::FEED_OV_PLUS_1)
+                (
+                    RealtimeCommand::FeedOverridePlus10,
+                    RealtimeCommand::FeedOverridePlus1,
+                )
             } else {
-                (protocol::FEED_OV_MINUS_10, protocol::FEED_OV_MINUS_1)
+                (
+                    RealtimeCommand::FeedOverrideMinus10,
+                    RealtimeCommand::FeedOverrideMinus1,
+                )
             };
-            for _ in 0..tens.abs() { conn.send_byte(ten_cmd); }
-            for _ in 0..ones.abs() { conn.send_byte(one_cmd); }
+            for _ in 0..tens.abs() {
+                self.send_realtime(ten_cmd);
+            }
+            for _ in 0..ones.abs() {
+                self.send_realtime(one_cmd);
+            }
         }
     }
 
     /// Send GRBL real-time spindle (laser power) override to pct% (10-200)
     fn send_spindle_override(&mut self, pct: u8) {
-        if let Some(conn) = self.connection.as_ref() {
-            conn.send_byte(protocol::SPINDLE_OV_RESET);
+        if self.send_realtime(RealtimeCommand::SpindleOverrideReset) {
             let diff = pct as i32 - 100;
             let tens = diff / 10;
             let ones = diff % 10;
             let (ten_cmd, one_cmd) = if diff >= 0 {
-                (protocol::SPINDLE_OV_PLUS_10, protocol::SPINDLE_OV_PLUS_1)
+                (
+                    RealtimeCommand::SpindleOverridePlus10,
+                    RealtimeCommand::SpindleOverridePlus1,
+                )
             } else {
-                (protocol::SPINDLE_OV_MINUS_10, protocol::SPINDLE_OV_MINUS_1)
+                (
+                    RealtimeCommand::SpindleOverrideMinus10,
+                    RealtimeCommand::SpindleOverrideMinus1,
+                )
             };
-            for _ in 0..tens.abs() { conn.send_byte(ten_cmd); }
-            for _ in 0..ones.abs() { conn.send_byte(one_cmd); }
+            for _ in 0..tens.abs() {
+                self.send_realtime(ten_cmd);
+            }
+            for _ in 0..ones.abs() {
+                self.send_realtime(one_cmd);
+            }
         }
     }
 
     fn jog(&mut self, dir: JogDirection) {
-        if !self.is_connected() { return; }
-        let cmd = protocol::jog_command(dir, self.jog_step, self.jog_feed);
-        self.send_command(&cmd);
+        if !self.is_connected() {
+            return;
+        }
+        if let Some(cmd) = self.controller_backend.jog_command(dir, self.jog_step, self.jog_feed) {
+            self.send_command(&cmd);
+        } else {
+            self.log(format!(
+                "Jog is not supported by {} backend.",
+                self.machine_profile.controller_kind.label()
+            ));
+        }
     }
 
     fn handle_keyboard(&mut self, ctx: &egui::Context) {
@@ -744,16 +833,23 @@ impl All4LaserApp {
         let mut hold = false;
         let mut abort = false;
         let mut delete_selection = false;
+        let caps = self.controller_capabilities();
 
         ctx.input(|i| {
-            if i.key_pressed(egui::Key::ArrowUp) { jog_dir = Some(JogDirection::N); }
-            if i.key_pressed(egui::Key::ArrowDown) { jog_dir = Some(JogDirection::S); }
-            if i.key_pressed(egui::Key::ArrowLeft) { jog_dir = Some(JogDirection::W); }
-            if i.key_pressed(egui::Key::ArrowRight) { jog_dir = Some(JogDirection::E); }
-            if i.key_pressed(egui::Key::PageUp) { jog_dir = Some(JogDirection::Zup); }
-            if i.key_pressed(egui::Key::PageDown) { jog_dir = Some(JogDirection::Zdown); }
-            if i.key_pressed(egui::Key::Home) { jog_dir = Some(JogDirection::Home); }
-            if i.key_pressed(egui::Key::Space) { hold = true; }
+            if caps.supports_jog {
+                if i.key_pressed(egui::Key::ArrowUp) { jog_dir = Some(JogDirection::N); }
+                if i.key_pressed(egui::Key::ArrowDown) { jog_dir = Some(JogDirection::S); }
+                if i.key_pressed(egui::Key::ArrowLeft) { jog_dir = Some(JogDirection::W); }
+                if i.key_pressed(egui::Key::ArrowRight) { jog_dir = Some(JogDirection::E); }
+                if i.key_pressed(egui::Key::PageUp) { jog_dir = Some(JogDirection::Zup); }
+                if i.key_pressed(egui::Key::PageDown) { jog_dir = Some(JogDirection::Zdown); }
+            }
+            if caps.supports_jog && caps.supports_home && i.key_pressed(egui::Key::Home) {
+                jog_dir = Some(JogDirection::Home);
+            }
+            if caps.supports_hold_resume && i.key_pressed(egui::Key::Space) {
+                hold = true;
+            }
             if i.key_pressed(egui::Key::Escape) { abort = true; }
             if i.key_pressed(egui::Key::Delete) { delete_selection = true; }
         });
@@ -779,9 +875,7 @@ impl All4LaserApp {
             self.jog(dir);
         }
         if hold {
-            if let Some(conn) = self.connection.as_ref() {
-                conn.send_byte(protocol::CMD_FEED_HOLD);
-            }
+            self.send_realtime_or_warn(RealtimeCommand::FeedHold, "Feed hold");
         }
         if abort {
             self.abort_program();
@@ -807,280 +901,330 @@ impl All4LaserApp {
     }
 
     fn ui_left_content(&mut self, ui: &mut egui::Ui, connected: bool) {
-        // Connection
-        let conn_action = ui::connection::show(
-            ui,
-            &self.ports,
-            &mut self.selected_port,
-            &self.baud_rates,
-            &mut self.selected_baud,
-            connected,
-        );
-        if conn_action.connect { self.connect(); }
-        if conn_action.disconnect { self.disconnect(); }
-        if conn_action.refresh_ports {
-            self.ports = connection::list_ports();
-            self.log("Ports refreshed.".to_string());
-        }
-
-        ui.add_space(8.0);
-
-        // Machine state
-        let ms_action = ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected);
-        if ms_action.toggle_focus && connected {
-            self.is_focus_on = !self.is_focus_on;
-            if self.is_focus_on {
-                self.send_command("M3 S10");
-            } else {
-                self.send_command("M5");
-            }
-        }
-        if let Some(pos) = ms_action.quick_pos {
-            self.quick_move_to(pos);
-        }
-
-        ui.add_space(8.0);
-
-        // Machine Profile settings
-        let mut profile_changed = false;
-        egui::CollapsingHeader::new(egui::RichText::new(format!("⚙ {}", crate::i18n::tr("Machine Profile"))).color(crate::theme::LAVENDER).strong())
+        let caps = self.controller_capabilities();
+        egui::CollapsingHeader::new(
+            RichText::new(format!("🔌 {}", crate::i18n::tr("Connection & Control")))
+                .color(theme::LAVENDER)
+                .strong(),
+        )
+            .default_open(true)
             .show(ui, |ui| {
-                egui::Grid::new("mp_grid").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-                    ui.label("Name:"); 
-                    if ui.text_edit_singleline(&mut self.machine_profile.name).changed() { profile_changed = true; }
-                    ui.end_row();
-                    ui.label("Width (mm):");
-                    if ui.add(egui::DragValue::new(&mut self.machine_profile.workspace_x_mm).speed(5.0)).changed() { profile_changed = true; }
-                    ui.end_row();
-                    ui.label("Height (mm):");
-                    if ui.add(egui::DragValue::new(&mut self.machine_profile.workspace_y_mm).speed(5.0)).changed() { profile_changed = true; }
-                    ui.end_row();
-                    ui.label("Max Rate X:");
-                    if ui.add(egui::DragValue::new(&mut self.machine_profile.max_rate_x).speed(50.0).suffix(" mm/min")).changed() { profile_changed = true; }
-                    ui.end_row();
-                    ui.label("Max Rate Y:");
-                    if ui.add(egui::DragValue::new(&mut self.machine_profile.max_rate_y).speed(50.0).suffix(" mm/min")).changed() { profile_changed = true; }
-                    ui.end_row();
-                    ui.label("Accel X:");
-                    if ui.add(egui::DragValue::new(&mut self.machine_profile.accel_x).speed(10.0).suffix(" mm/s²")).changed() { profile_changed = true; }
-                    ui.end_row();
-                    ui.label("Accel Y:");
-                    if ui.add(egui::DragValue::new(&mut self.machine_profile.accel_y).speed(10.0).suffix(" mm/s²")).changed() { profile_changed = true; }
-                    ui.end_row();
-                });
-                ui.horizontal(|ui| {
-                    if ui.checkbox(&mut self.machine_profile.return_to_origin, "Return to origin").changed() { profile_changed = true; }
-                });
-                ui.horizontal(|ui| {
-                    if ui.checkbox(&mut self.machine_profile.air_assist, "Air Assist (M8/M9)").changed() { profile_changed = true; }
+                let conn_action = ui::connection::show(
+                    ui,
+                    &self.ports,
+                    &mut self.selected_port,
+                    &self.baud_rates,
+                    &mut self.selected_baud,
+                    connected,
+                );
+                if conn_action.connect { self.connect(); }
+                if conn_action.disconnect { self.disconnect(); }
+                if conn_action.refresh_ports {
+                    self.ports = connection::list_ports();
+                    self.log("Ports refreshed.".to_string());
+                }
+
+                ui.add_space(6.0);
+
+                let ms_action = ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected);
+                if ms_action.toggle_focus && connected {
+                    self.is_focus_on = !self.is_focus_on;
+                    if self.is_focus_on {
+                        self.send_command("M3 S10");
+                    } else {
+                        self.send_command("M5");
+                    }
+                }
+                if let Some(pos) = ms_action.quick_pos {
+                    self.quick_move_to(pos);
+                }
+
+                ui.add_space(6.0);
+
+                let jog_action = ui::jog::show(
+                    ui,
+                    &mut self.jog_step,
+                    &mut self.jog_feed,
+                    caps.supports_jog,
+                    caps.supports_home,
+                );
+                if let Some(dir) = jog_action.direction {
+                    self.jog(dir);
+                }
+            });
+
+        ui.add_space(6.0);
+
+        egui::CollapsingHeader::new(
+            RichText::new(format!("📐 {}", crate::i18n::tr("Job Preparation")))
+                .color(theme::LAVENDER)
+                .strong(),
+        )
+            .default_open(true)
+            .show(ui, |ui| {
+                ui.group(|ui| {
+                    let (h, m, s) = if let Some(file) = &self.loaded_file {
+                        let est_time_s = crate::gcode::estimation::estimate(&file.lines).estimated_seconds;
+                        let h = (est_time_s / 3600.0) as u32;
+                        let m = ((est_time_s % 3600.0) / 60.0) as u32;
+                        let s = (est_time_s % 60.0) as u32;
+                        (h, m, s)
+                    } else {
+                        (0, 0, 0)
+                    };
+                    ui.label(RichText::new(format!("⏱ Est. Time: {:02}:{:02}:{:02}", h, m, s)).strong().color(theme::GREEN));
+
+                    ui.add_space(4.0);
+                    if ui.button("⚡ Optimize Path").on_hover_text("Reorder segments to minimize travel distance").clicked() {
+                        if let Some(mut file) = self.loaded_file.clone() {
+                            let optimized_lines = crate::gcode::optimizer::optimize(&file.lines);
+                            let raw_lines: Vec<String> = optimized_lines.iter().map(|l| l.to_gcode()).collect();
+                            file.lines = optimized_lines;
+                            self.set_loaded_file(file, raw_lines);
+                            self.log("Path optimized.".to_string());
+                        }
+                    }
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(format!("📐 {}", crate::i18n::tr("Job Transformation"))).color(theme::LAVENDER).strong());
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label("Offset X:");
+                        ui.add(egui::DragValue::new(&mut self.job_offset_x).speed(1.0).suffix(" mm"));
+                        ui.label("Y:");
+                        ui.add(egui::DragValue::new(&mut self.job_offset_y).speed(1.0).suffix(" mm"));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Rotation:");
+                        ui.add(egui::Slider::new(&mut self.job_rotation, -180.0..=180.0).suffix("°"));
+                        if ui.button("⟲").clicked() { self.job_rotation = 0.0; }
+                    });
+                    if ui.button("Center Job").clicked() {
+                        if let Some(file) = &self.loaded_file {
+                            if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
+                                let mid_x = (min_x + max_x) / 2.0;
+                                let mid_y = (min_y + max_y) / 2.0;
+                                let wm_x = self.machine_profile.workspace_x_mm / 2.0;
+                                let wm_y = self.machine_profile.workspace_y_mm / 2.0;
+                                self.job_offset_x = wm_x - mid_x;
+                                self.job_offset_y = wm_y - mid_y;
+                            }
+                        }
+                    }
                 });
             });
-        if profile_changed { self.machine_profile.save(); }
 
-        // Jog pad
-        let jog_action = ui::jog::show(ui, &mut self.jog_step, &mut self.jog_feed);
-        if let Some(dir) = jog_action.direction {
-            self.jog(dir);
-        }
-
-        ui.add_space(8.0);
-
-        // Custom Macros
-        let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
-        if let Some(gcode) = macros_action.execute_macro {
-            for line in gcode.lines() {
-                let trimmed = line.trim();
-                if !trimmed.is_empty() {
-                    self.send_command(trimmed);
-                }
-            }
-        }
-
-        ui.add_space(8.0);
+        ui.add_space(6.0);
 
         if self.ui_layout == theme::UiLayout::Modern {
-            // Drawing Tools (Only in sidebar in modern)
-            let draw_action = crate::ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
-            if let Some(lines) = draw_action.generate_gcode {
-                let file = GCodeFile::from_lines("drawing", &lines);
-                self.set_loaded_file(file, lines);
-            }
-            ui.add_space(4.0);
+            egui::CollapsingHeader::new(
+                RichText::new(format!("🎨 {}", crate::i18n::tr("Creation & Editing")))
+                    .color(theme::LAVENDER)
+                    .strong(),
+            )
+                .default_open(!self.beginner_mode)
+                .show(ui, |ui| {
+                    let draw_action = crate::ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
+                    if let Some(lines) = draw_action.generate_gcode {
+                        let file = GCodeFile::from_lines("drawing", &lines);
+                        self.set_loaded_file(file, lines);
+                    }
+                    ui.add_space(4.0);
 
-            // Alignment Tools
-            let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
-            let ws = self.renderer.workspace_size; // Vec2
-            ui::alignment::show(ui, &mut self.drawing_state, &selection, ws);
+                    let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+                    let ws = self.renderer.workspace_size;
+                    ui::alignment::show(ui, &mut self.drawing_state, &selection, ws);
 
-            ui.add_space(8.0);
+                    ui.add_space(6.0);
+                    ui::camera::show(ui, &mut self.camera_state);
 
-            // Camera Overlay
-            ui::camera::show(ui, &mut self.camera_state);
-            ui.add_space(8.0);
-            
-            // Text Tool
-            let text_action = ui::text::show(ui, &mut self.text_state);
-            if let Some(lines) = text_action.generate_gcode {
-                let file = GCodeFile::from_lines("text", &lines);
-                self.set_loaded_file(file, lines);
-            }
-            ui.add_space(8.0);
+                    ui.add_space(6.0);
+                    let text_action = ui::text::show(ui, &mut self.text_state);
+                    if let Some(lines) = text_action.generate_gcode {
+                        let file = GCodeFile::from_lines("text", &lines);
+                        self.set_loaded_file(file, lines);
+                    }
 
-            // Generators
-            let gen_action = ui::generators::show(ui, &mut self.generator_state);
-            if let Some(lines) = gen_action.generate_gcode {
-                let file = GCodeFile::from_lines("generator", &lines);
+                    ui.add_space(6.0);
+                    let gen_action = ui::generators::show(ui, &mut self.generator_state);
+                    if let Some(lines) = gen_action.generate_gcode {
+                        let file = GCodeFile::from_lines("generator", &lines);
+                        self.set_loaded_file(file, lines);
+                    }
 
-                self.set_loaded_file(file, lines);
-            }
-            ui.add_space(8.0);
-            if ui.button(RichText::new("🌀 Circular Array").color(theme::LAVENDER).strong()).clicked() {
-                self.circular_array_state.is_open = true;
-            }
-            if ui.button(RichText::new("📐 Offset Path").color(theme::LAVENDER).strong()).clicked() {
-                self.offset_state.is_open = true;
-            }
-            if ui.button(RichText::new("🧩 Boolean Ops").color(theme::LAVENDER).strong()).clicked() {
-                self.boolean_ops_state.is_open = true;
-            }
+                    ui.add_space(6.0);
+                    if ui.button(RichText::new("🌀 Circular Array").color(theme::LAVENDER).strong()).clicked() {
+                        self.circular_array_state.is_open = true;
+                    }
+                    if ui.button(RichText::new("📐 Offset Path").color(theme::LAVENDER).strong()).clicked() {
+                        self.offset_state.is_open = true;
+                    }
+                    if ui.button(RichText::new("🧩 Boolean Ops").color(theme::LAVENDER).strong()).clicked() {
+                        self.boolean_ops_state.is_open = true;
+                    }
 
-            ui.add_space(8.0);
-            let node_edit_text = if self.renderer.node_edit_mode { "✅ Node Editing" } else { "🖱 Node Editing" };
-            if ui.selectable_label(self.renderer.node_edit_mode, RichText::new(node_edit_text).color(theme::PEACH).strong()).clicked() {
-                self.renderer.node_edit_mode = !self.renderer.node_edit_mode;
-                if !self.renderer.node_edit_mode {
-                    self.renderer.selected_node = None;
-                }
-            }
+                    ui.add_space(6.0);
+                    let node_edit_text = if self.renderer.node_edit_mode { "✅ Node Editing" } else { "🖱 Node Editing" };
+                    if ui.selectable_label(self.renderer.node_edit_mode, RichText::new(node_edit_text).color(theme::PEACH).strong()).clicked() {
+                        self.renderer.node_edit_mode = !self.renderer.node_edit_mode;
+                        if !self.renderer.node_edit_mode {
+                            self.renderer.selected_node = None;
+                        }
+                    }
 
-            if self.renderer.selected_shape_idx.len() == 1 {
-                let idx = *self.renderer.selected_shape_idx.iter().next().unwrap();
-                if let Some(shape) = self.drawing_state.shapes.get(idx) {
-                    if !matches!(shape.shape, ShapeKind::Path(_)) {
-                         if ui.button("🛤 Convert to Path").clicked() {
-                             if let Some(poly) = ui::offset::shape_to_polygon(shape) {
-                                  let exterior = poly.exterior();
-                                  let pts: Vec<(f32, f32)> = exterior.coords().map(|c| (c.x as f32, c.y as f32)).collect();
-                                  let mut new_shape = shape.clone();
-                                  new_shape.shape = ShapeKind::Path(pts);
-                                  new_shape.x = 0.0;
-                                  new_shape.y = 0.0;
-                                  self.drawing_state.shapes[idx] = new_shape;
-                                  self.log("Converted to path.".into());
-                             }
-                         }
+                    if self.renderer.selected_shape_idx.len() == 1 {
+                        let idx = *self.renderer.selected_shape_idx.iter().next().unwrap();
+                        if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                            if !matches!(shape.shape, ShapeKind::Path(_)) {
+                                if ui.button("🛤 Convert to Path").clicked() {
+                                    if let Some(poly) = ui::offset::shape_to_polygon(shape) {
+                                        let exterior = poly.exterior();
+                                        let pts: Vec<(f32, f32)> = exterior.coords().map(|c| (c.x as f32, c.y as f32)).collect();
+                                        let mut new_shape = shape.clone();
+                                        new_shape.shape = ShapeKind::Path(pts);
+                                        new_shape.x = 0.0;
+                                        new_shape.y = 0.0;
+                                        self.drawing_state.shapes[idx] = new_shape;
+                                        self.log("Converted to path.".into());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+            ui.add_space(6.0);
+        }
+
+        if !self.beginner_mode {
+            egui::CollapsingHeader::new(
+                RichText::new(format!("🛠 {}", crate::i18n::tr("Advanced Tools")))
+                    .color(theme::LAVENDER)
+                    .strong(),
+            )
+                .default_open(false)
+                .show(ui, |ui| {
+                let mut profile_changed = false;
+                egui::CollapsingHeader::new(egui::RichText::new(format!("⚙ {}", crate::i18n::tr("Machine Profile"))).color(crate::theme::LAVENDER).strong())
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        egui::Grid::new("mp_grid").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
+                            ui.label("Name:");
+                            if ui.text_edit_singleline(&mut self.machine_profile.name).changed() { profile_changed = true; }
+                            ui.end_row();
+                            ui.label(format!("{}:", crate::i18n::tr("Controller")));
+                            let previous_kind = self.machine_profile.controller_kind;
+                            egui::ComboBox::from_id_salt("controller_kind_combo")
+                                .selected_text(self.machine_profile.controller_kind.label())
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.machine_profile.controller_kind, ControllerKind::Grbl, ControllerKind::Grbl.label());
+                                    ui.selectable_value(&mut self.machine_profile.controller_kind, ControllerKind::Ruida, ControllerKind::Ruida.label());
+                                    ui.selectable_value(&mut self.machine_profile.controller_kind, ControllerKind::Trocen, ControllerKind::Trocen.label());
+                                });
+                            if self.machine_profile.controller_kind != previous_kind {
+                                profile_changed = true;
+                                self.apply_controller_kind_change(previous_kind);
+                            }
+                            ui.end_row();
+                            ui.label("Width (mm):");
+                            if ui.add(egui::DragValue::new(&mut self.machine_profile.workspace_x_mm).speed(5.0)).changed() { profile_changed = true; }
+                            ui.end_row();
+                            ui.label("Height (mm):");
+                            if ui.add(egui::DragValue::new(&mut self.machine_profile.workspace_y_mm).speed(5.0)).changed() { profile_changed = true; }
+                            ui.end_row();
+                            ui.label("Max Rate X:");
+                            if ui.add(egui::DragValue::new(&mut self.machine_profile.max_rate_x).speed(50.0).suffix(" mm/min")).changed() { profile_changed = true; }
+                            ui.end_row();
+                            ui.label("Max Rate Y:");
+                            if ui.add(egui::DragValue::new(&mut self.machine_profile.max_rate_y).speed(50.0).suffix(" mm/min")).changed() { profile_changed = true; }
+                            ui.end_row();
+                            ui.label("Accel X:");
+                            if ui.add(egui::DragValue::new(&mut self.machine_profile.accel_x).speed(10.0).suffix(" mm/s²")).changed() { profile_changed = true; }
+                            ui.end_row();
+                            ui.label("Accel Y:");
+                            if ui.add(egui::DragValue::new(&mut self.machine_profile.accel_y).speed(10.0).suffix(" mm/s²")).changed() { profile_changed = true; }
+                            ui.end_row();
+                        });
+                        ui.horizontal(|ui| {
+                            if ui.checkbox(&mut self.machine_profile.return_to_origin, "Return to origin").changed() { profile_changed = true; }
+                        });
+                        ui.horizontal(|ui| {
+                            if ui.checkbox(&mut self.machine_profile.air_assist, "Air Assist (M8/M9)").changed() { profile_changed = true; }
+                        });
+                    });
+                if profile_changed { self.machine_profile.save(); }
+
+                ui.add_space(6.0);
+
+                let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
+                if let Some(gcode) = macros_action.execute_macro {
+                    for line in gcode.lines() {
+                        let trimmed = line.trim();
+                        if !trimmed.is_empty() {
+                            self.send_command(trimmed);
+                        }
                     }
                 }
-            }
-        }
 
-        // Job Transformation
-        ui.group(|ui| {
-            let (h, m, s) = if let Some(file) = &self.loaded_file {
-                let est_time_s = crate::gcode::estimation::estimate(&file.lines).estimated_seconds;
-                let h = (est_time_s / 3600.0) as u32;
-                let m = ((est_time_s % 3600.0) / 60.0) as u32;
-                let s = (est_time_s % 60.0) as u32;
-                (h, m, s)
-            } else {
-                (0, 0, 0)
-            };
-            ui.label(RichText::new(format!("⏱ Est. Time: {:02}:{:02}:{:02}", h, m, s)).strong().color(theme::GREEN));
+                ui.add_space(6.0);
 
-            ui.add_space(4.0);
-            if ui.button("⚡ Optimize Path").on_hover_text("Reorder segments to minimize travel distance").clicked() {
-                if let Some(mut file) = self.loaded_file.clone() {
-                    let optimized_lines = crate::gcode::optimizer::optimize(&file.lines);
-                    let raw_lines: Vec<String> = optimized_lines.iter().map(|l| l.to_gcode()).collect();
-                    file.lines = optimized_lines;
-                    self.set_loaded_file(file, raw_lines);
-                    self.log("Path optimized.".to_string());
+                let console_action = ui::console::show(ui, &self.console_log, &mut self.console_input);
+                if let Some(cmd) = console_action.send_command {
+                    self.send_command(&cmd);
                 }
-            }
-            ui.add_space(4.0);
-            ui.label(RichText::new(format!("📐 {}", crate::i18n::tr("Job Transformation"))).color(theme::LAVENDER).strong());
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.label("Offset X:");
-                ui.add(egui::DragValue::new(&mut self.job_offset_x).speed(1.0).suffix(" mm"));
-                ui.label("Y:");
-                ui.add(egui::DragValue::new(&mut self.job_offset_y).speed(1.0).suffix(" mm"));
-            });
-            ui.horizontal(|ui| {
-                ui.label("Rotation:");
-                ui.add(egui::Slider::new(&mut self.job_rotation, -180.0..=180.0).suffix("°"));
-                if ui.button("⟲").clicked() { self.job_rotation = 0.0; }
-            });
-            if ui.button("Center Job").clicked() {
-                if let Some(file) = &self.loaded_file {
-                    if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
-                        let mid_x = (min_x + max_x) / 2.0;
-                        let mid_y = (min_y + max_y) / 2.0;
-                        let wm_x = self.machine_profile.workspace_x_mm / 2.0;
-                        let wm_y = self.machine_profile.workspace_y_mm / 2.0;
-                        self.job_offset_x = wm_x - mid_x;
-                        self.job_offset_y = wm_y - mid_y;
+
+                ui.add_space(6.0);
+
+                let mat_action = ui::materials::show(ui, &mut self.materials_state);
+                if let Some(s) = mat_action.apply_speed {
+                    self.jog_feed = s;
+                }
+                if let Some(p) = mat_action.apply_power {
+                    self.test_fire_power = p / 10.0;
+                }
+
+                ui.add_space(6.0);
+
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
+                    });
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("⇊ Run Z-Probe").on_hover_text("Search for surface using G38.2 and set Z0").clicked() {
+                            self.send_command("G38.2 Z-50 F100");
+                            self.send_command("G4 P0.5");
+                            self.send_command("G92 Z0");
+                            self.send_command("G0 Z5 F500");
+                            self.log("Probing complete. Z set to 5mm above surface.".into());
+                        }
+                        if ui.button("🎯 Focus Point").on_hover_text("Move to Z focusing position (e.g. 20mm)").clicked() {
+                            self.send_command("G0 Z20 F1000");
+                        }
+                    });
+                    ui.checkbox(&mut self.machine_profile.rotary_enabled, "Enable Rotary Support");
+                    if self.machine_profile.rotary_enabled {
+                        ui.horizontal(|ui| {
+                            ui.label("Cylinder Ø:");
+                            ui.add(egui::DragValue::new(&mut self.machine_profile.rotary_diameter_mm).suffix(" mm"));
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Rotary Axis:");
+                            ui.selectable_value(&mut self.machine_profile.rotary_axis, 'Y', "Y (Roller)");
+                            ui.selectable_value(&mut self.machine_profile.rotary_axis, 'A', "A (Chuck)");
+                        });
                     }
-                }
-            }
-        });
-
-        ui.add_space(8.0);
-
-        // Console
-        let console_action = ui::console::show(
-            ui,
-            &self.console_log,
-            &mut self.console_input,
-        );
-        if let Some(cmd) = console_action.send_command {
-            self.send_command(&cmd);
-        }
-
-        ui.add_space(8.0);
-
-        // Material Library
-        let mat_action = ui::materials::show(ui, &mut self.materials_state);
-        if let Some(s) = mat_action.apply_speed {
-            self.jog_feed = s; // Current assumption: speed is engrave/jog speed
-        }
-        if let Some(p) = mat_action.apply_power {
-            self.test_fire_power = p / 10.0; // Assume 1000 scale to 100%
-        }
-
-        ui.add_space(8.0);
-        
-        // Z-Probe & Focus (Pro Tier)
-        ui.group(|ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
-            });
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                if ui.button("⇊ Run Z-Probe").on_hover_text("Search for surface using G38.2 and set Z0").clicked() {
-                    self.send_command("G38.2 Z-50 F100");
-                    self.send_command("G4 P0.5");
-                    self.send_command("G92 Z0");
-                    self.send_command("G0 Z5 F500");
-                    self.log("Probing complete. Z set to 5mm above surface.".into());
-                }
-                if ui.button("🎯 Focus Point").on_hover_text("Move to Z focusing position (e.g. 20mm)").clicked() {
-                    self.send_command("G0 Z20 F1000");
-                }
-            });
-            ui.checkbox(&mut self.machine_profile.rotary_enabled, "Enable Rotary Support");
-            if self.machine_profile.rotary_enabled {
-                ui.horizontal(|ui| {
-                    ui.label("Cylinder Ø:");
-                    ui.add(egui::DragValue::new(&mut self.machine_profile.rotary_diameter_mm).suffix(" mm"));
                 });
-                ui.horizontal(|ui| {
-                    ui.label("Rotary Axis:");
-                    ui.selectable_value(&mut self.machine_profile.rotary_axis, 'Y', "Y (Roller)");
-                    ui.selectable_value(&mut self.machine_profile.rotary_axis, 'A', "A (Chuck)");
                 });
-            }
-        });
+        } else {
+            ui.label(
+                RichText::new(format!(
+                    "🧭 {}",
+                    crate::i18n::tr("Beginner mode active: interface simplified. Disable it in View to show all tools.")
+                ))
+                .small()
+                .color(theme::SUBTEXT),
+            );
+        }
     }
 
     fn ui_right_content(&mut self, ui: &mut egui::Ui) {
@@ -1209,6 +1353,7 @@ impl All4LaserApp {
 
     fn ui_right_tabs(&mut self, ui: &mut egui::Ui, connected: bool) {
         use crate::i18n::tr;
+        let caps = self.controller_capabilities();
 
         ui.horizontal(|ui| {
             if ui.selectable_value(&mut self.active_tab, RightPanelTab::Cuts, tr("Cuts")).changed() { self.sync_settings(); }
@@ -1254,7 +1399,13 @@ impl All4LaserApp {
                     if let Some(pos) = ms_action.quick_pos { self.quick_move_to(pos); }
 
                     ui.add_space(8.0);
-                    let jog_action = ui::jog::show(ui, &mut self.jog_step, &mut self.jog_feed);
+                    let jog_action = ui::jog::show(
+                        ui,
+                        &mut self.jog_step,
+                        &mut self.jog_feed,
+                        caps.supports_jog,
+                        caps.supports_home,
+                    );
                     if let Some(dir) = jog_action.direction { self.jog(dir); }
 
                     ui.add_space(8.0);
@@ -1651,6 +1802,8 @@ impl eframe::App for All4LaserApp {
         }
 
         // === Handle Settings Modal ===
+        let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
+        let mut settings_write_blocked = false;
         if let Some(state) = &mut self.settings_state {
             ui::settings_dialog::show(ctx, state);
             if !state.is_open {
@@ -1658,27 +1811,49 @@ impl eframe::App for All4LaserApp {
             } else {
                 // If there are pending writes, send them
                 if !state.pending_writes.is_empty() {
-                    let writes = std::mem::take(&mut state.pending_writes);
-                    for (id, val) in writes {
-                        if id == -1 && val == "$$" {
-                            self.send_command("$$"); // Refresh
-                        } else {
-                            self.send_command(&format!("${}={}", id, val));
+                    if !supports_grbl_settings {
+                        settings_write_blocked = true;
+                        state.pending_writes.clear();
+                    } else {
+                        let writes = std::mem::take(&mut state.pending_writes);
+                        for (id, val) in writes {
+                            if id == -1 && val == "$$" {
+                                self.send_command("$$"); // Refresh
+                            } else {
+                                self.send_command(&format!("${}={}", id, val));
+                            }
                         }
                     }
                 }
             }
+        }
+        if settings_write_blocked {
+            self.log(format!(
+                "Settings write is not supported by {} backend.",
+                self.machine_profile.controller_kind.label()
+            ));
         }
 
         // === TOP: Toolbar ===
         let is_connected = self.is_connected();
         let is_running = self.running;
         let is_light = self.light_mode;
+        let caps = self.controller_capabilities();
 
         TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.add_space(4.0);
             let has_file = self.loaded_file.is_some();
-            let actions = ui::toolbar::show(ui, is_connected, is_running, is_light, self.framing_active, &self.recent_files, has_file);
+            let actions = ui::toolbar::show(
+                ui,
+                is_connected,
+                is_running,
+                is_light,
+                self.beginner_mode,
+                self.framing_active,
+                &self.recent_files,
+                has_file,
+                caps,
+            );
             ui.add_space(4.0);
 
             if actions.connect_toggle {
@@ -1691,22 +1866,16 @@ impl eframe::App for All4LaserApp {
             if actions.frame_bbox { self.frame_bbox(); }
             if actions.abort_program { self.abort_program(); }
             if actions.hold {
-                if let Some(conn) = self.connection.as_ref() {
-                    conn.send_byte(protocol::CMD_FEED_HOLD);
-                }
+                self.send_realtime_or_warn(RealtimeCommand::FeedHold, "Feed hold");
             }
             if actions.resume {
-                if let Some(conn) = self.connection.as_ref() {
-                    conn.send_byte(protocol::CMD_CYCLE_START);
-                }
+                self.send_realtime_or_warn(RealtimeCommand::CycleStart, "Cycle start");
             }
             if actions.home { self.send_command("$H"); }
             if actions.unlock { self.send_command("$X"); }
             if actions.set_zero { self.send_command("G92X0Y0Z0"); }
             if actions.reset {
-                if let Some(conn) = self.connection.as_ref() {
-                    conn.send_byte(protocol::CMD_RESET);
-                }
+                self.send_realtime_or_warn(RealtimeCommand::Reset, "Reset");
             }
             if let Some(t) = actions.set_theme {
                 self.ui_theme = t;
@@ -1725,6 +1894,10 @@ impl eframe::App for All4LaserApp {
             if actions.toggle_light_mode {
                 self.light_mode = !self.light_mode;
                 self.apply_theme(ctx);
+                self.sync_settings();
+            }
+            if actions.toggle_beginner_mode {
+                self.beginner_mode = !self.beginner_mode;
                 self.sync_settings();
             }
             if actions.open_power_speed_test {
@@ -1752,7 +1925,11 @@ impl eframe::App for All4LaserApp {
                         Ok(proj) => {
                             self.job_offset_x = proj.offset_x;
                             self.job_offset_y = proj.offset_y;
-                            if let Some(mp) = proj.machine_profile { self.machine_profile = mp; }
+                            if let Some(mp) = proj.machine_profile {
+                                let previous_kind = self.machine_profile.controller_kind;
+                                self.machine_profile = mp;
+                                self.apply_controller_kind_change(previous_kind);
+                            }
                             if let Some(gc_path) = proj.gcode_path {
                                 self.load_file_path(&gc_path);
                             } else if let Some(content) = proj.gcode_content {
@@ -1818,7 +1995,7 @@ impl eframe::App for All4LaserApp {
             };
 
             ui.add_space(4.0);
-            let sb_actions = ui::status_bar::show(ui, &self.grbl_state, file_info, progress);
+            let sb_actions = ui::status_bar::show(ui, &self.grbl_state, file_info, progress, caps);
             ui.add_space(4.0);
             ui.separator();
             ui.add_space(4.0);
@@ -1835,13 +2012,23 @@ impl eframe::App for All4LaserApp {
                 self.cut_settings_state.is_open = true;
             }
 
-            if let Some(conn) = self.connection.as_ref() {
-                if sb_actions.feed_up { conn.send_byte(protocol::FEED_OV_PLUS_10); }
-                if sb_actions.feed_down { conn.send_byte(protocol::FEED_OV_MINUS_10); }
-                if sb_actions.rapid_up { conn.send_byte(protocol::RAPID_OV_100); }
-                if sb_actions.rapid_down { conn.send_byte(protocol::RAPID_OV_25); }
-                if sb_actions.spindle_up { conn.send_byte(protocol::SPINDLE_OV_PLUS_10); }
-                if sb_actions.spindle_down { conn.send_byte(protocol::SPINDLE_OV_MINUS_10); }
+            if sb_actions.feed_up {
+                self.send_realtime_or_warn(RealtimeCommand::FeedOverridePlus10, "Feed override");
+            }
+            if sb_actions.feed_down {
+                self.send_realtime_or_warn(RealtimeCommand::FeedOverrideMinus10, "Feed override");
+            }
+            if sb_actions.rapid_up {
+                self.send_realtime_or_warn(RealtimeCommand::RapidOverride100, "Rapid override");
+            }
+            if sb_actions.rapid_down {
+                self.send_realtime_or_warn(RealtimeCommand::RapidOverride25, "Rapid override");
+            }
+            if sb_actions.spindle_up {
+                self.send_realtime_or_warn(RealtimeCommand::SpindleOverridePlus10, "Laser power override");
+            }
+            if sb_actions.spindle_down {
+                self.send_realtime_or_warn(RealtimeCommand::SpindleOverrideMinus10, "Laser power override");
             }
         });
 
@@ -1851,7 +2038,7 @@ impl eframe::App for All4LaserApp {
         let left_panel_id = "left_panel";
         let left_panel = SidePanel::left(left_panel_id)
             .resizable(self.ui_layout == theme::UiLayout::Modern)
-            .default_width(if self.ui_layout == theme::UiLayout::Modern { LEFT_PANEL_WIDTH } else { 45.0 });
+            .default_width(if self.ui_layout == theme::UiLayout::Modern { LEFT_PANEL_WIDTH } else { 52.0 });
 
         left_panel.show(ctx, |ui| {
             if self.ui_layout == theme::UiLayout::Modern {
@@ -1875,7 +2062,7 @@ impl eframe::App for All4LaserApp {
         let right_panel_id = "right_panel";
         let right_panel = SidePanel::right(right_panel_id)
             .resizable(true)
-            .default_width(if self.ui_layout == theme::UiLayout::Modern { 220.0 } else { 320.0 });
+            .default_width(if self.ui_layout == theme::UiLayout::Modern { 220.0 } else { 340.0 });
 
         right_panel.show(ctx, |ui| {
             if self.ui_layout == theme::UiLayout::Modern {

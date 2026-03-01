@@ -1,6 +1,30 @@
 use crate::gcode::generator::GCodeBuilder;
 use crate::ui::layers_new::CutLayer;
 
+fn first_dir(path: &[(f32, f32)]) -> Option<(f32, f32)> {
+    for seg in path.windows(2) {
+        let dx = seg[1].0 - seg[0].0;
+        let dy = seg[1].1 - seg[0].1;
+        let len = (dx * dx + dy * dy).sqrt();
+        if len > 0.000_1 {
+            return Some((dx / len, dy / len));
+        }
+    }
+    None
+}
+
+fn last_dir(path: &[(f32, f32)]) -> Option<(f32, f32)> {
+    for seg in path.windows(2).rev() {
+        let dx = seg[1].0 - seg[0].0;
+        let dy = seg[1].1 - seg[0].1;
+        let len = (dx * dx + dy * dy).sqrt();
+        if len > 0.000_1 {
+            return Some((dx / len, dy / len));
+        }
+    }
+    None
+}
+
 /// Applies tabs (bridges) to a path by breaking it into segments with gaps.
 pub fn apply_tabs(
     builder: &mut GCodeBuilder,
@@ -12,11 +36,41 @@ pub fn apply_tabs(
     }
 
     if !layer.tab_enabled {
-        // Just draw as usual
+        let start = path[0];
+        let end = path[path.len() - 1];
+        let lead_in = layer.lead_in_mm.max(0.0);
+        let lead_out = layer.lead_out_mm.max(0.0);
+
+        let start_pos = if lead_in > 0.0 {
+            if let Some((ux, uy)) = first_dir(path) {
+                (start.0 - ux * lead_in, start.1 - uy * lead_in)
+            } else {
+                start
+            }
+        } else {
+            start
+        };
+
+        let end_pos = if lead_out > 0.0 {
+            if let Some((ux, uy)) = last_dir(path) {
+                (end.0 + ux * lead_out, end.1 + uy * lead_out)
+            } else {
+                end
+            }
+        } else {
+            end
+        };
+
         builder.laser_off();
-        builder.rapid(path[0].0, path[0].1);
+        builder.rapid(start_pos.0, start_pos.1);
+        if lead_in > 0.0 {
+            builder.linear(start.0, start.1, layer.speed, layer.power);
+        }
         for p in &path[1..] {
             builder.linear(p.0, p.1, layer.speed, layer.power);
+        }
+        if lead_out > 0.0 {
+            builder.linear(end_pos.0, end_pos.1, layer.speed, layer.power);
         }
         builder.laser_off();
         return;
@@ -24,11 +78,37 @@ pub fn apply_tabs(
 
     let tab_spacing = layer.tab_spacing;
     let tab_size = layer.tab_size;
+    let lead_in = layer.lead_in_mm.max(0.0);
+    let lead_out = layer.lead_out_mm.max(0.0);
     let mut dist_since_last_tab = 0.0;
-    
+
+    let start = path[0];
+    let end = path[path.len() - 1];
+    let start_pos = if lead_in > 0.0 {
+        if let Some((ux, uy)) = first_dir(path) {
+            (start.0 - ux * lead_in, start.1 - uy * lead_in)
+        } else {
+            start
+        }
+    } else {
+        start
+    };
+    let end_pos = if lead_out > 0.0 {
+        if let Some((ux, uy)) = last_dir(path) {
+            (end.0 + ux * lead_out, end.1 + uy * lead_out)
+        } else {
+            end
+        }
+    } else {
+        end
+    };
+
     builder.laser_off();
-    builder.rapid(path[0].0, path[0].1);
-    
+    builder.rapid(start_pos.0, start_pos.1);
+    if lead_in > 0.0 {
+        builder.linear(start.0, start.1, layer.speed, layer.power);
+    }
+
     let mut laser_is_on = false;
 
     for i in 0..path.len() - 1 {
@@ -86,6 +166,10 @@ pub fn apply_tabs(
                 }
             }
         }
+    }
+
+    if lead_out > 0.0 {
+        builder.linear(end_pos.0, end_pos.1, layer.speed, layer.power);
     }
     builder.laser_off();
 }

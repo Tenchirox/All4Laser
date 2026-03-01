@@ -1,4 +1,5 @@
 use egui::{Ui, RichText};
+use crate::controller::ControllerCapabilities;
 use crate::grbl::types::{GrblState, MacStatus};
 use crate::theme;
 use std::time::Duration;
@@ -27,6 +28,7 @@ pub fn show(
     state: &GrblState,
     file_info: Option<(&str, usize, Duration)>,
     progress: Option<(usize, usize)>,
+    caps: ControllerCapabilities,
 ) -> StatusBarAction {
     let mut action = StatusBarAction::default();
 
@@ -45,22 +47,34 @@ pub fn show(
         // Override controls
         ui.label(RichText::new("Feed:").color(theme::SUBTEXT).size(11.0));
         ui.label(RichText::new(format!("{}%", state.override_feed)).color(theme::TEXT).monospace().size(11.0));
-        if ui.small_button("▲").clicked() { action.feed_up = true; }
-        if ui.small_button("▼").clicked() { action.feed_down = true; }
+        if ui.add_enabled(caps.supports_feed_override, egui::Button::new("▲").small()).clicked() {
+            action.feed_up = true;
+        }
+        if ui.add_enabled(caps.supports_feed_override, egui::Button::new("▼").small()).clicked() {
+            action.feed_down = true;
+        }
 
         ui.separator();
 
         ui.label(RichText::new("Rapid:").color(theme::SUBTEXT).size(11.0));
         ui.label(RichText::new(format!("{}%", state.override_rapid)).color(theme::TEXT).monospace().size(11.0));
-        if ui.small_button("▲").clicked() { action.rapid_up = true; }
-        if ui.small_button("▼").clicked() { action.rapid_down = true; }
+        if ui.add_enabled(caps.supports_rapid_override, egui::Button::new("▲").small()).clicked() {
+            action.rapid_up = true;
+        }
+        if ui.add_enabled(caps.supports_rapid_override, egui::Button::new("▼").small()).clicked() {
+            action.rapid_down = true;
+        }
 
         ui.separator();
 
         ui.label(RichText::new("Spindle:").color(theme::SUBTEXT).size(11.0));
         ui.label(RichText::new(format!("{}%", state.override_spindle)).color(theme::TEXT).monospace().size(11.0));
-        if ui.small_button("▲").clicked() { action.spindle_up = true; }
-        if ui.small_button("▼").clicked() { action.spindle_down = true; }
+        if ui.add_enabled(caps.supports_spindle_override, egui::Button::new("▲").small()).clicked() {
+            action.spindle_up = true;
+        }
+        if ui.add_enabled(caps.supports_spindle_override, egui::Button::new("▼").small()).clicked() {
+            action.spindle_down = true;
+        }
 
         // File info on the right
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

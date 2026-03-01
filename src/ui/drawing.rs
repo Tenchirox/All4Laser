@@ -243,7 +243,16 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
         l
     };
 
-    for (idx, shape) in state.shapes.iter().enumerate() {
+    // LightBurn-like ordering: lower layer output_order first, then layer id, then insertion order
+    let mut ordered_indices: Vec<usize> = (0..state.shapes.len()).collect();
+    ordered_indices.sort_by_key(|&shape_idx| {
+        let layer_idx = state.shapes[shape_idx].layer_idx;
+        let layer = layers.get(layer_idx).unwrap_or(&default_layer);
+        (layer.output_order, layer.id as i32, shape_idx as i32)
+    });
+
+    for shape_idx in ordered_indices {
+        let shape = &state.shapes[shape_idx];
         // Retrieve layer settings
         let layer = layers.get(shape.layer_idx).unwrap_or(&default_layer);
 
@@ -251,7 +260,7 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
             continue;
         }
 
-        builder.comment(&format!("Shape {}: {:?} [Layer C{:02}]", idx + 1, shape.shape, layer.id));
+        builder.comment(&format!("Shape {}: {:?} [Layer C{:02}]", shape_idx + 1, shape.shape, layer.id));
 
         // Apply Z-offset if needed (simple implementation: move Z before start)
         if layer.z_offset != 0.0 {
@@ -267,9 +276,9 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
             if layer.passes > 1 { builder.comment(&format!("Pass {}", pass + 1)); }
 
             // Check for Fill mode
-            if layer.mode == CutMode::Fill || layer.mode == CutMode::FillAndLine {
+            if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
                 let mut temp_lines = Vec::new();
-                crate::gcode::fill::generate_fill(&mut temp_lines, shape, layer, 0.1);
+                crate::gcode::fill::generate_fill(&mut temp_lines, shape, layer);
                 // Ingest lines into builder (or ideally generate_fill should accept builder, but for now we mix)
                 // Actually, since generate_fill uses its own builder and returns lines, let's just append.
                 // But GCodeBuilder tracks state. We should probably reset state or make generate_fill use *our* builder.
