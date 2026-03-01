@@ -9,8 +9,12 @@ pub struct AppSettings {
     pub layout: UiLayout,
     pub language: Language,
     pub light_mode: bool,
+    #[serde(default = "default_beginner_mode")]
+    pub beginner_mode: bool,
     pub active_tab: RightPanelTab,
 }
+
+fn default_beginner_mode() -> bool { true }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -18,7 +22,8 @@ impl Default for AppSettings {
             theme: UiTheme::Modern,
             layout: UiLayout::Modern,
             language: Language::French,
-            light_mode: false,
+            light_mode: true,
+            beginner_mode: true,
             active_tab: RightPanelTab::Art,
         }
     }

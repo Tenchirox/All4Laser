@@ -6,7 +6,13 @@ pub struct JogAction {
     pub direction: Option<JogDirection>,
 }
 
-pub fn show(ui: &mut Ui, step: &mut f32, feed: &mut f32) -> JogAction {
+pub fn show(
+    ui: &mut Ui,
+    step: &mut f32,
+    feed: &mut f32,
+    can_jog: bool,
+    can_home: bool,
+) -> JogAction {
     let mut action = JogAction { direction: None };
 
     ui.group(|ui| {
@@ -17,47 +23,47 @@ pub fn show(ui: &mut Ui, step: &mut f32, feed: &mut f32) -> JogAction {
 
         // Row 1: NW N NE
         ui.horizontal(|ui| {
-            if ui.add_sized(btn_size, egui::Button::new("↖")).clicked() {
+            if ui.add_enabled(can_jog, egui::Button::new("↖").min_size(btn_size)).clicked() {
                 action.direction = Some(JogDirection::NW);
             }
-            if ui.add_sized(btn_size, egui::Button::new("↑")).clicked() {
+            if ui.add_enabled(can_jog, egui::Button::new("↑").min_size(btn_size)).clicked() {
                 action.direction = Some(JogDirection::N);
             }
-            if ui.add_sized(btn_size, egui::Button::new("↗")).clicked() {
+            if ui.add_enabled(can_jog, egui::Button::new("↗").min_size(btn_size)).clicked() {
                 action.direction = Some(JogDirection::NE);
             }
             ui.add_space(8.0);
-            if ui.add_sized(btn_size, egui::Button::new("Z↑")).clicked() {
+            if ui.add_enabled(can_jog, egui::Button::new("Z↑").min_size(btn_size)).clicked() {
                 action.direction = Some(JogDirection::Zup);
             }
         });
 
         // Row 2: W Home E
         ui.horizontal(|ui| {
-            if ui.add_sized(btn_size, egui::Button::new("←")).clicked() {
+            if ui.add_enabled(can_jog, egui::Button::new("←").min_size(btn_size)).clicked() {
                 action.direction = Some(JogDirection::W);
             }
-            if ui.add_sized(btn_size, egui::Button::new("⌂")).clicked() {
+            if ui.add_enabled(can_jog && can_home, egui::Button::new("⌂").min_size(btn_size)).clicked() {
                 action.direction = Some(JogDirection::Home);
             }
-            if ui.add_sized(btn_size, egui::Button::new("→")).clicked() {
+            if ui.add_enabled(can_jog, egui::Button::new("→").min_size(btn_size)).clicked() {
                 action.direction = Some(JogDirection::E);
             }
             ui.add_space(8.0);
-            if ui.add_sized(btn_size, egui::Button::new("Z↓")).clicked() {
+            if ui.add_enabled(can_jog, egui::Button::new("Z↓").min_size(btn_size)).clicked() {
                 action.direction = Some(JogDirection::Zdown);
             }
         });
 
         // Row 3: SW S SE
         ui.horizontal(|ui| {
-            if ui.add_sized(btn_size, egui::Button::new("↙")).clicked() {
+            if ui.add_enabled(can_jog, egui::Button::new("↙").min_size(btn_size)).clicked() {
                 action.direction = Some(JogDirection::SW);
             }
-            if ui.add_sized(btn_size, egui::Button::new("↓")).clicked() {
+            if ui.add_enabled(can_jog, egui::Button::new("↓").min_size(btn_size)).clicked() {
                 action.direction = Some(JogDirection::S);
             }
-            if ui.add_sized(btn_size, egui::Button::new("↘")).clicked() {
+            if ui.add_enabled(can_jog, egui::Button::new("↘").min_size(btn_size)).clicked() {
                 action.direction = Some(JogDirection::SE);
             }
         });

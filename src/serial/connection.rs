@@ -4,13 +4,12 @@ use std::io::{BufRead, BufReader, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::grbl::parser;
-use crate::grbl::types::GrblResponse;
+use crate::controller::{ControllerBackend, ControllerResponse};
 
 /// Messages from serial reader thread to the main app
 #[derive(Debug, Clone)]
 pub enum SerialMsg {
-    Response(GrblResponse),
+    Response(ControllerResponse),
     RawLine(String),
     Connected(String),
     Disconnected(String),
@@ -33,7 +32,11 @@ pub struct SerialConnection {
 
 impl SerialConnection {
     /// Connect to a serial port and spawn reader/writer threads
-    pub fn connect(port_name: &str, baud_rate: u32) -> Result<Self, String> {
+    pub fn connect(
+        port_name: &str,
+        baud_rate: u32,
+        backend: Arc<dyn ControllerBackend>,
+    ) -> Result<Self, String> {
         let port = serialport::new(port_name, baud_rate)
             .timeout(Duration::from_millis(100))
             .open()
@@ -46,6 +49,7 @@ impl SerialConnection {
         // Reader thread
         let reader_tx = msg_tx.clone();
         let port_name_owned = port_name.to_string();
+        let parse_backend = backend.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(port);
             let _ = reader_tx.send(SerialMsg::Connected(port_name_owned.clone()));
@@ -57,7 +61,7 @@ impl SerialConnection {
                         if trimmed.is_empty() {
                             continue;
                         }
-                        let response = parser::parse_response(&trimmed);
+                        let response = parse_backend.parse_response(&trimmed);
                         let _ = reader_tx.send(SerialMsg::RawLine(trimmed));
                         let _ = reader_tx.send(SerialMsg::Response(response));
                     }

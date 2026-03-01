@@ -70,6 +70,56 @@ pub fn show(ctx: &egui::Context, state: &mut CutSettingsState, layers: &[CutLaye
                         });
                     ui.end_row();
 
+                    if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
+                        ui.label("Fill Interval (mm):");
+                        ui.add(
+                            egui::DragValue::new(&mut layer.fill_interval_mm)
+                                .speed(0.01)
+                                .range(0.01..=2.0)
+                                .suffix(" mm"),
+                        );
+                        ui.end_row();
+
+                        ui.label("Min Power (S):");
+                        ui.add(egui::DragValue::new(&mut layer.min_power).speed(1.0).range(0.0..=1000.0));
+                        ui.end_row();
+
+                        ui.label("Bidirectional Scan:");
+                        ui.checkbox(&mut layer.fill_bidirectional, "");
+                        ui.end_row();
+
+                        ui.label("Overscan (mm):");
+                        ui.add(
+                            egui::DragValue::new(&mut layer.fill_overscan_mm)
+                                .speed(0.1)
+                                .range(0.0..=20.0)
+                                .suffix(" mm"),
+                        );
+                        ui.end_row();
+                    }
+
+                    ui.label("Output Order:");
+                    ui.add(egui::DragValue::new(&mut layer.output_order).speed(1.0));
+                    ui.end_row();
+
+                    ui.label("Lead-In (mm):");
+                    ui.add(
+                        egui::DragValue::new(&mut layer.lead_in_mm)
+                            .speed(0.1)
+                            .range(0.0..=50.0)
+                            .suffix(" mm"),
+                    );
+                    ui.end_row();
+
+                    ui.label("Lead-Out (mm):");
+                    ui.add(
+                        egui::DragValue::new(&mut layer.lead_out_mm)
+                            .speed(0.1)
+                            .range(0.0..=50.0)
+                            .suffix(" mm"),
+                    );
+                    ui.end_row();
+
                     ui.label("Passes:");
                     ui.add(egui::DragValue::new(&mut layer.passes).range(1..=100));
                     ui.end_row();

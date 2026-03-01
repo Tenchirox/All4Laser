@@ -2,6 +2,7 @@
 
 mod app;
 mod theme;
+mod controller;
 mod grbl;
 mod serial;
 mod gcode;
