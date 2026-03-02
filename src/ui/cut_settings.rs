@@ -1,5 +1,6 @@
 use egui::{Ui, RichText};
 use crate::ui::layers_new::{CutLayer, CutMode};
+use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::theme;
 
 #[derive(Default)]
@@ -14,7 +15,40 @@ pub struct CutSettingsAction {
     pub close: bool,
 }
 
-pub fn show(ctx: &egui::Context, state: &mut CutSettingsState, layers: &[CutLayer]) -> CutSettingsAction {
+fn path_is_closed_for_fill(points: &[(f32, f32)]) -> bool {
+    if points.len() < 3 {
+        return false;
+    }
+
+    let (Some(first), Some(last)) = (points.first(), points.last()) else {
+        return false;
+    };
+
+    let dx = first.0 - last.0;
+    let dy = first.1 - last.1;
+    let dist = (dx * dx + dy * dy).sqrt();
+    dist <= 0.05
+}
+
+fn layer_non_fillable_path_count(shapes: &[ShapeParams], layer_idx: usize) -> usize {
+    shapes
+        .iter()
+        .filter(|shape| shape.layer_idx == layer_idx)
+        .filter(|shape| {
+            matches!(
+                &shape.shape,
+                ShapeKind::Path(points) if points.len() < 3 || !path_is_closed_for_fill(points)
+            )
+        })
+        .count()
+}
+
+pub fn show(
+    ctx: &egui::Context,
+    state: &mut CutSettingsState,
+    layers: &[CutLayer],
+    shapes: &[ShapeParams],
+) -> CutSettingsAction {
     let mut action = CutSettingsAction { apply: None, close: false };
 
     if !state.is_open {
@@ -96,6 +130,15 @@ pub fn show(ctx: &egui::Context, state: &mut CutSettingsState, layers: &[CutLaye
                                 .suffix(" mm"),
                         );
                         ui.end_row();
+
+                        ui.label("Fill Angle (°):");
+                        ui.add(
+                            egui::DragValue::new(&mut layer.fill_angle_deg)
+                                .speed(1.0)
+                                .range(-180.0..=180.0)
+                                .suffix("°"),
+                        );
+                        ui.end_row();
                     }
 
                     ui.label("Output Order:");
@@ -116,6 +159,15 @@ pub fn show(ctx: &egui::Context, state: &mut CutSettingsState, layers: &[CutLaye
                         egui::DragValue::new(&mut layer.lead_out_mm)
                             .speed(0.1)
                             .range(0.0..=50.0)
+                            .suffix(" mm"),
+                    );
+                    ui.end_row();
+
+                    ui.label("Kerf Offset (mm):");
+                    ui.add(
+                        egui::DragValue::new(&mut layer.kerf_mm)
+                            .speed(0.01)
+                            .range(-5.0..=5.0)
                             .suffix(" mm"),
                     );
                     ui.end_row();
@@ -147,6 +199,21 @@ pub fn show(ctx: &egui::Context, state: &mut CutSettingsState, layers: &[CutLaye
                 ui.checkbox(&mut layer.air_assist, "Air Assist (M8)");
                 ui.checkbox(&mut layer.visible, "Output Enabled");
 
+                if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
+                    if let Some(layer_idx) = state.editing_layer_idx {
+                        let non_fillable = layer_non_fillable_path_count(shapes, layer_idx);
+                        if non_fillable > 0 {
+                            ui.add_space(6.0);
+                            ui.label(
+                                RichText::new(format!(
+                                    "⚠ {non_fillable} path(s) on this layer are open/invalid and will be ignored by Fill."
+                                ))
+                                .color(theme::PEACH),
+                            );
+                        }
+                    }
+                }
+
                 ui.add_space(16.0);
                 ui.horizontal(|ui| {
                     if ui.button(RichText::new("OK").color(theme::GREEN)).clicked() {
@@ -174,4 +241,38 @@ pub fn show(ctx: &egui::Context, state: &mut CutSettingsState, layers: &[CutLaye
     }
 
     action
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn layer_non_fillable_path_count_detects_open_or_too_short_paths() {
+        let shapes = vec![
+            ShapeParams {
+                shape: ShapeKind::Path(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]),
+                layer_idx: 0,
+                ..ShapeParams::default()
+            },
+            ShapeParams {
+                shape: ShapeKind::Path(vec![(1.0, 1.0), (2.0, 2.0)]),
+                layer_idx: 0,
+                ..ShapeParams::default()
+            },
+            ShapeParams {
+                shape: ShapeKind::Path(vec![
+                    (0.0, 0.0),
+                    (10.0, 0.0),
+                    (10.0, 10.0),
+                    (0.0, 10.0),
+                    (0.0, 0.0),
+                ]),
+                layer_idx: 0,
+                ..ShapeParams::default()
+            },
+        ];
+
+        assert_eq!(layer_non_fillable_path_count(&shapes, 0), 2);
+    }
 }

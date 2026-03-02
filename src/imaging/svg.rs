@@ -165,8 +165,13 @@ fn collect_paths(node: &usvg::Node, params: &SvgParams, layer: &SvgLayer, out: &
                         }
                         tiny_skia::PathSegment::Close => {
                             if !current_path.is_empty() {
-                                // Close the path by repeating the first point if needed, or just push.
-                                // Drawing logic handles closing if desired.
+                                if let (Some(first), Some(last)) =
+                                    (current_path.first().copied(), current_path.last().copied())
+                                {
+                                    if (first.0 - last.0).abs() > 0.0001 || (first.1 - last.1).abs() > 0.0001 {
+                                        current_path.push(first);
+                                    }
+                                }
                                 out.push(current_path);
                                 current_path = Vec::new();
                             }

@@ -116,7 +116,9 @@ pub fn show(
                     }
                 }
             }
-        });
+        })
+        .response
+        .on_hover_text("Recent files");
 
         if ui.button(RichText::new(format!("💾 {}", tr("Save"))).size(13.0)).clicked() {
             action.save_file = true;
@@ -289,8 +291,12 @@ pub fn show(
         });
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let label = if light_mode { "🌙" } else { "☀️" };
-            if ui.button(RichText::new(label).size(13.0)).clicked() { 
+            let theme_toggle_label = if light_mode { "🌙 Dark UI" } else { "☀ Light UI" };
+            if ui
+                .button(RichText::new(theme_toggle_label).size(13.0))
+                .on_hover_text("Toggle light/dark interface")
+                .clicked()
+            {
                 action.toggle_light_mode = true; 
             }
             ui.add_space(8.0);

@@ -40,15 +40,52 @@ pub fn show(
     ui.horizontal(|ui| {
         ui.label(RichText::new("Preview").color(theme::LAVENDER).strong().size(14.0));
         ui.checkbox(&mut renderer.show_rapids, "Rapids");
+        ui.checkbox(&mut renderer.show_fill_preview, "Fill");
         ui.checkbox(&mut renderer.realistic_preview, "Realistic");
+
+        if !segments.is_empty() {
+            ui.separator();
+            let mut sim_on = renderer.simulation_progress.is_some();
+            if ui.checkbox(&mut sim_on, "Simulation").changed() {
+                renderer.simulation_progress = if sim_on { Some(0.0) } else { None };
+            }
+            if let Some(progress) = renderer.simulation_progress.as_mut() {
+                ui.add_sized(
+                    egui::vec2(120.0, 0.0),
+                    egui::Slider::new(progress, 0.0..=1.0)
+                        .show_value(false)
+                        .text("Progress"),
+                );
+                if ui
+                    .button("Reset")
+                    .on_hover_text("Reset simulation progress to start")
+                    .clicked()
+                {
+                    *progress = 0.0;
+                }
+            }
+        }
+
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button("⊞ Fit").clicked() {
+            if ui
+                .button("⊞ Fit")
+                .on_hover_text("Fit the full job in the preview")
+                .clicked()
+            {
                 action.auto_fit = true;
             }
-            if ui.button("🔍−").clicked() {
+            if ui
+                .button("🔍−")
+                .on_hover_text("Zoom out")
+                .clicked()
+            {
                 action.zoom_out = true;
             }
-            if ui.button("🔍+").clicked() {
+            if ui
+                .button("🔍+")
+                .on_hover_text("Zoom in")
+                .clicked()
+            {
                 action.zoom_in = true;
             }
         });

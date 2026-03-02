@@ -1,9 +1,10 @@
-use egui::{Color32, Painter, Pos2, Rect, Stroke, Vec2, Ui};
+use egui::{Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2, Ui};
 use crate::gcode::types::PreviewSegment;
 use crate::theme;
 use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
-use crate::ui::layers_new::CutLayer;
+use crate::ui::layers_new::{CutLayer, CutMode};
 use indexmap::IndexSet;
+use std::collections::HashMap;
 
 /// An object visible in the preview that can be interacted with.
 #[derive(Clone)]
@@ -26,15 +27,27 @@ pub struct PreviewRenderer {
     pub workspace_size: Vec2,
     pub simulation_progress: Option<f32>, // 0.0 to 1.0
     pub show_rapids: bool, // Toggle for G0 moves
+    pub show_fill_preview: bool, // Overlay predicted hatch for fill layers
     pub realistic_preview: bool, // Toggle for realistic material texture
     _drag_start: Option<Pos2>,
     pub selected_shape_idx: IndexSet<usize>, // Selected indices in DrawingState (Multi-select). Ordered so last selected is last.
     pub node_edit_mode: bool,
     pub selected_node: Option<(usize, usize)>, // (shape_idx, point_idx)
+    pub selected_nodes: IndexSet<(usize, usize)>,
     pub hover_shape_idx: Option<usize>,
     pub dragging_rotation: Option<usize>, // shape_idx being rotated
+    dragging_node_handle: Option<(usize, usize, NodeHandleKind)>,
+    selection_box_start: Option<Pos2>,
+    selection_box_end: Option<Pos2>,
+    selection_box_additive: bool,
     pub image_textures: std::collections::HashMap<usize, egui::TextureHandle>, // shape_idx -> texture
     pub initial_fit_done: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NodeHandleKind {
+    In,
+    Out,
 }
 
 impl Default for PreviewRenderer {
@@ -46,13 +59,19 @@ impl Default for PreviewRenderer {
             workspace_size: Vec2::new(400.0, 400.0), // conservative default
             simulation_progress: None,
             show_rapids: true,
+            show_fill_preview: true,
             realistic_preview: false,
             _drag_start: None,
             selected_shape_idx: IndexSet::new(),
             node_edit_mode: false,
             selected_node: None,
+            selected_nodes: IndexSet::new(),
             hover_shape_idx: None,
             dragging_rotation: None,
+            dragging_node_handle: None,
+            selection_box_start: None,
+            selection_box_end: None,
+            selection_box_additive: false,
             image_textures: std::collections::HashMap::new(),
             initial_fit_done: false,
         }
@@ -66,6 +85,9 @@ pub enum InteractiveAction {
     DragSelection { delta: Vec2 }, // Drag all selected
     RotateSelection { shape_idx: usize, delta_deg: f32 },
     MoveNode { shape_idx: usize, node_idx: usize, new_pos: Pos2 },
+    MoveNodeHandle { shape_idx: usize, node_idx: usize, handle: NodeHandleKind, new_pos: Pos2 },
+    AddNode { shape_idx: usize, insert_after: usize, new_pos: Pos2 },
+    CameraPickPoint(Pos2),
 }
 
 impl PreviewRenderer {
@@ -75,7 +97,7 @@ impl PreviewRenderer {
         ui: &mut egui::Ui,
         segments: &[PreviewSegment],
         shapes: &[ShapeParams], // Drawing shapes
-        _layers: &[CutLayer],   // New: to get colors
+        layers: &[CutLayer],
         is_light: bool,
         job_offset: Vec2,
         job_rotation_deg: f32,
@@ -134,27 +156,54 @@ impl PreviewRenderer {
         if camera_state.enabled {
             if let Some(texture) = &camera_state.texture {
                 let calib = &camera_state.calibration;
-                
-                let cam_rect_w = Rect::from_min_size(
-                    Pos2::new(calib.offset_x, calib.offset_y),
-                    Vec2::new(400.0 * calib.scale, 400.0 * calib.scale)
-                );
-                
-                let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-                let mut mesh = egui::Mesh::with_texture(texture.id());
-                
-                let p1 = self.world_to_screen(cam_rect_w.min.x, cam_rect_w.min.y, rect);
-                let p2 = self.world_to_screen(cam_rect_w.max.x, cam_rect_w.max.y, rect);
-                
+                let scale = calib.scale.max(0.01);
+                let base_w = self.workspace_size.x.max(1.0);
+                let base_h = self.workspace_size.y.max(1.0);
+                let w = base_w * scale;
+                let h = base_h * scale;
+                let (sin_a, cos_a) = calib.rotation.to_radians().sin_cos();
+                let cx = calib.offset_x + w * 0.5;
+                let cy = calib.offset_y + h * 0.5;
+
+                let rotate_world = |x: f32, y: f32| -> Pos2 {
+                    let dx = x - cx;
+                    let dy = y - cy;
+                    Pos2::new(cx + dx * cos_a - dy * sin_a, cy + dx * sin_a + dy * cos_a)
+                };
+
+                let w0 = rotate_world(calib.offset_x, calib.offset_y);
+                let w1 = rotate_world(calib.offset_x + w, calib.offset_y);
+                let w2 = rotate_world(calib.offset_x + w, calib.offset_y + h);
+                let w3 = rotate_world(calib.offset_x, calib.offset_y + h);
+
+                let p0 = self.world_to_screen(w0.x, w0.y, rect);
+                let p1 = self.world_to_screen(w1.x, w1.y, rect);
+                let p2 = self.world_to_screen(w2.x, w2.y, rect);
+                let p3 = self.world_to_screen(w3.x, w3.y, rect);
+
                 let color = Color32::from_white_alpha((camera_state.opacity * 255.0) as u8);
-                
-                mesh.add_rect_with_uv(Rect::from_min_max(p1, p2), uv, color);
+
+                let mut mesh = egui::Mesh::with_texture(texture.id());
+                let base_idx = mesh.vertices.len() as u32;
+                mesh.add_triangle(base_idx, base_idx + 1, base_idx + 2);
+                mesh.add_triangle(base_idx, base_idx + 2, base_idx + 3);
+                mesh.vertices.push(egui::epaint::Vertex { pos: p0, uv: egui::pos2(0.0, 0.0), color });
+                mesh.vertices.push(egui::epaint::Vertex { pos: p1, uv: egui::pos2(1.0, 0.0), color });
+                mesh.vertices.push(egui::epaint::Vertex { pos: p2, uv: egui::pos2(1.0, 1.0), color });
+                mesh.vertices.push(egui::epaint::Vertex { pos: p3, uv: egui::pos2(0.0, 1.0), color });
                 painter.add(mesh);
+
+                let frame = Stroke::new(1.0, Color32::from_rgba_premultiplied(137, 180, 250, 220));
+                painter.line_segment([p0, p1], frame);
+                painter.line_segment([p1, p2], frame);
+                painter.line_segment([p2, p3], frame);
+                painter.line_segment([p3, p0], frame);
             }
         }
 
         // Handle generic input (Pan/Zoom) vs Selection input
-        let handled_interaction = self.handle_input(ui, &response, rect, shapes);
+        let camera_pick_active = camera_state.calibration_wizard_active || camera_state.point_align_active;
+        let handled_interaction = self.handle_input(ui, &response, rect, shapes, camera_state, camera_pick_active);
         if let InteractiveAction::None = handled_interaction {
              // If interaction wasn't a selection/drag, proceed standard input handling
         } else {
@@ -167,10 +216,23 @@ impl PreviewRenderer {
         // Draw GCode segments
         self.draw_gcode_segments(&painter, segments, rect, is_light, transform);
 
+        if self.show_fill_preview {
+            self.draw_fill_overlay(&painter, rect, shapes, layers, is_light);
+        }
+
         // Draw interactive shapes (Overlay)
         for (idx, shape) in shapes.iter().enumerate() {
             let is_selected = self.selected_shape_idx.contains(&idx);
-            self.draw_shape_overlay(ui, &painter, shape, rect, is_selected, idx, _layers);
+            self.draw_shape_overlay(ui, &painter, shape, rect, is_selected, idx, layers);
+        }
+
+        if let (Some(start), Some(end)) = (self.selection_box_start, self.selection_box_end) {
+            let a = self.world_to_screen(start.x, start.y, rect);
+            let b = self.world_to_screen(end.x, end.y, rect);
+            let sel_rect = Rect::from_two_pos(a, b);
+            let fill = Color32::from_rgba_premultiplied(theme::BLUE.r(), theme::BLUE.g(), theme::BLUE.b(), 28);
+            painter.rect_filled(sel_rect, 0.0, fill);
+            painter.rect_stroke(sel_rect, 0.0, Stroke::new(1.0, theme::BLUE), StrokeKind::Middle);
         }
 
         // Draw machine position
@@ -210,6 +272,35 @@ impl PreviewRenderer {
         }
 
         action
+    }
+
+    fn is_point_in_camera_overlay(
+        &self,
+        wx: f32,
+        wy: f32,
+        camera_state: &crate::ui::camera::CameraState,
+    ) -> bool {
+        if !camera_state.enabled || camera_state.texture.is_none() {
+            return false;
+        }
+
+        let calib = &camera_state.calibration;
+        let scale = calib.scale.max(0.01);
+        let w = self.workspace_size.x.max(1.0) * scale;
+        let h = self.workspace_size.y.max(1.0) * scale;
+        let (sin_a, cos_a) = calib.rotation.to_radians().sin_cos();
+        let cx = calib.offset_x + w * 0.5;
+        let cy = calib.offset_y + h * 0.5;
+
+        let dx = wx - cx;
+        let dy = wy - cy;
+        let ux = cx + dx * cos_a + dy * sin_a;
+        let uy = cy - dx * sin_a + dy * cos_a;
+
+        ux >= calib.offset_x
+            && ux <= calib.offset_x + w
+            && uy >= calib.offset_y
+            && uy <= calib.offset_y + h
     }
 
     fn draw_gcode_segments<F>(&self, painter: &Painter, segments: &[PreviewSegment], rect: Rect, is_light: bool, transform: F)
@@ -309,6 +400,93 @@ impl PreviewRenderer {
             }
         }
         flush_accumulated(&painter, &mut current_accumulated_line);
+    }
+
+    fn draw_fill_overlay(
+        &self,
+        painter: &Painter,
+        rect: Rect,
+        shapes: &[ShapeParams],
+        layers: &[CutLayer],
+        is_light: bool,
+    ) {
+        if shapes.is_empty() {
+            return;
+        }
+
+        const MAX_SEGMENTS_TOTAL: usize = 6000;
+        const MAX_SEGMENTS_PER_LAYER: usize = 1500;
+
+        let mut per_layer_indices: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (shape_idx, shape) in shapes.iter().enumerate() {
+            per_layer_indices
+                .entry(shape.layer_idx)
+                .or_default()
+                .push(shape_idx);
+        }
+
+        let mut layer_indices: Vec<usize> = per_layer_indices.keys().copied().collect();
+        layer_indices.sort_by_key(|&layer_idx| {
+            if let Some(layer) = layers.get(layer_idx) {
+                (layer.output_order, layer.id as i32)
+            } else {
+                (i32::MAX, layer_idx as i32)
+            }
+        });
+
+        let mut remaining = MAX_SEGMENTS_TOTAL;
+        for layer_idx in layer_indices {
+            if remaining == 0 {
+                break;
+            }
+
+            let Some(layer) = layers.get(layer_idx) else {
+                continue;
+            };
+            if !layer.visible {
+                continue;
+            }
+            if !matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
+                continue;
+            }
+
+            let Some(shape_indices) = per_layer_indices.get(&layer_idx) else {
+                continue;
+            };
+
+            let layer_shapes: Vec<&ShapeParams> = shape_indices
+                .iter()
+                .filter_map(|&idx| shapes.get(idx))
+                .collect();
+            if layer_shapes.is_empty() {
+                continue;
+            }
+
+            let request_count = remaining.min(MAX_SEGMENTS_PER_LAYER);
+            let segments = crate::gcode::fill::preview_fill_segments_group(&layer_shapes, layer, request_count);
+            if segments.is_empty() {
+                continue;
+            }
+
+            let alpha = if is_light { 80 } else { 100 };
+            let fill_color = Color32::from_rgba_premultiplied(
+                layer.color.r(),
+                layer.color.g(),
+                layer.color.b(),
+                alpha,
+            );
+            let stroke = Stroke::new(0.9, fill_color);
+
+            for (start, end) in segments {
+                let p1 = self.world_to_screen(start.0, start.1, rect);
+                let p2 = self.world_to_screen(end.0, end.1, rect);
+                if rect_contains_approx(rect, p1) || rect_contains_approx(rect, p2) {
+                    painter.line_segment([p1, p2], stroke);
+                }
+            }
+
+            remaining = remaining.saturating_sub(request_count);
+        }
     }
 
     fn draw_shape_overlay(&mut self, ui: &Ui, painter: &Painter, shape: &ShapeParams, rect: Rect, is_selected: bool, idx: usize, layers: &[CutLayer]) {
@@ -512,9 +690,60 @@ impl PreviewRenderer {
                             let wy = shape.y + p.0 * angle.sin() + p.1 * angle.cos();
                             self.world_to_screen(wx, wy, rect)
                         };
-                        let is_node_sel = self.selected_node == Some((idx, v_idx));
+                        let is_node_sel = self.selected_nodes.contains(&(idx, v_idx))
+                            || self.selected_node == Some((idx, v_idx));
                         let color = if is_node_sel { theme::RED } else { theme::GREEN };
                         painter.circle_filled(vp, 4.0, color);
+                    }
+
+                    if let Some((s_idx, node_idx)) = self.selected_node {
+                        if s_idx == idx {
+                            if let Some(cur) = pts.get(node_idx) {
+                                let cur_w = {
+                                    let wx = shape.x + cur.0 * angle.cos() - cur.1 * angle.sin();
+                                    let wy = shape.y + cur.0 * angle.sin() + cur.1 * angle.cos();
+                                    self.world_to_screen(wx, wy, rect)
+                                };
+
+                                if node_idx > 0 {
+                                    if let Some(prev) = pts.get(node_idx - 1) {
+                                        let prev_w = {
+                                            let wx = shape.x + prev.0 * angle.cos() - prev.1 * angle.sin();
+                                            let wy = shape.y + prev.0 * angle.sin() + prev.1 * angle.cos();
+                                            self.world_to_screen(wx, wy, rect)
+                                        };
+                                        painter.line_segment(
+                                            [cur_w, prev_w],
+                                            Stroke::new(1.0, Color32::from_rgb(100, 170, 255)),
+                                        );
+                                        painter.rect_filled(
+                                            Rect::from_center_size(prev_w, Vec2::splat(6.0)),
+                                            1.0,
+                                            Color32::from_rgb(100, 170, 255),
+                                        );
+                                    }
+                                }
+
+                                if node_idx + 1 < pts.len() {
+                                    if let Some(next) = pts.get(node_idx + 1) {
+                                        let next_w = {
+                                            let wx = shape.x + next.0 * angle.cos() - next.1 * angle.sin();
+                                            let wy = shape.y + next.0 * angle.sin() + next.1 * angle.cos();
+                                            self.world_to_screen(wx, wy, rect)
+                                        };
+                                        painter.line_segment(
+                                            [cur_w, next_w],
+                                            Stroke::new(1.0, Color32::from_rgb(255, 170, 100)),
+                                        );
+                                        painter.rect_filled(
+                                            Rect::from_center_size(next_w, Vec2::splat(6.0)),
+                                            1.0,
+                                            Color32::from_rgb(255, 170, 100),
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -608,7 +837,15 @@ impl PreviewRenderer {
         self.zoom /= 1.3;
     }
 
-    fn handle_input(&mut self, ui: &egui::Ui, response: &egui::Response, _rect: Rect, shapes: &[ShapeParams]) -> InteractiveAction {
+    fn handle_input(
+        &mut self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        _rect: Rect,
+        shapes: &[ShapeParams],
+        camera_state: &crate::ui::camera::CameraState,
+        camera_pick_active: bool,
+    ) -> InteractiveAction {
         let mut action = InteractiveAction::None;
 
         if let Some(hover) = response.hover_pos() {
@@ -627,6 +864,13 @@ impl PreviewRenderer {
             let wy = -(hover.y - self.pan.y) / self.zoom;
             let is_multi = ui.input(|i| i.modifiers.ctrl || i.modifiers.shift);
 
+            if response.clicked() && self.dragging_rotation.is_none() && camera_pick_active {
+                if self.is_point_in_camera_overlay(wx, wy, camera_state) {
+                    return InteractiveAction::CameraPickPoint(Pos2::new(wx, wy));
+                }
+                return InteractiveAction::None;
+            }
+
             // 1. Detect Hover
             self.hover_shape_idx = None;
             for (idx, shape) in shapes.iter().enumerate() {
@@ -637,8 +881,40 @@ impl PreviewRenderer {
 
             // 2. Click/Drag Selection Logic
             if response.drag_started() {
+                if self.node_edit_mode {
+                    if let Some((shape_idx, node_idx)) = self.selected_node {
+                        if let Some(shape) = shapes.get(shape_idx) {
+                            if let ShapeKind::Path(pts) = &shape.shape {
+                                let angle = shape.rotation.to_radians();
+                                let (sin_a, cos_a) = angle.sin_cos();
+
+                                if node_idx > 0 {
+                                    let p = pts[node_idx - 1];
+                                    let hp = Pos2::new(
+                                        shape.x + p.0 * cos_a - p.1 * sin_a,
+                                        shape.y + p.0 * sin_a + p.1 * cos_a,
+                                    );
+                                    if hp.distance(Pos2::new(wx, wy)) <= 6.0 / self.zoom {
+                                        self.dragging_node_handle = Some((shape_idx, node_idx, NodeHandleKind::In));
+                                    }
+                                }
+                                if self.dragging_node_handle.is_none() && node_idx + 1 < pts.len() {
+                                    let p = pts[node_idx + 1];
+                                    let hp = Pos2::new(
+                                        shape.x + p.0 * cos_a - p.1 * sin_a,
+                                        shape.y + p.0 * sin_a + p.1 * cos_a,
+                                    );
+                                    if hp.distance(Pos2::new(wx, wy)) <= 6.0 / self.zoom {
+                                        self.dragging_node_handle = Some((shape_idx, node_idx, NodeHandleKind::Out));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // Check for rotation handle first if a single shape is selected
-                if self.selected_shape_idx.len() == 1 {
+                if self.selected_shape_idx.len() == 1 && self.dragging_node_handle.is_none() {
                     let s_idx = *self.selected_shape_idx.iter().next().unwrap();
                     if let Some(shape) = shapes.get(s_idx) {
                         let handle_pos = self.get_rotation_handle_pos(shape);
@@ -647,24 +923,88 @@ impl PreviewRenderer {
                         }
                     }
                 }
+
+                if self.dragging_rotation.is_none()
+                    && self.dragging_node_handle.is_none()
+                    && self.hover_shape_idx.is_none()
+                    && !self.node_edit_mode
+                {
+                    self.selection_box_start = Some(Pos2::new(wx, wy));
+                    self.selection_box_end = Some(Pos2::new(wx, wy));
+                    self.selection_box_additive = is_multi;
+                }
             }
 
             if response.clicked() && self.dragging_rotation.is_none() {
                 if let Some(idx) = self.hover_shape_idx {
+                    let mut add_node_action: Option<InteractiveAction> = None;
                     if self.node_edit_mode {
                         let mut node_hit = None;
                         if let Some(shape) = shapes.get(idx) {
                             if let ShapeKind::Path(pts) = &shape.shape {
+                                let angle = shape.rotation.to_radians();
+                                let (sin_a, cos_a) = angle.sin_cos();
                                 for (v_idx, p) in pts.iter().enumerate() {
-                                    let vp = Pos2::new(shape.x + p.0, shape.y + p.1);
+                                    let vp = Pos2::new(
+                                        shape.x + p.0 * cos_a - p.1 * sin_a,
+                                        shape.y + p.0 * sin_a + p.1 * cos_a,
+                                    );
                                     if (vp.x - wx).abs() < 4.0 / self.zoom && (vp.y - wy).abs() < 4.0 / self.zoom {
                                         node_hit = Some(v_idx);
                                         break;
                                     }
                                 }
+
+                                if node_hit.is_none() && pts.len() > 1 {
+                                    let click = Pos2::new(wx, wy);
+                                    let mut best_dist = f32::MAX;
+                                    let mut best_seg = 0usize;
+                                    let mut best_point = click;
+                                    for i in 0..(pts.len() - 1) {
+                                        let a = Pos2::new(
+                                            shape.x + pts[i].0 * cos_a - pts[i].1 * sin_a,
+                                            shape.y + pts[i].0 * sin_a + pts[i].1 * cos_a,
+                                        );
+                                        let b = Pos2::new(
+                                            shape.x + pts[i + 1].0 * cos_a - pts[i + 1].1 * sin_a,
+                                            shape.y + pts[i + 1].0 * sin_a + pts[i + 1].1 * cos_a,
+                                        );
+                                        let (dist, proj) = point_segment_distance(click, a, b);
+                                        if dist < best_dist {
+                                            best_dist = dist;
+                                            best_seg = i;
+                                            best_point = proj;
+                                        }
+                                    }
+
+                                    if best_dist <= 8.0 / self.zoom {
+                                        add_node_action = Some(InteractiveAction::AddNode {
+                                            shape_idx: idx,
+                                            insert_after: best_seg,
+                                            new_pos: best_point,
+                                        });
+                                    }
+                                }
                             }
                         }
-                        self.selected_node = node_hit.map(|n| (idx, n));
+
+                        if let Some(node_idx) = node_hit {
+                            self.selected_node = Some((idx, node_idx));
+                            if is_multi {
+                                let key = (idx, node_idx);
+                                if self.selected_nodes.contains(&key) {
+                                    self.selected_nodes.shift_remove(&key);
+                                } else {
+                                    self.selected_nodes.insert(key);
+                                }
+                            } else {
+                                self.selected_nodes.clear();
+                                self.selected_nodes.insert((idx, node_idx));
+                            }
+                        } else if !is_multi {
+                            self.selected_node = None;
+                            self.selected_nodes.clear();
+                        }
                     }
 
                     if is_multi {
@@ -677,17 +1017,35 @@ impl PreviewRenderer {
                         self.selected_shape_idx.clear();
                         self.selected_shape_idx.insert(idx);
                     }
-                    action = InteractiveAction::SelectShape(idx, is_multi);
+                    action = add_node_action.unwrap_or(InteractiveAction::SelectShape(idx, is_multi));
                 } else if !is_multi {
                     self.selected_shape_idx.clear();
                     self.selected_node = None;
+                    self.selected_nodes.clear();
                     action = InteractiveAction::Deselect;
                 }
             }
         }
 
         if response.dragged() {
-            if let Some(s_idx) = self.dragging_rotation {
+            if self.selection_box_start.is_some() {
+                if let Some(pos) = response.interact_pointer_pos() {
+                    let ex = (pos.x - self.pan.x) / self.zoom;
+                    let ey = -(pos.y - self.pan.y) / self.zoom;
+                    self.selection_box_end = Some(Pos2::new(ex, ey));
+                }
+            } else if let Some((shape_idx, node_idx, handle)) = self.dragging_node_handle {
+                if let Some(pos) = response.interact_pointer_pos() {
+                    let dx = (pos.x - self.pan.x) / self.zoom;
+                    let dy = -(pos.y - self.pan.y) / self.zoom;
+                    action = InteractiveAction::MoveNodeHandle {
+                        shape_idx,
+                        node_idx,
+                        handle,
+                        new_pos: Pos2::new(dx, dy),
+                    };
+                }
+            } else if let Some(s_idx) = self.dragging_rotation {
                 if let Some(pos) = response.interact_pointer_pos() {
                     let wx = (pos.x - self.pan.x) / self.zoom;
                     let wy = -(pos.y - self.pan.y) / self.zoom;
@@ -742,7 +1100,28 @@ impl PreviewRenderer {
                 self.pan += response.drag_delta();
             }
         } else {
+            if response.drag_stopped() {
+                if let (Some(start), Some(end)) = (self.selection_box_start.take(), self.selection_box_end.take()) {
+                    let hit_indices = self.shapes_in_world_rect(start, end, shapes);
+                    if !self.selection_box_additive {
+                        self.selected_shape_idx.clear();
+                    }
+                    for idx in hit_indices {
+                        self.selected_shape_idx.insert(idx);
+                    }
+                    self.selected_node = None;
+                    self.selected_nodes.clear();
+
+                    if let Some(last) = self.selected_shape_idx.iter().last().copied() {
+                        action = InteractiveAction::SelectShape(last, true);
+                    } else if !self.selection_box_additive {
+                        action = InteractiveAction::Deselect;
+                    }
+                    self.selection_box_additive = false;
+                }
+            }
             self.dragging_rotation = None;
+            self.dragging_node_handle = None;
         }
 
         // Set cursor
@@ -819,6 +1198,81 @@ impl PreviewRenderer {
         let lx = dx * angle.cos() - dy * angle.sin();
         let ly = dx * angle.sin() + dy * angle.cos();
         (lx, ly)
+    }
+
+    fn shapes_in_world_rect(&self, start: Pos2, end: Pos2, shapes: &[ShapeParams]) -> Vec<usize> {
+        let min_x = start.x.min(end.x);
+        let min_y = start.y.min(end.y);
+        let max_x = start.x.max(end.x);
+        let max_y = start.y.max(end.y);
+
+        shapes
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, shape)| {
+                let (sx0, sy0, sx1, sy1) = self.shape_world_bounds(shape)?;
+                let intersects = sx1 >= min_x && sx0 <= max_x && sy1 >= min_y && sy0 <= max_y;
+                if intersects { Some(idx) } else { None }
+            })
+            .collect()
+    }
+
+    fn shape_world_bounds(&self, shape: &ShapeParams) -> Option<(f32, f32, f32, f32)> {
+        fn transform(shape: &ShapeParams, lx: f32, ly: f32) -> (f32, f32) {
+            let angle = shape.rotation.to_radians();
+            let (sin_a, cos_a) = angle.sin_cos();
+            (
+                shape.x + lx * cos_a - ly * sin_a,
+                shape.y + lx * sin_a + ly * cos_a,
+            )
+        }
+
+        let points: Vec<(f32, f32)> = match &shape.shape {
+            ShapeKind::Rectangle => vec![
+                transform(shape, 0.0, 0.0),
+                transform(shape, shape.width, 0.0),
+                transform(shape, shape.width, shape.height),
+                transform(shape, 0.0, shape.height),
+            ],
+            ShapeKind::Circle => vec![
+                (shape.x - shape.radius, shape.y - shape.radius),
+                (shape.x + shape.radius, shape.y + shape.radius),
+            ],
+            ShapeKind::TextLine => {
+                let char_w = shape.font_size_mm * 0.6;
+                let w = shape.text.len() as f32 * char_w;
+                vec![
+                    transform(shape, 0.0, 0.0),
+                    transform(shape, w, 0.0),
+                    transform(shape, w, shape.font_size_mm),
+                    transform(shape, 0.0, shape.font_size_mm),
+                ]
+            }
+            ShapeKind::Path(pts) => {
+                if pts.is_empty() {
+                    return None;
+                }
+                pts.iter().map(|(lx, ly)| transform(shape, *lx, *ly)).collect()
+            }
+            ShapeKind::RasterImage { params, .. } => vec![
+                transform(shape, 0.0, 0.0),
+                transform(shape, params.width_mm, 0.0),
+                transform(shape, params.width_mm, params.height_mm),
+                transform(shape, 0.0, params.height_mm),
+            ],
+        };
+
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+        for (x, y) in points {
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+        Some((min_x, min_y, max_x, max_y))
     }
 
     fn world_to_screen(&self, wx: f32, wy: f32, _rect: Rect) -> Pos2 {
@@ -978,4 +1432,17 @@ fn rect_contains_approx(rect: Rect, pos: Pos2) -> bool {
         && pos.x <= rect.right() + margin
         && pos.y >= rect.top() - margin
         && pos.y <= rect.bottom() + margin
+}
+
+fn point_segment_distance(p: Pos2, a: Pos2, b: Pos2) -> (f32, Pos2) {
+    let ab = b - a;
+    let ap = p - a;
+    let ab_len_sq = ab.x * ab.x + ab.y * ab.y;
+    if ab_len_sq <= f32::EPSILON {
+        return (p.distance(a), a);
+    }
+
+    let t = ((ap.x * ab.x + ap.y * ab.y) / ab_len_sq).clamp(0.0, 1.0);
+    let proj = a + ab * t;
+    (p.distance(proj), proj)
 }

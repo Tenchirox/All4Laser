@@ -4,8 +4,12 @@ use egui::{Ui, RichText};
 use crate::theme;
 use crate::ui::layers_new::{CutLayer, CutMode};
 use crate::gcode::generator::GCodeBuilder;
+use std::collections::HashSet;
 use std::sync::Arc;
 use crate::imaging::raster::RasterParams;
+use geo::Buffer;
+use geo::algorithm::buffer::{BufferStyle, LineJoin};
+use geo::LineString;
 
 #[derive(Clone)]
 pub struct ImageData(pub Arc<image::DynamicImage>);
@@ -115,6 +119,10 @@ pub struct DrawingAction {
 pub fn show(ui: &mut Ui, state: &mut DrawingState, layers: &[CutLayer], active_layer_idx: usize) -> DrawingAction {
     let mut action = DrawingAction { generate_gcode: None };
 
+    if state.current.shape == ShapeKind::TextLine {
+        state.current.shape = ShapeKind::Rectangle;
+    }
+
     ui.group(|ui| {
         ui.label(RichText::new(format!("✏ {}", crate::i18n::tr("Drawing Tools"))).color(theme::LAVENDER).strong());
         ui.add_space(4.0);
@@ -125,9 +133,6 @@ pub fn show(ui: &mut Ui, state: &mut DrawingState, layers: &[CutLayer], active_l
             }
             if ui.selectable_label(state.current.shape == ShapeKind::Circle, "○ Circle").clicked() {
                 state.current.shape = ShapeKind::Circle;
-            }
-            if ui.selectable_label(state.current.shape == ShapeKind::TextLine, "T Text").clicked() {
-                state.current.shape = ShapeKind::TextLine;
             }
         });
 
@@ -156,14 +161,7 @@ pub fn show(ui: &mut Ui, state: &mut DrawingState, layers: &[CutLayer], active_l
                 });
             }
             ShapeKind::TextLine => {
-                ui.horizontal(|ui| {
-                    ui.label("Text:");
-                    ui.text_edit_singleline(&mut state.current.text);
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Font size:");
-                    ui.add(egui::DragValue::new(&mut state.current.font_size_mm).speed(0.5).suffix(" mm"));
-                });
+                ui.label("Use the Text Tool panel below to create text paths.");
             }
             ShapeKind::Path(pts) => {
                 ui.label(format!("Path with {} points", pts.len()));
@@ -251,49 +249,71 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
         (layer.output_order, layer.id as i32, shape_idx as i32)
     });
 
-    for shape_idx in ordered_indices {
-        let shape = &state.shapes[shape_idx];
-        // Retrieve layer settings
-        let layer = layers.get(shape.layer_idx).unwrap_or(&default_layer);
+    let mut seen_layers: HashSet<usize> = HashSet::new();
+    let mut ordered_layers: Vec<usize> = Vec::new();
+    for &shape_idx in &ordered_indices {
+        let layer_idx = state.shapes[shape_idx].layer_idx;
+        if seen_layers.insert(layer_idx) {
+            ordered_layers.push(layer_idx);
+        }
+    }
 
+    for layer_idx in ordered_layers {
+        let layer = layers.get(layer_idx).unwrap_or(&default_layer);
         if !layer.visible {
             continue;
         }
 
-        builder.comment(&format!("Shape {}: {:?} [Layer C{:02}]", shape_idx + 1, shape.shape, layer.id));
+        let layer_shape_indices: Vec<usize> = ordered_indices
+            .iter()
+            .copied()
+            .filter(|&idx| state.shapes[idx].layer_idx == layer_idx)
+            .collect();
+        if layer_shape_indices.is_empty() {
+            continue;
+        }
 
-        // Apply Z-offset if needed (simple implementation: move Z before start)
+        builder.comment(&format!("Layer C{:02} ({})", layer.id, layer.name));
+
+        // Apply Z-offset if needed (simple implementation: move Z before layer start)
         if layer.z_offset != 0.0 {
             builder.raw(&format!("G0 Z{:.2}", layer.z_offset));
         }
 
-        // Air Assist
         if layer.air_assist {
-             builder.raw("M8");
+            builder.raw("M8");
         }
 
         for pass in 0..layer.passes {
-            if layer.passes > 1 { builder.comment(&format!("Pass {}", pass + 1)); }
-
-            // Check for Fill mode
-            if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
-                let mut temp_lines = Vec::new();
-                crate::gcode::fill::generate_fill(&mut temp_lines, shape, layer);
-                // Ingest lines into builder (or ideally generate_fill should accept builder, but for now we mix)
-                // Actually, since generate_fill uses its own builder and returns lines, let's just append.
-                // But GCodeBuilder tracks state. We should probably reset state or make generate_fill use *our* builder.
-                // For this refactor, let's just dump the strings and reset builder state to unknown.
-                builder.lines.extend(temp_lines);
-                builder.reset_state(); // Because generate_fill might have left laser on or moved without us knowing
+            if layer.passes > 1 {
+                builder.comment(&format!("Pass {}", pass + 1));
             }
 
-            if layer.mode == CutMode::Line || layer.mode == CutMode::FillAndLine {
-                match &shape.shape {
-                    ShapeKind::Rectangle => gen_rect(&mut builder, shape, layer),
-                    ShapeKind::Circle => gen_circle(&mut builder, shape, layer),
-                    ShapeKind::TextLine => gen_text(&mut builder, shape, layer),
-                    ShapeKind::Path(pts) => gen_path(&mut builder, pts, shape, layer),
-                    ShapeKind::RasterImage { data, params } => gen_raster(&mut builder, data, params, shape),
+            if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
+                let layer_shapes: Vec<&ShapeParams> = layer_shape_indices
+                    .iter()
+                    .map(|&idx| &state.shapes[idx])
+                    .collect();
+
+                let mut temp_lines = Vec::new();
+                crate::gcode::fill::generate_fill_group(&mut temp_lines, &layer_shapes, layer);
+                builder.lines.extend(temp_lines);
+                // `generate_fill_group` uses its own builder; reset our tracking state after merging lines.
+                builder.reset_state();
+            }
+
+            if matches!(layer.mode, CutMode::Line | CutMode::FillAndLine) {
+                for &shape_idx in &layer_shape_indices {
+                    let shape = &state.shapes[shape_idx];
+                    builder.comment(&format!("Shape {}: {:?} [Layer C{:02}]", shape_idx + 1, shape.shape, layer.id));
+
+                    match &shape.shape {
+                        ShapeKind::Rectangle => gen_rect(&mut builder, shape, layer),
+                        ShapeKind::Circle => gen_circle(&mut builder, shape, layer),
+                        ShapeKind::TextLine => gen_text(&mut builder, shape, layer),
+                        ShapeKind::Path(pts) => gen_path(&mut builder, pts, shape, layer),
+                        ShapeKind::RasterImage { data, params } => gen_raster(&mut builder, data, params, shape),
+                    }
                 }
             }
         }
@@ -314,7 +334,7 @@ fn gen_rect(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
     let (x1, y1) = (s.width, s.height);
     let pts = vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)];
     let path: Vec<(f32, f32)> = pts.into_iter().map(|p| rotate_point(p.0, p.1, s)).collect();
-    crate::gcode::path_utils::apply_tabs(builder, &path, layer);
+    gen_layer_path(builder, &path, layer);
 }
 
 fn gen_circle(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
@@ -330,7 +350,7 @@ fn gen_circle(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
         pts.push((px, py));
     }
     let path: Vec<(f32, f32)> = pts.into_iter().map(|p| rotate_point(p.0, p.1, s)).collect();
-    crate::gcode::path_utils::apply_tabs(builder, &path, layer);
+    gen_layer_path(builder, &path, layer);
 }
 
 fn gen_path(builder: &mut GCodeBuilder, points: &[(f32, f32)], s: &ShapeParams, layer: &CutLayer) {
@@ -340,7 +360,90 @@ fn gen_path(builder: &mut GCodeBuilder, points: &[(f32, f32)], s: &ShapeParams, 
         .map(|p| rotate_point(p.0, p.1, s))
         .collect();
 
-    crate::gcode::path_utils::apply_tabs(builder, &abs_path, layer);
+    gen_layer_path(builder, &abs_path, layer);
+}
+
+fn gen_layer_path(builder: &mut GCodeBuilder, path: &[(f32, f32)], layer: &CutLayer) {
+    if path.is_empty() {
+        return;
+    }
+
+    if layer.kerf_mm.abs() > 0.000_1 && path_is_closed(path) {
+        if let Some(offset_paths) = kerf_offset_closed_path(path, layer.kerf_mm) {
+            for p in offset_paths {
+                crate::gcode::path_utils::apply_tabs(builder, &p, layer);
+            }
+            return;
+        }
+    }
+
+    crate::gcode::path_utils::apply_tabs(builder, path, layer);
+}
+
+fn path_is_closed(path: &[(f32, f32)]) -> bool {
+    if path.len() < 3 {
+        return false;
+    }
+
+    let first = path[0];
+    let last = path[path.len() - 1];
+    (first.0 - last.0).abs() < 0.01 && (first.1 - last.1).abs() < 0.01
+}
+
+fn ensure_closed_path(mut path: Vec<(f32, f32)>) -> Vec<(f32, f32)> {
+    if let (Some(first), Some(last)) = (path.first().copied(), path.last().copied()) {
+        if (first.0 - last.0).abs() > 0.000_1 || (first.1 - last.1).abs() > 0.000_1 {
+            path.push(first);
+        }
+    }
+    path
+}
+
+fn kerf_offset_closed_path(path: &[(f32, f32)], kerf_mm: f32) -> Option<Vec<Vec<(f32, f32)>>> {
+    if path.len() < 3 {
+        return None;
+    }
+
+    let closed = ensure_closed_path(path.to_vec());
+    if closed.len() < 4 {
+        return None;
+    }
+
+    let line: LineString<f64> = closed
+        .iter()
+        .map(|(x, y)| (*x as f64, *y as f64))
+        .collect();
+
+    let poly = geo::Polygon::new(line, vec![]);
+    let style = BufferStyle::new(kerf_mm as f64).line_join(LineJoin::Round(0.1));
+    let buffered = poly.buffer_with_style(style);
+
+    let mut out = Vec::new();
+
+    for p in buffered.0 {
+        let mut exterior: Vec<(f32, f32)> = p
+            .exterior()
+            .coords()
+            .map(|c| (c.x as f32, c.y as f32))
+            .collect();
+        exterior = ensure_closed_path(exterior);
+        if exterior.len() >= 4 {
+            out.push(exterior);
+        }
+
+        for hole in p.interiors() {
+            let mut interior: Vec<(f32, f32)> = hole
+                .coords()
+                .map(|c| (c.x as f32, c.y as f32))
+                .collect();
+            interior = ensure_closed_path(interior);
+            if interior.len() >= 4 {
+                out.push(interior);
+            }
+        }
+    }
+
+    if out.is_empty() { None } else { Some(out) }
 }
 
 fn gen_text(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
@@ -444,4 +547,137 @@ fn rotate_point(lx: f32, ly: f32, s: &ShapeParams) -> (f32, f32) {
     let rx = lx * angle.cos() - ly * angle.sin();
     let ry = lx * angle.sin() + ly * angle.cos();
     (s.x + rx, s.y + ry)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_axis(line: &str, axis: char) -> Option<f32> {
+        line.split_whitespace()
+            .find_map(|tok| tok.strip_prefix(axis).and_then(|v| v.parse::<f32>().ok()))
+    }
+
+    fn gcode_bounds(lines: &[String]) -> Option<(f32, f32, f32, f32)> {
+        let mut min_x = f32::INFINITY;
+        let mut min_y = f32::INFINITY;
+        let mut max_x = f32::NEG_INFINITY;
+        let mut max_y = f32::NEG_INFINITY;
+        let mut any = false;
+
+        for line in lines {
+            if !(line.starts_with("G0") || line.starts_with("G1")) {
+                continue;
+            }
+            let Some(x) = parse_axis(line, 'X') else { continue; };
+            let Some(y) = parse_axis(line, 'Y') else { continue; };
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            any = true;
+        }
+
+        if any {
+            Some((min_x, min_y, max_x, max_y))
+        } else {
+            None
+        }
+    }
+
+    fn rectangle_state() -> DrawingState {
+        let shape = ShapeParams {
+            shape: ShapeKind::Rectangle,
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+            layer_idx: 0,
+            ..Default::default()
+        };
+
+        DrawingState {
+            current: ShapeParams::default(),
+            shapes: vec![shape],
+        }
+    }
+
+    #[test]
+    fn kerf_offset_expands_closed_cut_geometry() {
+        let state = rectangle_state();
+        let mut layers = CutLayer::default_palette();
+        layers[0].mode = CutMode::Line;
+        layers[0].kerf_mm = 1.0;
+
+        let lines = generate_all_gcode(&state, &layers);
+        let (min_x, min_y, max_x, max_y) = gcode_bounds(&lines).expect("expected G0/G1 bounds");
+
+        assert!(min_x < -0.5, "expected min_x < -0.5, got {min_x}");
+        assert!(min_y < -0.5, "expected min_y < -0.5, got {min_y}");
+        assert!(max_x > 10.5, "expected max_x > 10.5, got {max_x}");
+        assert!(max_y > 10.5, "expected max_y > 10.5, got {max_y}");
+    }
+
+    #[test]
+    fn zero_kerf_keeps_original_rectangle_bounds() {
+        let state = rectangle_state();
+        let mut layers = CutLayer::default_palette();
+        layers[0].mode = CutMode::Line;
+        layers[0].kerf_mm = 0.0;
+
+        let lines = generate_all_gcode(&state, &layers);
+        let (min_x, min_y, max_x, max_y) = gcode_bounds(&lines).expect("expected G0/G1 bounds");
+
+        assert!(min_x >= -0.001, "expected non-negative min_x, got {min_x}");
+        assert!(min_y >= -0.001, "expected non-negative min_y, got {min_y}");
+        assert!(max_x <= 10.001, "expected max_x near 10, got {max_x}");
+        assert!(max_y <= 10.001, "expected max_y near 10, got {max_y}");
+    }
+
+    #[test]
+    fn fill_and_line_runs_single_fill_before_line_shapes() {
+        let shape_a = ShapeParams {
+            shape: ShapeKind::Circle,
+            x: 0.0,
+            y: 0.0,
+            radius: 10.0,
+            layer_idx: 0,
+            ..Default::default()
+        };
+        let shape_b = ShapeParams {
+            shape: ShapeKind::Circle,
+            x: 0.0,
+            y: 0.0,
+            radius: 4.0,
+            layer_idx: 0,
+            ..Default::default()
+        };
+        let state = DrawingState {
+            current: ShapeParams::default(),
+            shapes: vec![shape_a, shape_b],
+        };
+
+        let mut layers = CutLayer::default_palette();
+        layers[0].mode = CutMode::FillAndLine;
+        layers[0].fill_interval_mm = 2.0;
+
+        let lines = generate_all_gcode(&state, &layers);
+
+        let fill_comment_indices: Vec<usize> = lines
+            .iter()
+            .enumerate()
+            .filter_map(|(i, l)| l.starts_with("; Fill Scan").then_some(i))
+            .collect();
+        assert_eq!(fill_comment_indices.len(), 1, "expected one grouped fill per layer/pass");
+
+        let first_shape_comment = lines
+            .iter()
+            .position(|l| l.starts_with("; Shape "))
+            .expect("expected shape comment");
+
+        assert!(
+            fill_comment_indices[0] < first_shape_comment,
+            "expected fill scan to run before contour cuts in FillAndLine mode"
+        );
+    }
 }
