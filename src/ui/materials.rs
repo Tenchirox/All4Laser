@@ -1,6 +1,23 @@
 use egui::{Ui, RichText};
 use serde::{Deserialize, Serialize};
 use crate::theme;
+use crate::ui::layers_new::CutMode;
+
+fn default_machine_profile() -> String { String::new() }
+fn default_recommended_passes() -> u32 { 1 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MaterialOperation {
+    Engrave,
+    Cut,
+    Hybrid,
+}
+
+impl Default for MaterialOperation {
+    fn default() -> Self {
+        Self::Cut
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MaterialPreset {
@@ -10,6 +27,12 @@ pub struct MaterialPreset {
     pub power: f32,
     pub cut_speed: f32,
     pub cut_power: f32,
+    #[serde(default = "default_machine_profile")]
+    pub machine_profile: String,
+    #[serde(default)]
+    pub operation: MaterialOperation,
+    #[serde(default = "default_recommended_passes")]
+    pub recommended_passes: u32,
 }
 
 impl Default for MaterialPreset {
@@ -21,8 +44,160 @@ impl Default for MaterialPreset {
             power: 800.0,
             cut_speed: 300.0,
             cut_power: 1000.0,
+            machine_profile: String::new(),
+            operation: MaterialOperation::Cut,
+            recommended_passes: 1,
         }
     }
+}
+
+impl MaterialPreset {
+    pub fn as_layer_update(&self) -> LayerMaterialUpdate {
+        let (speed, power, mode) = match self.operation {
+            MaterialOperation::Engrave => (self.speed, self.power, CutMode::Fill),
+            MaterialOperation::Cut => (self.cut_speed, self.cut_power, CutMode::Line),
+            MaterialOperation::Hybrid => (self.cut_speed, self.cut_power, CutMode::FillAndLine),
+        };
+
+        LayerMaterialUpdate {
+            preset_name: self.name.clone(),
+            speed,
+            power,
+            passes: self.recommended_passes.max(1),
+            mode,
+        }
+    }
+}
+
+fn default_presets() -> Vec<MaterialPreset> {
+    vec![
+        MaterialPreset {
+            name: "Plywood 3mm".into(),
+            thickness_mm: 3.0,
+            speed: 800.0,
+            power: 750.0,
+            cut_speed: 200.0,
+            cut_power: 1000.0,
+            operation: MaterialOperation::Cut,
+            recommended_passes: 1,
+            ..MaterialPreset::default()
+        },
+        MaterialPreset {
+            name: "Plywood 6mm".into(),
+            thickness_mm: 6.0,
+            speed: 600.0,
+            power: 900.0,
+            cut_speed: 100.0,
+            cut_power: 1000.0,
+            operation: MaterialOperation::Cut,
+            recommended_passes: 2,
+            ..MaterialPreset::default()
+        },
+        MaterialPreset {
+            name: "Anodized Aluminum".into(),
+            thickness_mm: 1.5,
+            speed: 1500.0,
+            power: 600.0,
+            cut_speed: 500.0,
+            cut_power: 800.0,
+            operation: MaterialOperation::Engrave,
+            recommended_passes: 1,
+            ..MaterialPreset::default()
+        },
+        MaterialPreset {
+            name: "Acrylic 3mm".into(),
+            thickness_mm: 3.0,
+            speed: 500.0,
+            power: 850.0,
+            cut_speed: 150.0,
+            cut_power: 950.0,
+            operation: MaterialOperation::Cut,
+            recommended_passes: 1,
+            ..MaterialPreset::default()
+        },
+        MaterialPreset {
+            name: "Leather".into(),
+            thickness_mm: 2.0,
+            speed: 1200.0,
+            power: 500.0,
+            cut_speed: 300.0,
+            cut_power: 700.0,
+            operation: MaterialOperation::Engrave,
+            recommended_passes: 1,
+            ..MaterialPreset::default()
+        },
+    ]
+}
+
+#[derive(Clone, Debug)]
+pub struct ActiveLayerSummary {
+    pub name: String,
+    pub speed: f32,
+    pub power: f32,
+    pub passes: u32,
+    pub mode: CutMode,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MaterialsUiContext {
+    pub machine_profile_name: Option<String>,
+    pub active_layer: Option<ActiveLayerSummary>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LayerMaterialUpdate {
+    pub preset_name: String,
+    pub speed: f32,
+    pub power: f32,
+    pub passes: u32,
+    pub mode: CutMode,
+}
+
+fn operation_for_mode(mode: CutMode) -> MaterialOperation {
+    match mode {
+        CutMode::Line => MaterialOperation::Cut,
+        CutMode::Fill => MaterialOperation::Engrave,
+        CutMode::FillAndLine | CutMode::Offset => MaterialOperation::Hybrid,
+    }
+}
+
+fn recommendation_score(preset: &MaterialPreset, context: &MaterialsUiContext) -> f32 {
+    let mut score = 0.0;
+
+    if let Some(machine_name) = context.machine_profile_name.as_deref() {
+        if preset.machine_profile.trim().is_empty() {
+            score += 12.0;
+        } else if preset.machine_profile.eq_ignore_ascii_case(machine_name) {
+            score += 42.0;
+        } else {
+            score -= 16.0;
+        }
+    }
+
+    if let Some(layer) = &context.active_layer {
+        score += 20.0 - ((preset.cut_speed - layer.speed).abs() / 200.0);
+        score += 20.0 - ((preset.cut_power - layer.power).abs() / 40.0);
+        score += 8.0 - ((preset.recommended_passes as f32 - layer.passes as f32).abs() * 3.0);
+
+        if preset.operation == operation_for_mode(layer.mode) {
+            score += 18.0;
+        }
+    }
+
+    score
+}
+
+pub fn recommended_preset_index(state: &MaterialsState, context: &MaterialsUiContext) -> Option<usize> {
+    state
+        .presets
+        .iter()
+        .enumerate()
+        .max_by(|(_, a), (_, b)| {
+            recommendation_score(a, context)
+                .partial_cmp(&recommendation_score(b, context))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(idx, _)| idx)
 }
 
 pub struct MaterialsState {
@@ -42,13 +217,7 @@ impl Default for MaterialsState {
         };
         s.load();
         if s.presets.is_empty() {
-            s.presets = vec![
-                MaterialPreset { name: "Plywood 3mm".into(), thickness_mm: 3.0, speed: 800.0, power: 750.0, cut_speed: 200.0, cut_power: 1000.0 },
-                MaterialPreset { name: "Plywood 6mm".into(), thickness_mm: 6.0, speed: 600.0, power: 900.0, cut_speed: 100.0, cut_power: 1000.0 },
-                MaterialPreset { name: "Anodized Aluminum".into(), thickness_mm: 1.5, speed: 1500.0, power: 600.0, cut_speed: 500.0, cut_power: 800.0 },
-                MaterialPreset { name: "Acrylic 3mm".into(), thickness_mm: 3.0, speed: 500.0, power: 850.0, cut_speed: 150.0, cut_power: 950.0 },
-                MaterialPreset { name: "Leather".into(), thickness_mm: 2.0, speed: 1200.0, power: 500.0, cut_speed: 300.0, cut_power: 700.0 },
-            ];
+            s.presets = default_presets();
             s.save();
         }
         s
@@ -77,6 +246,22 @@ impl MaterialsState {
             let _ = std::fs::write(Self::json_path(), json);
         }
     }
+
+    pub fn selected_preset_name(&self) -> Option<&str> {
+        self.presets.get(self.selected).map(|p| p.name.as_str())
+    }
+
+    pub fn select_preset_by_name(&mut self, name: &str) -> bool {
+        if let Some(idx) = self
+            .presets
+            .iter()
+            .position(|p| p.name.eq_ignore_ascii_case(name))
+        {
+            self.selected = idx;
+            return true;
+        }
+        false
+    }
 }
 
 pub struct MaterialApplyAction {
@@ -84,16 +269,37 @@ pub struct MaterialApplyAction {
     pub apply_power: Option<f32>,
     pub apply_cut_speed: Option<f32>,
     pub apply_cut_power: Option<f32>,
+    pub apply_to_active_layer: Option<LayerMaterialUpdate>,
 }
 
 impl Default for MaterialApplyAction {
     fn default() -> Self {
-        Self { apply_speed: None, apply_power: None, apply_cut_speed: None, apply_cut_power: None }
+        Self {
+            apply_speed: None,
+            apply_power: None,
+            apply_cut_speed: None,
+            apply_cut_power: None,
+            apply_to_active_layer: None,
+        }
     }
 }
 
 pub fn show(ui: &mut Ui, state: &mut MaterialsState) -> MaterialApplyAction {
+    show_with_context(ui, state, &MaterialsUiContext::default())
+}
+
+pub fn show_with_context(
+    ui: &mut Ui,
+    state: &mut MaterialsState,
+    context: &MaterialsUiContext,
+) -> MaterialApplyAction {
     let mut action = MaterialApplyAction::default();
+
+    if state.selected >= state.presets.len() && !state.presets.is_empty() {
+        state.selected = state.presets.len() - 1;
+    }
+
+    let recommendation_idx = recommended_preset_index(state, context);
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
@@ -120,6 +326,35 @@ pub fn show(ui: &mut Ui, state: &mut MaterialsState) -> MaterialApplyAction {
         });
         ui.add_space(4.0);
 
+        if let Some(layer) = &context.active_layer {
+            ui.label(RichText::new(format!(
+                "Layer: {} | {} mm/min | S{} | {} pass(es)",
+                layer.name, layer.speed.round(), layer.power.round(), layer.passes
+            ))
+            .small());
+        }
+
+        if let Some(idx) = recommendation_idx {
+            if let Some(preset) = state.presets.get(idx) {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!("⭐ Recommended: {}", preset.name))
+                            .color(theme::GREEN)
+                            .strong(),
+                    );
+                    if context.active_layer.is_some() && ui.button("Apply Recommended").clicked() {
+                        action.apply_speed = Some(preset.speed);
+                        action.apply_power = Some(preset.power);
+                        action.apply_cut_speed = Some(preset.cut_speed);
+                        action.apply_cut_power = Some(preset.cut_power);
+                        action.apply_to_active_layer = Some(preset.as_layer_update());
+                        state.selected = idx;
+                    }
+                });
+                ui.add_space(2.0);
+            }
+        }
+
         // Dropdown for presets
         let current_name = state.presets.get(state.selected).map(|p| p.name.clone()).unwrap_or_default();
         egui::ComboBox::from_id_source("material_combo")
@@ -136,12 +371,36 @@ pub fn show(ui: &mut Ui, state: &mut MaterialsState) -> MaterialApplyAction {
         if let Some(preset) = state.presets.get(state.selected) {
             let preset = preset.clone();
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{}mm | Speed:{} | Power:{}", preset.thickness_mm, preset.speed, preset.power)).small());
+                let machine_scope = if preset.machine_profile.trim().is_empty() {
+                    "All machines".to_string()
+                } else {
+                    format!("Machine: {}", preset.machine_profile)
+                };
+                ui.label(
+                    RichText::new(format!(
+                        "{}mm | Engrave {} / S{} | Cut {} / S{} | Passes {} | {}",
+                        preset.thickness_mm,
+                        preset.speed,
+                        preset.power,
+                        preset.cut_speed,
+                        preset.cut_power,
+                        preset.recommended_passes,
+                        machine_scope
+                    ))
+                    .small(),
+                );
             });
             ui.add_space(4.0);
 
             ui.horizontal(|ui| {
                 if ui.button(RichText::new("✔ Apply").color(theme::GREEN)).clicked() {
+                    action.apply_speed = Some(preset.speed);
+                    action.apply_power = Some(preset.power);
+                    action.apply_cut_speed = Some(preset.cut_speed);
+                    action.apply_cut_power = Some(preset.cut_power);
+                }
+                if context.active_layer.is_some() && ui.button("🎯 Apply to Active Layer").clicked() {
+                    action.apply_to_active_layer = Some(preset.as_layer_update());
                     action.apply_speed = Some(preset.speed);
                     action.apply_power = Some(preset.power);
                     action.apply_cut_speed = Some(preset.cut_speed);
@@ -192,6 +451,28 @@ pub fn show(ui: &mut Ui, state: &mut MaterialsState) -> MaterialApplyAction {
                 ui.label("Power:"); ui.add(egui::DragValue::new(&mut ep.cut_power).speed(5.0));
             });
             ui.horizontal(|ui| {
+                ui.label("Recommended Passes:");
+                ui.add(egui::DragValue::new(&mut ep.recommended_passes).range(1..=20));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Machine Profile:");
+                ui.text_edit_singleline(&mut ep.machine_profile);
+            });
+            ui.horizontal(|ui| {
+                ui.label("Operation:");
+                egui::ComboBox::from_id_source("material_operation_combo")
+                    .selected_text(match ep.operation {
+                        MaterialOperation::Engrave => "Engrave",
+                        MaterialOperation::Cut => "Cut",
+                        MaterialOperation::Hybrid => "Hybrid",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut ep.operation, MaterialOperation::Engrave, "Engrave");
+                        ui.selectable_value(&mut ep.operation, MaterialOperation::Cut, "Cut");
+                        ui.selectable_value(&mut ep.operation, MaterialOperation::Hybrid, "Hybrid");
+                    });
+            });
+            ui.horizontal(|ui| {
                 if ui.button(RichText::new("💾 Save").color(theme::GREEN)).clicked() {
                     save_clicked = true;
                 }
@@ -219,4 +500,82 @@ pub fn show(ui: &mut Ui, state: &mut MaterialsState) -> MaterialApplyAction {
     });
 
     action
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_state() -> MaterialsState {
+        MaterialsState {
+            presets: vec![
+                MaterialPreset {
+                    name: "Generic".into(),
+                    machine_profile: String::new(),
+                    operation: MaterialOperation::Cut,
+                    cut_speed: 300.0,
+                    cut_power: 800.0,
+                    recommended_passes: 1,
+                    ..MaterialPreset::default()
+                },
+                MaterialPreset {
+                    name: "Machine A Cut".into(),
+                    machine_profile: "Machine A".into(),
+                    operation: MaterialOperation::Cut,
+                    cut_speed: 280.0,
+                    cut_power: 790.0,
+                    recommended_passes: 1,
+                    ..MaterialPreset::default()
+                },
+                MaterialPreset {
+                    name: "Machine B Engrave".into(),
+                    machine_profile: "Machine B".into(),
+                    operation: MaterialOperation::Engrave,
+                    speed: 1800.0,
+                    power: 220.0,
+                    recommended_passes: 1,
+                    ..MaterialPreset::default()
+                },
+            ],
+            selected: 0,
+            editing: false,
+            edit_preset: MaterialPreset::default(),
+        }
+    }
+
+    #[test]
+    fn recommendation_prefers_machine_and_mode_match() {
+        let state = sample_state();
+        let ctx = MaterialsUiContext {
+            machine_profile_name: Some("Machine A".into()),
+            active_layer: Some(ActiveLayerSummary {
+                name: "C01".into(),
+                speed: 300.0,
+                power: 800.0,
+                passes: 1,
+                mode: CutMode::Line,
+            }),
+        };
+
+        let idx = recommended_preset_index(&state, &ctx).expect("a preset should be recommended");
+        assert_eq!(state.presets[idx].name, "Machine A Cut");
+    }
+
+    #[test]
+    fn as_layer_update_maps_operation() {
+        let preset = MaterialPreset {
+            name: "Hybrid mat".into(),
+            operation: MaterialOperation::Hybrid,
+            cut_speed: 220.0,
+            cut_power: 700.0,
+            recommended_passes: 3,
+            ..MaterialPreset::default()
+        };
+
+        let update = preset.as_layer_update();
+        assert_eq!(update.mode, CutMode::FillAndLine);
+        assert_eq!(update.speed, 220.0);
+        assert_eq!(update.power, 700.0);
+        assert_eq!(update.passes, 3);
+    }
 }

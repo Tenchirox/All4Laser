@@ -32,6 +32,8 @@ pub struct ToolbarAction {
     pub open_gcode_editor: bool,
     pub open_shortcuts: bool,
     pub open_tiling: bool,
+    pub open_nesting: bool,
+    pub open_job_queue: bool,
     pub open_test_fire: bool,
 }
 
@@ -64,6 +66,8 @@ impl Default for ToolbarAction {
             open_gcode_editor: false,
             open_shortcuts: false,
             open_tiling: false,
+            open_nesting: false,
+            open_job_queue: false,
             open_test_fire: false,
         }
     }
@@ -78,6 +82,7 @@ pub fn show(
     framing_active: bool,
     recent: &RecentFiles,
     has_file: bool,
+    has_shapes: bool,
     caps: ControllerCapabilities,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::default();
@@ -282,6 +287,14 @@ pub fn show(
             }
             if ui.add_enabled(has_file, egui::Button::new("⊟ Tiling")).clicked() {
                 action.open_tiling = true;
+                ui.close_menu();
+            }
+            if ui.add_enabled(has_shapes, egui::Button::new("🧩 Auto Nesting")).clicked() {
+                action.open_nesting = true;
+                ui.close_menu();
+            }
+            if ui.add_enabled(has_file, egui::Button::new("📚 Job Queue")).clicked() {
+                action.open_job_queue = true;
                 ui.close_menu();
             }
             if ui.button("⌨ Shortcuts").clicked() {

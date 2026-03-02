@@ -41,6 +41,7 @@ pub fn show(
         ui.label(RichText::new("Preview").color(theme::LAVENDER).strong().size(14.0));
         ui.checkbox(&mut renderer.show_rapids, "Rapids");
         ui.checkbox(&mut renderer.show_fill_preview, "Fill");
+        ui.checkbox(&mut renderer.show_thermal_risk, "Risk");
         ui.checkbox(&mut renderer.realistic_preview, "Realistic");
 
         if !segments.is_empty() {
@@ -64,6 +65,33 @@ pub fn show(
                     *progress = 0.0;
                 }
             }
+        }
+
+        if renderer.show_thermal_risk {
+            ui.separator();
+            ui.label(RichText::new("Risk Thr").small().color(theme::SUBTEXT));
+            ui.add_sized(
+                egui::vec2(90.0, 0.0),
+                egui::Slider::new(&mut renderer.risk_threshold, 1.0..=80.0)
+                    .show_value(false)
+                    .text("Risk Thr"),
+            );
+            ui.label(RichText::new("Cell").small().color(theme::SUBTEXT));
+            ui.add(
+                egui::DragValue::new(&mut renderer.risk_cell_mm)
+                    .speed(0.1)
+                    .range(0.5..=20.0)
+                    .suffix(" mm"),
+            );
+            ui.label(
+                RichText::new(format!("⚠ {}", renderer.last_risk_alert_cells))
+                    .small()
+                    .color(if renderer.last_risk_alert_cells > 0 {
+                        theme::PEACH
+                    } else {
+                        theme::SUBTEXT
+                    }),
+            );
         }
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

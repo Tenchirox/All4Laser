@@ -31,6 +31,8 @@ pub struct ProjectFile {
     pub camera_device_index: i32,
     #[serde(default)]
     pub camera_live_streaming: bool,
+    #[serde(default)]
+    pub material_selected_preset: Option<String>,
 }
 
 fn default_camera_opacity() -> f32 { 0.5 }
@@ -59,6 +61,7 @@ mod tests {
         assert_eq!(parsed.camera_opacity, 0.5);
         assert_eq!(parsed.camera_device_index, 0);
         assert!(!parsed.camera_live_streaming);
+        assert!(parsed.material_selected_preset.is_none());
     }
 
     #[test]
@@ -73,6 +76,7 @@ mod tests {
         p.camera_snapshot_path = Some("snapshot.png".to_string());
         p.camera_device_index = 2;
         p.camera_live_streaming = true;
+        p.material_selected_preset = Some("Acrylic 3mm".to_string());
 
         let json = serde_json::to_string(&p).unwrap();
         let back: ProjectFile = serde_json::from_str(&json).unwrap();
@@ -80,6 +84,7 @@ mod tests {
         assert_eq!(back.camera_device_index, 2);
         assert!(back.camera_live_streaming);
         assert_eq!(back.camera_snapshot_path.as_deref(), Some("snapshot.png"));
+        assert_eq!(back.material_selected_preset.as_deref(), Some("Acrylic 3mm"));
         assert!((back.camera_calibration.offset_x - 4.5).abs() < f32::EPSILON);
     }
 }

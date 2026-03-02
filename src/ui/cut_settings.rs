@@ -3,11 +3,24 @@ use crate::ui::layers_new::{CutLayer, CutMode};
 use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::theme;
 
-#[derive(Default)]
 pub struct CutSettingsState {
     pub is_open: bool,
     pub editing_layer_idx: Option<usize>,
     pub temp_layer: Option<CutLayer>,
+    pub kerf_test_nominal_mm: f32,
+    pub kerf_test_measured_mm: f32,
+}
+
+impl Default for CutSettingsState {
+    fn default() -> Self {
+        Self {
+            is_open: false,
+            editing_layer_idx: None,
+            temp_layer: None,
+            kerf_test_nominal_mm: 20.0,
+            kerf_test_measured_mm: 19.8,
+        }
+    }
 }
 
 pub struct CutSettingsAction {
@@ -43,6 +56,13 @@ fn layer_non_fillable_path_count(shapes: &[ShapeParams], layer_idx: usize) -> us
         .count()
 }
 
+fn kerf_from_test_measurement(nominal_mm: f32, measured_mm: f32) -> f32 {
+    if nominal_mm <= 0.0 || measured_mm <= 0.0 {
+        return 0.0;
+    }
+    ((nominal_mm - measured_mm) * 0.5).clamp(-5.0, 5.0)
+}
+
 pub fn show(
     ctx: &egui::Context,
     state: &mut CutSettingsState,
@@ -65,6 +85,9 @@ pub fn show(
     }
 
     let mut open = true;
+    let mut kerf_nominal = state.kerf_test_nominal_mm;
+    let mut kerf_measured = state.kerf_test_measured_mm;
+
     egui::Window::new("⚙ Cut Settings")
         .open(&mut open)
         .resizable(false)
@@ -199,6 +222,48 @@ pub fn show(
                 ui.checkbox(&mut layer.air_assist, "Air Assist (M8)");
                 ui.checkbox(&mut layer.visible, "Output Enabled");
 
+                ui.add_space(8.0);
+                ui.group(|ui| {
+                    ui.label(RichText::new("📐 Kerf Calibration Assistant").strong());
+                    ui.label(
+                        RichText::new(
+                            "Cut a square with known nominal size, then enter measured result.",
+                        )
+                        .small()
+                        .color(theme::SUBTEXT),
+                    );
+                    ui.add_space(4.0);
+
+                    ui.horizontal(|ui| {
+                        ui.label("Nominal (mm):");
+                        ui.add(
+                            egui::DragValue::new(&mut kerf_nominal)
+                                .speed(0.1)
+                                .range(1.0..=500.0)
+                                .suffix(" mm"),
+                        );
+                        ui.label("Measured (mm):");
+                        ui.add(
+                            egui::DragValue::new(&mut kerf_measured)
+                                .speed(0.1)
+                                .range(0.1..=500.0)
+                                .suffix(" mm"),
+                        );
+                    });
+
+                    let kerf_reco = kerf_from_test_measurement(kerf_nominal, kerf_measured);
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(format!("Recommended kerf: {kerf_reco:.3} mm"))
+                                .color(theme::GREEN)
+                                .strong(),
+                        );
+                        if ui.button("Apply to Kerf Offset").clicked() {
+                            layer.kerf_mm = kerf_reco;
+                        }
+                    });
+                });
+
                 if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
                     if let Some(layer_idx) = state.editing_layer_idx {
                         let non_fillable = layer_non_fillable_path_count(shapes, layer_idx);
@@ -233,6 +298,9 @@ pub fn show(
                 }
             }
         });
+
+    state.kerf_test_nominal_mm = kerf_nominal;
+    state.kerf_test_measured_mm = kerf_measured;
 
     if !open || action.close {
         state.is_open = false;
@@ -274,5 +342,17 @@ mod tests {
         ];
 
         assert_eq!(layer_non_fillable_path_count(&shapes, 0), 2);
+    }
+
+    #[test]
+    fn kerf_from_measurement_returns_positive_for_shrunk_cut() {
+        let kerf = kerf_from_test_measurement(20.0, 19.6);
+        assert!((kerf - 0.2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn kerf_from_measurement_returns_negative_for_oversized_cut() {
+        let kerf = kerf_from_test_measurement(20.0, 20.4);
+        assert!((kerf + 0.2).abs() < 1e-6);
     }
 }

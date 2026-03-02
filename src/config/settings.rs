@@ -30,6 +30,8 @@ pub struct AppSettings {
     pub camera_device_index: i32,
     #[serde(default)]
     pub camera_live_streaming: bool,
+    #[serde(default)]
+    pub material_selected_preset: Option<String>,
 }
 
 fn default_theme() -> UiTheme { UiTheme::Modern }
@@ -54,6 +56,7 @@ impl Default for AppSettings {
             camera_snapshot_path: None,
             camera_device_index: 0,
             camera_live_streaming: false,
+            material_selected_preset: None,
         }
     }
 }
@@ -70,6 +73,7 @@ mod tests {
         assert_eq!(parsed.camera_opacity, 0.5);
         assert_eq!(parsed.camera_device_index, 0);
         assert!(!parsed.camera_live_streaming);
+        assert!(parsed.material_selected_preset.is_none());
     }
 
     #[test]
@@ -84,6 +88,7 @@ mod tests {
         s.camera_snapshot_path = Some("/tmp/cam.png".to_string());
         s.camera_device_index = 3;
         s.camera_live_streaming = true;
+        s.material_selected_preset = Some("Plywood 3mm".to_string());
 
         let json = serde_json::to_string(&s).unwrap();
         let back: AppSettings = serde_json::from_str(&json).unwrap();
@@ -91,6 +96,7 @@ mod tests {
         assert_eq!(back.camera_device_index, 3);
         assert!(back.camera_live_streaming);
         assert_eq!(back.camera_snapshot_path.as_deref(), Some("/tmp/cam.png"));
+        assert_eq!(back.material_selected_preset.as_deref(), Some("Plywood 3mm"));
         assert!((back.camera_calibration.scale - 1.25).abs() < f32::EPSILON);
     }
 }
