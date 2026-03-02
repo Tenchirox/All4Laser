@@ -8,6 +8,13 @@ pub struct GeneratorState {
     pub box_d: f32,
     pub box_thickness: f32,
     pub box_tab_size: f32,
+    pub fiducial_width: f32,
+    pub fiducial_height: f32,
+    pub fiducial_margin: f32,
+    pub fiducial_mark_size: f32,
+    pub fiducial_feed: f32,
+    pub fiducial_power: f32,
+    pub fiducial_draw_frame: bool,
 }
 
 impl Default for GeneratorState {
@@ -19,6 +26,13 @@ impl Default for GeneratorState {
             box_d: 50.0,
             box_thickness: 3.0,
             box_tab_size: 10.0,
+            fiducial_width: 200.0,
+            fiducial_height: 150.0,
+            fiducial_margin: 10.0,
+            fiducial_mark_size: 6.0,
+            fiducial_feed: 1200.0,
+            fiducial_power: 350.0,
+            fiducial_draw_frame: true,
         }
     }
 }
@@ -99,9 +113,91 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState) -> GeneratorAction {
                 action.generate_gcode = Some(gcode);
             }
         });
+
+        ui.collapsing("🎯 Print & Cut Fiducials", |ui| {
+            ui.label("Generate 4 registration marks + optional outer frame.");
+            ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Width:");
+                ui.add(egui::DragValue::new(&mut state.fiducial_width).range(20.0..=2000.0).suffix(" mm"));
+                ui.label("Height:");
+                ui.add(egui::DragValue::new(&mut state.fiducial_height).range(20.0..=2000.0).suffix(" mm"));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Margin:");
+                ui.add(egui::DragValue::new(&mut state.fiducial_margin).range(1.0..=200.0).suffix(" mm"));
+                ui.label("Mark size:");
+                ui.add(egui::DragValue::new(&mut state.fiducial_mark_size).range(1.0..=100.0).suffix(" mm"));
+            });
+            ui.horizontal(|ui| {
+                ui.label("Feed:");
+                ui.add(egui::DragValue::new(&mut state.fiducial_feed).range(50.0..=10000.0));
+                ui.label("Power (S):");
+                ui.add(egui::DragValue::new(&mut state.fiducial_power).range(1.0..=1000.0));
+            });
+            ui.checkbox(&mut state.fiducial_draw_frame, "Include outer frame");
+
+            if ui.button("🚀 Generate Fiducials").clicked() {
+                action.generate_gcode = Some(generate_fiducials_gcode(state));
+            }
+        });
     });
 
     action
+}
+
+fn generate_fiducials_gcode(state: &GeneratorState) -> Vec<String> {
+    let mut gcode = Vec::new();
+    let w = state.fiducial_width.max(20.0);
+    let h = state.fiducial_height.max(20.0);
+    let margin = state.fiducial_margin.clamp(1.0, (w.min(h) * 0.45).max(1.0));
+    let mark = state.fiducial_mark_size.clamp(1.0, 100.0);
+    let half = mark * 0.5;
+    let feed = state.fiducial_feed.max(50.0);
+    let power = state.fiducial_power.clamp(1.0, 1000.0);
+
+    let corners = [
+        (margin, margin),
+        (w - margin, margin),
+        (w - margin, h - margin),
+        (margin, h - margin),
+    ];
+
+    gcode.push("; Print & Cut Fiducials — All4Laser".to_string());
+    gcode.push("G90".to_string());
+    gcode.push("G21".to_string());
+    gcode.push("M5".to_string());
+
+    if state.fiducial_draw_frame {
+        gcode.push("; Outer frame".to_string());
+        gcode.push("M5".to_string());
+        gcode.push(format!("G0 X{:.3} Y{:.3}", 0.0, 0.0));
+        gcode.push(format!("M3 S{:.0}", power));
+        gcode.push(format!("G1 X{:.3} Y{:.3} F{:.0}", w, 0.0, feed));
+        gcode.push(format!("G1 X{:.3} Y{:.3} F{:.0}", w, h, feed));
+        gcode.push(format!("G1 X{:.3} Y{:.3} F{:.0}", 0.0, h, feed));
+        gcode.push(format!("G1 X{:.3} Y{:.3} F{:.0}", 0.0, 0.0, feed));
+        gcode.push("M5".to_string());
+    }
+
+    for (idx, (cx, cy)) in corners.into_iter().enumerate() {
+        gcode.push(format!("; Fiducial {}", idx + 1));
+
+        gcode.push(format!("G0 X{:.3} Y{:.3}", cx - half, cy));
+        gcode.push(format!("M3 S{:.0}", power));
+        gcode.push(format!("G1 X{:.3} Y{:.3} F{:.0}", cx + half, cy, feed));
+        gcode.push("M5".to_string());
+
+        gcode.push(format!("G0 X{:.3} Y{:.3}", cx, cy - half));
+        gcode.push(format!("M3 S{:.0}", power));
+        gcode.push(format!("G1 X{:.3} Y{:.3} F{:.0}", cx, cy + half, feed));
+        gcode.push("M5".to_string());
+    }
+
+    gcode.push("M5".to_string());
+    gcode.push("G0 X0 Y0 F3000".to_string());
+    gcode
 }
 
 fn add_tabbed_face(gcode: &mut Vec<String>, w: f32, h: f32, t: f32, ts: f32, ox: f32, oy: f32, edges: [bool; 4]) {
@@ -146,5 +242,29 @@ fn draw_edge(gcode: &mut Vec<String>, sx: f32, sy: f32, dx: f32, dy: f32, t: f32
         gcode.push(format!("G1 X{} Y{}", p_start_x + nx * offset, p_start_y + ny * offset));
         // Cut the segment
         gcode.push(format!("G1 X{} Y{}", p_end_x + nx * offset, p_end_y + ny * offset));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{generate_fiducials_gcode, GeneratorState};
+
+    #[test]
+    fn fiducials_generator_emits_four_marks() {
+        let mut state = GeneratorState::default();
+        state.fiducial_draw_frame = false;
+
+        let lines = generate_fiducials_gcode(&state);
+        let marks = lines.iter().filter(|line| line.starts_with("; Fiducial ")).count();
+        assert_eq!(marks, 4);
+    }
+
+    #[test]
+    fn fiducials_generator_can_emit_outer_frame() {
+        let mut state = GeneratorState::default();
+        state.fiducial_draw_frame = true;
+
+        let lines = generate_fiducials_gcode(&state);
+        assert!(lines.iter().any(|line| line == "; Outer frame"));
     }
 }

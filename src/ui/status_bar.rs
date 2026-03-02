@@ -47,10 +47,18 @@ pub fn show(
         // Override controls
         ui.label(RichText::new("Feed:").color(theme::SUBTEXT).size(11.0));
         ui.label(RichText::new(format!("{}%", state.override_feed)).color(theme::TEXT).monospace().size(11.0));
-        if ui.add_enabled(caps.supports_feed_override, egui::Button::new("▲").small()).clicked() {
+        if ui
+            .add_enabled(caps.supports_feed_override, egui::Button::new("▲").small())
+            .on_hover_text("Increase feed override (+10%)")
+            .clicked()
+        {
             action.feed_up = true;
         }
-        if ui.add_enabled(caps.supports_feed_override, egui::Button::new("▼").small()).clicked() {
+        if ui
+            .add_enabled(caps.supports_feed_override, egui::Button::new("▼").small())
+            .on_hover_text("Decrease feed override (-10%)")
+            .clicked()
+        {
             action.feed_down = true;
         }
 
@@ -58,10 +66,18 @@ pub fn show(
 
         ui.label(RichText::new("Rapid:").color(theme::SUBTEXT).size(11.0));
         ui.label(RichText::new(format!("{}%", state.override_rapid)).color(theme::TEXT).monospace().size(11.0));
-        if ui.add_enabled(caps.supports_rapid_override, egui::Button::new("▲").small()).clicked() {
+        if ui
+            .add_enabled(caps.supports_rapid_override, egui::Button::new("▲").small())
+            .on_hover_text("Set rapid override to 100%")
+            .clicked()
+        {
             action.rapid_up = true;
         }
-        if ui.add_enabled(caps.supports_rapid_override, egui::Button::new("▼").small()).clicked() {
+        if ui
+            .add_enabled(caps.supports_rapid_override, egui::Button::new("▼").small())
+            .on_hover_text("Set rapid override to 25%")
+            .clicked()
+        {
             action.rapid_down = true;
         }
 
@@ -69,10 +85,18 @@ pub fn show(
 
         ui.label(RichText::new("Spindle:").color(theme::SUBTEXT).size(11.0));
         ui.label(RichText::new(format!("{}%", state.override_spindle)).color(theme::TEXT).monospace().size(11.0));
-        if ui.add_enabled(caps.supports_spindle_override, egui::Button::new("▲").small()).clicked() {
+        if ui
+            .add_enabled(caps.supports_spindle_override, egui::Button::new("▲").small())
+            .on_hover_text("Increase laser power override (+10%)")
+            .clicked()
+        {
             action.spindle_up = true;
         }
-        if ui.add_enabled(caps.supports_spindle_override, egui::Button::new("▼").small()).clicked() {
+        if ui
+            .add_enabled(caps.supports_spindle_override, egui::Button::new("▼").small())
+            .on_hover_text("Decrease laser power override (-10%)")
+            .clicked()
+        {
             action.spindle_down = true;
         }
 

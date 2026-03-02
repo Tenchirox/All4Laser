@@ -5,10 +5,34 @@ use crate::theme;
 pub struct CutListAction {
     pub select_layer: Option<usize>,
     pub open_settings: Option<usize>,
+    pub layers_changed: bool,
 }
 
-pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize) -> CutListAction {
-    let mut action = CutListAction { select_layer: None, open_settings: None };
+fn effective_layer_indices(layers_len: usize, active_idx: usize, used_layers: &[usize]) -> Vec<usize> {
+    let mut indices: Vec<usize> = used_layers
+        .iter()
+        .copied()
+        .filter(|&idx| idx < layers_len)
+        .collect();
+
+    indices.sort_unstable();
+    indices.dedup();
+
+    if indices.is_empty() && active_idx < layers_len {
+        indices.push(active_idx);
+    }
+
+    indices
+}
+
+pub fn show(
+    ui: &mut Ui,
+    layers: &mut [CutLayer],
+    active_idx: usize,
+    used_layers: &[usize],
+) -> CutListAction {
+    let mut action = CutListAction { select_layer: None, open_settings: None, layers_changed: false };
+    let visible_indices = effective_layer_indices(layers.len(), active_idx, used_layers);
 
     ui.group(|ui| {
         Grid::new("cut_list_grid")
@@ -22,19 +46,13 @@ pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize) -> CutListA
                 ui.label("Mode");
                 ui.label("Spd/Pwr");
                 ui.label("Out");
-                ui.label("Show");
+                ui.label("View");
                 ui.end_row();
 
-                // Only show active layers? Or allow user to see all?
-                // LightBurn only shows used layers usually, but we don't track "used" status easily unless we scan all shapes.
-                // For simplicity, let's show ALL 30 layers but maybe compact or scrollable.
-                // Or better: Show only layers that are "visible" OR have been modified from default?
-                // Let's show all for now inside the ScrollArea provided by the parent tab.
-
-                // Note: The parent `ui` is already in a scroll area in `app.rs`.
-                // Grid inside ScrollArea works fine.
-
-                for (i, layer) in layers.iter_mut().enumerate() {
+                for &i in &visible_indices {
+                    let Some(layer) = layers.get_mut(i) else {
+                        continue;
+                    };
                     let is_active = i == active_idx;
 
                     // Row background for active
@@ -62,33 +80,58 @@ pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize) -> CutListA
                     if response.double_clicked() {
                         action.open_settings = Some(i);
                     }
+                    response.on_hover_text(format!(
+                        "Layer C{:02} — click to select, double-click for settings",
+                        i
+                    ));
 
                     // 2. Mode
-                    ui.label(match layer.mode {
-                        CutMode::Line => "Line",
-                        CutMode::Fill => "Fill",
-                        CutMode::FillAndLine => "Fill+Line",
-                        CutMode::Offset => "Offset",
-                    });
+                    let mode_before = layer.mode;
+                    egui::ComboBox::from_id_salt(format!("layer_mode_{i}"))
+                        .selected_text(match layer.mode {
+                            CutMode::Line => "Line",
+                            CutMode::Fill => "Fill",
+                            CutMode::FillAndLine => "Fill+Line",
+                            CutMode::Offset => "Offset",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut layer.mode, CutMode::Line, "Line");
+                            ui.selectable_value(&mut layer.mode, CutMode::Fill, "Fill");
+                            ui.selectable_value(&mut layer.mode, CutMode::FillAndLine, "Fill+Line");
+                            ui.selectable_value(&mut layer.mode, CutMode::Offset, "Offset");
+                        });
+                    if layer.mode != mode_before {
+                        action.layers_changed = true;
+                    }
 
                     // 3. Speed / Power
                     ui.label(format!("{:.0} / {:.0}", layer.speed, layer.power));
 
                     // 4. Output Toggle
-                    ui.checkbox(&mut layer.visible, "");
+                    if ui
+                        .checkbox(&mut layer.visible, "")
+                        .on_hover_text("Enable/disable layer output")
+                        .changed()
+                    {
+                        action.layers_changed = true;
+                    }
 
-                    // 5. Show (Visibility on preview? Actually `visible` usually means "Output to Laser").
-                    // In LightBurn "Output" means send to laser, "Show" means show in preview.
-                    // My struct `CutLayer` only has `visible`.
-                    // Let's assume `visible` = Output.
-                    // I don't have a separate "Hide from Preview" flag.
-                    // Let's just use `visible` for "Output" column and skip "Show" column or duplicate it?
-                    // Let's rename column 4 to "Enabled".
+                    // 5. Preview visibility (currently tied to layer.enabled in this app)
                     ui.label(if layer.visible { "👁" } else { "Ø" });
 
                     ui.end_row();
                 }
             });
+
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(format!(
+                "{} layer(s) visible in Cuts (filtered by preview)",
+                visible_indices.len()
+            ))
+            .small()
+            .color(theme::SUBTEXT),
+        );
     });
 
     action
@@ -97,4 +140,21 @@ pub fn show(ui: &mut Ui, layers: &mut [CutLayer], active_idx: usize) -> CutListA
 fn is_light(c: Color32) -> bool {
     let brightness = (c.r() as f32 * 299.0 + c.g() as f32 * 587.0 + c.b() as f32 * 114.0) / 1000.0;
     brightness > 128.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effective_layer_indices_returns_sorted_unique_used_layers() {
+        let result = effective_layer_indices(30, 0, &[4, 2, 4, 1, 31]);
+        assert_eq!(result, vec![1, 2, 4]);
+    }
+
+    #[test]
+    fn effective_layer_indices_falls_back_to_active_when_empty() {
+        let result = effective_layer_indices(30, 7, &[]);
+        assert_eq!(result, vec![7]);
+    }
 }

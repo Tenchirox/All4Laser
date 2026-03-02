@@ -19,9 +19,11 @@ fn default_min_power() -> f32 { 0.0 }
 fn default_fill_interval_mm() -> f32 { 0.1 }
 fn default_fill_bidirectional() -> bool { true }
 fn default_fill_overscan_mm() -> f32 { 0.0 }
+fn default_fill_angle_deg() -> f32 { 0.0 }
 fn default_output_order() -> i32 { 0 }
 fn default_lead_in_mm() -> f32 { 0.0 }
 fn default_lead_out_mm() -> f32 { 0.0 }
+fn default_kerf_mm() -> f32 { 0.0 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CutLayer {
@@ -46,6 +48,8 @@ pub struct CutLayer {
     pub fill_bidirectional: bool,
     #[serde(default = "default_fill_overscan_mm")]
     pub fill_overscan_mm: f32,
+    #[serde(default = "default_fill_angle_deg")]
+    pub fill_angle_deg: f32,
 
     // Cut ordering & entry/exit tuning
     #[serde(default = "default_output_order")]
@@ -54,6 +58,10 @@ pub struct CutLayer {
     pub lead_in_mm: f32,
     #[serde(default = "default_lead_out_mm")]
     pub lead_out_mm: f32,
+
+    // Kerf compensation (+ expands contour, - contracts contour)
+    #[serde(default = "default_kerf_mm")]
+    pub kerf_mm: f32,
 
     // Tabs / Bridges
     pub tab_enabled: bool,
@@ -129,9 +137,11 @@ impl CutLayer {
                 fill_interval_mm: 0.1,
                 fill_bidirectional: true,
                 fill_overscan_mm: 0.0,
+                fill_angle_deg: 0.0,
                 output_order: i as i32,
                 lead_in_mm: 0.0,
                 lead_out_mm: 0.0,
+                kerf_mm: 0.0,
                 tab_enabled: false,
                 tab_spacing: 50.0,
                 tab_size: 0.5,

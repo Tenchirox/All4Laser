@@ -8,6 +8,7 @@ mod serial;
 mod gcode;
 mod preview;
 mod imaging;
+mod camera_stream;
 mod ui;
 mod config;
 mod i18n;
