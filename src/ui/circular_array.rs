@@ -1,7 +1,7 @@
 /// Circular Array: Repeat selected shapes in a circular pattern
-use egui::{Ui, RichText};
+use egui::RichText;
 use crate::theme;
-use crate::ui::drawing::{ShapeParams, DrawingState};
+use crate::ui::drawing::DrawingState;
 
 #[derive(Clone, Debug)]
 pub struct CircularArrayState {

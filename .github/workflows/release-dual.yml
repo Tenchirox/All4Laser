@@ -46,7 +46,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-x86_64
-          path: ${APP_NAME}-linux-x86_64.tar.gz
+          path: ${{ env.APP_NAME }}-linux-x86_64.tar.gz
 
   build-windows:
     runs-on: windows-latest
@@ -68,7 +68,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-x86_64
-          path: ${APP_NAME}-windows-x86_64.zip
+          path: ${{ env.APP_NAME }}-windows-x86_64.zip
 
   publish-release:
     needs: [build-linux, build-windows]

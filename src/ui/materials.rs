@@ -357,7 +357,7 @@ pub fn show_with_context(
 
         // Dropdown for presets
         let current_name = state.presets.get(state.selected).map(|p| p.name.clone()).unwrap_or_default();
-        egui::ComboBox::from_id_source("material_combo")
+        egui::ComboBox::from_id_salt("material_combo")
             .selected_text(&current_name)
             .width(180.0)
             .show_ui(ui, |ui| {
@@ -460,7 +460,7 @@ pub fn show_with_context(
             });
             ui.horizontal(|ui| {
                 ui.label("Operation:");
-                egui::ComboBox::from_id_source("material_operation_combo")
+                egui::ComboBox::from_id_salt("material_operation_combo")
                     .selected_text(match ep.operation {
                         MaterialOperation::Engrave => "Engrave",
                         MaterialOperation::Cut => "Cut",

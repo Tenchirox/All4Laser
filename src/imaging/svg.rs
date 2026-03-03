@@ -89,10 +89,12 @@ pub fn extract_layers(svg_data: &[u8]) -> Vec<SvgLayer> {
 /// Convert an SVG file to GCode
 pub fn svg_to_gcode(svg_data: &[u8], params: &SvgParams) -> Result<Vec<String>, String> {
     let opts = usvg::Options::default();
-    let tree = usvg::Tree::from_data(svg_data, &opts)
+    let _tree = usvg::Tree::from_data(svg_data, &opts)
         .map_err(|e| format!("SVG parse error: {e}"))?;
 
-    let mut gcode = Vec::new();
+    let _ = params;
+
+    let gcode = Vec::new();
     // ... (rest of old svg_to_gcode logic if still needed, but we'll use paths now)
     // Actually, let's keep it for compatibility if needed, but the main goal is svg_to_paths.
     Ok(gcode) 

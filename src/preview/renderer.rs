@@ -1,7 +1,7 @@
 use egui::{Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2, Ui};
 use crate::gcode::types::PreviewSegment;
 use crate::theme;
-use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
+use crate::ui::drawing::{ShapeParams, ShapeKind};
 use crate::ui::layers_new::{CutLayer, CutMode};
 use indexmap::IndexSet;
 use std::collections::HashMap;
@@ -1077,7 +1077,7 @@ impl PreviewRenderer {
 
                     if is_multi {
                         if self.selected_shape_idx.contains(&idx) {
-                            self.selected_shape_idx.remove(&idx);
+                            self.selected_shape_idx.shift_remove(&idx);
                         } else {
                             self.selected_shape_idx.insert(idx);
                         }

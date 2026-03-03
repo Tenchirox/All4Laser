@@ -1,4 +1,4 @@
-use egui::{Ui, RichText};
+use egui::RichText;
 use crate::theme;
 use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
 use geo::{LineString, Polygon};

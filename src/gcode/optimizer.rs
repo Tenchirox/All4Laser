@@ -27,13 +27,11 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
     let mut current_path: Option<BurnPath> = None;
     let mut cur_x = 0.0;
     let mut cur_y = 0.0;
-    let mut laser_on = false;
 
     // We assume absolute mode for simplicity of distance calculation
     for line in lines {
         if let Some(m) = line.m_code {
             if matches!(m, 3 | 4) {
-                laser_on = true;
                 current_path = Some(BurnPath {
                     start_x: cur_x,
                     start_y: cur_y,
@@ -49,7 +47,6 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
                 continue;
             }
             if m == 5 {
-                laser_on = false;
                 if let Some(mut path) = current_path.take() {
                     path.lines.push(line.clone());
                     burn_paths.push(path);

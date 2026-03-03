@@ -1,5 +1,5 @@
 /// Integrated GCode editor panel
-use egui::{RichText, Color32};
+use egui::RichText;
 use crate::theme;
 
 pub struct GCodeEditorState {

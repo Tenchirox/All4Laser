@@ -1,7 +1,7 @@
-use egui::{Ui, RichText};
+use egui::RichText;
 use crate::theme;
 use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
-use geo::{Polygon, MultiPolygon, BooleanOps};
+use geo::{MultiPolygon, BooleanOps};
 
 #[derive(Clone, Debug)]
 pub struct BooleanOpsState {

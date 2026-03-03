@@ -267,7 +267,7 @@ fn fill_paths_world_angle(
         })
         .collect();
 
-    let Some((_, scan_min_y, _, scan_max_y)) = paths_bounds(&rotated_paths) else {
+    let Some((_scan_min_x, _scan_min_y, _scan_max_x, _scan_max_y)) = paths_bounds(&rotated_paths) else {
         return;
     };
     let segments = collect_fill_segments_rotated(
