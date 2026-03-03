@@ -123,7 +123,7 @@ fn detect_marker_components(rgba: &[u8], width: usize, height: usize) -> Vec<Mar
 
     let mut visited = vec![false; width * height];
     let mut out = Vec::new();
-    let min_area = ((width * height) as f32 * 0.00025).max(36.0) as usize;
+    let min_area = ((width * height) as f32 * 0.00025).max(16.0) as usize;
 
     for y in 0..height {
         for x in 0..width {
