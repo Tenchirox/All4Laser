@@ -2,15 +2,9 @@ name: Dual Platform Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - "main"
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: "Publish GitHub Release"
-        required: true
-        default: true
-        type: boolean
 
 env:
   CARGO_TERM_COLOR: always
@@ -81,8 +75,33 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish_release)
     steps:
+      - name: Checkout (for tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version tag
+        id: version
+        run: |
+          git fetch --tags --force
+          latest_tag=$(git tag --list "v*" --sort=-v:refname | head -n 1)
+
+          if [ -z "$latest_tag" ]; then
+            next_tag="v0.1.0"
+          else
+            current="${latest_tag#v}"
+            IFS='.' read -r major minor patch <<< "$current"
+            if [ -z "$major" ] || [ -z "$minor" ] || [ -z "$patch" ]; then
+              echo "Unexpected tag format: $latest_tag"
+              exit 1
+            fi
+            next_tag="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          echo "tag=$next_tag" >> "$GITHUB_OUTPUT"
+          echo "name=Release $next_tag" >> "$GITHUB_OUTPUT"
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
@@ -102,7 +121,8 @@ jobs:
             release/*.zip
             release/*.tar.gz
           generate_release_notes: true
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('manual-{0}', github.run_number) }}
-          name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('Manual Build {0}', github.run_number) }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.version.outputs.name }}
           draft: false
           prerelease: false
