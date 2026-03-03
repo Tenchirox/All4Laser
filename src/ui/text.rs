@@ -377,7 +377,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
 
             ui.horizontal(|ui| {
                 ui.label("Font:");
-                egui::ComboBox::from_id_source("bundled_font_combo")
+                egui::ComboBox::from_id_salt("bundled_font_combo")
                     .selected_text(&state.selected_font)
                     .width(240.0)
                     .show_ui(ui, |ui| {
@@ -396,7 +396,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
 
             ui.horizontal(|ui| {
                 ui.label("Font:");
-                egui::ComboBox::from_id_source("font_combo")
+                egui::ComboBox::from_id_salt("font_combo")
                     .selected_text(&state.selected_font)
                     .width(200.0)
                     .show_ui(ui, |ui| {

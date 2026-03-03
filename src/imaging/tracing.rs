@@ -3,7 +3,7 @@
 
 use crate::ui::drawing::{ShapeParams, ShapeKind};
 use crate::imaging::raster::RasterParams;
-use image::{DynamicImage, GenericImageView, GrayImage, Luma};
+use image::{DynamicImage, GrayImage, Luma};
 
 /// Traces a bitmap image into a set of Vector Shapes
 pub fn trace_image(img: &DynamicImage, params: &RasterParams) -> Vec<ShapeParams> {
@@ -173,8 +173,8 @@ fn zhang_suen_thinning(img: &mut GrayImage) {
                 let a = count_transitions(&neighbors);
                 if a != 1 { continue; }
 
-                if (p2 && p4 && p6) { continue; }
-                if (p4 && p6 && p8) { continue; }
+                if p2 && p4 && p6 { continue; }
+                if p4 && p6 && p8 { continue; }
 
                 to_clear.push((x, y));
                 changing = true;
@@ -206,8 +206,8 @@ fn zhang_suen_thinning(img: &mut GrayImage) {
                 let a = count_transitions(&neighbors);
                 if a != 1 { continue; }
 
-                if (p2 && p4 && p8) { continue; }
-                if (p2 && p6 && p8) { continue; }
+                if p2 && p4 && p8 { continue; }
+                if p2 && p6 && p8 { continue; }
 
                 to_clear.push((x, y));
                 changing = true;

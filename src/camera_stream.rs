@@ -263,11 +263,9 @@ fn run_linux_capture(
     error_tx: Sender<String>,
     cmd_rx: Receiver<CameraCommand>,
 ) {
-    use v4l::FourCC;
     use v4l::buffer::Type;
     use v4l::io::traits::CaptureStream;
     use v4l::prelude::*;
-    use v4l::video::Capture;
 
     let dev = match Device::new(device_index as usize) {
         Ok(dev) => dev,

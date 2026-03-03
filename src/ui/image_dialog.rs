@@ -175,8 +175,7 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                         ui.label("Layers / Color Mapping:");
                         
                         egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
-                            let mut any_changed = false;
-                            for (i, layer) in state.svg_params.layers.iter_mut().enumerate() {
+                            for layer in &mut state.svg_params.layers {
                                 ui.group(|ui| {
                                     ui.horizontal(|ui| {
                                         ui.checkbox(&mut layer.enabled, "");
@@ -199,10 +198,10 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                                     if layer.enabled {
                                         ui.horizontal(|ui| {
                                             ui.label("Speed:");
-                                            ui.add(egui::DragValue::new(&mut layer.speed).speed(10.0).clamp_range(100.0..=10000.0));
+                                            ui.add(egui::DragValue::new(&mut layer.speed).speed(10.0).range(100.0..=10000.0));
                                             ui.add_space(8.0);
                                             ui.label("Power:");
-                                            ui.add(egui::DragValue::new(&mut layer.power).speed(1.0).clamp_range(0.0..=1000.0));
+                                            ui.add(egui::DragValue::new(&mut layer.power).speed(1.0).range(0.0..=1000.0));
                                         });
                                     }
                                 });

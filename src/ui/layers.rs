@@ -13,7 +13,7 @@ pub fn show(ui: &mut Ui, layers: &mut [LayerSettings]) {
             return;
         }
 
-        egui::ScrollArea::vertical().id_source("layers_scroll").max_height(200.0).show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("layers_scroll").max_height(200.0).show(ui, |ui| {
             for (i, layer) in layers.iter_mut().enumerate() {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {

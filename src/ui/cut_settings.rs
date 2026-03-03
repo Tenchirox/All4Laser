@@ -1,4 +1,4 @@
-use egui::{Ui, RichText};
+use egui::RichText;
 use crate::ui::layers_new::{CutLayer, CutMode};
 use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::theme;
@@ -112,7 +112,7 @@ pub fn show(
                     ui.end_row();
 
                     ui.label("Output Mode:");
-                    egui::ComboBox::from_id_source("mode_combo")
+                    egui::ComboBox::from_id_salt("mode_combo")
                         .selected_text(match layer.mode {
                             CutMode::Line => "Line (Cut)",
                             CutMode::Fill => "Fill (Scan)",

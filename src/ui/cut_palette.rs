@@ -13,7 +13,7 @@ pub fn show(ui: &mut Ui, layers: &[CutLayer], active_idx: usize) -> PaletteActio
     ui.horizontal(|ui| {
         ui.label(RichText::new("🎨 Palette:").small().color(theme::SUBTEXT));
 
-        egui::ScrollArea::horizontal().id_source("palette_scroll").show(ui, |ui| {
+        egui::ScrollArea::horizontal().id_salt("palette_scroll").show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
 
             for (i, layer) in layers.iter().enumerate() {

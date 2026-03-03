@@ -84,7 +84,7 @@ fn apply_align(state: &mut DrawingState, selection: &[usize], cmd: AlignCmd, wor
         }
 
         if let Some(shape) = state.shapes.get_mut(idx) {
-            let (sx, sy, sw, sh) = get_shape_rect(shape);
+            let (_sx, _sy, sw, sh) = get_shape_rect(shape);
 
             match cmd {
                 AlignCmd::Left => shape.x = tx,
