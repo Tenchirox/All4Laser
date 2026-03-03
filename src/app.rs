@@ -186,6 +186,9 @@ pub struct All4LaserApp {
 
     // Tiling
     tiling: ui::tiling::TilingState,
+    nesting_state: ui::nesting::NestingState,
+    job_queue_state: ui::job_queue::JobQueueState,
+    active_queue_job: Option<ui::job_queue::QueuedJob>,
 
     // Material Library
     materials_state: ui::materials::MaterialsState,
@@ -295,6 +298,9 @@ impl All4LaserApp {
             gcode_editor: ui::gcode_editor::GCodeEditorState::default(),
             shortcuts: ui::shortcuts::ShortcutsState::default(),
             tiling: ui::tiling::TilingState::default(),
+            nesting_state: ui::nesting::NestingState::default(),
+            job_queue_state: ui::job_queue::JobQueueState::default(),
+            active_queue_job: None,
             materials_state: ui::materials::MaterialsState::default(),
             test_fire_open: false,
             test_fire_power: 10.0,
@@ -340,6 +346,9 @@ impl All4LaserApp {
         app.camera_state.snapshot_path = app.settings.camera_snapshot_path.clone();
         app.camera_state.device_index = app.settings.camera_device_index;
         app.camera_state.live_streaming = app.settings.camera_live_streaming;
+        if let Some(preset_name) = app.settings.material_selected_preset.as_deref() {
+            app.materials_state.select_preset_by_name(preset_name);
+        }
         if app.camera_state.live_streaming {
             app.start_live_camera();
         } else if let Some(path) = app.camera_state.snapshot_path.clone() {
@@ -364,7 +373,54 @@ impl All4LaserApp {
         self.settings.camera_snapshot_path = self.camera_state.snapshot_path.clone();
         self.settings.camera_device_index = self.camera_state.device_index;
         self.settings.camera_live_streaming = self.camera_state.live_streaming;
+        self.settings.material_selected_preset =
+            self.materials_state.selected_preset_name().map(str::to_string);
         self.settings.save();
+    }
+
+    fn materials_ui_context(&self) -> ui::materials::MaterialsUiContext {
+        ui::materials::MaterialsUiContext {
+            machine_profile_name: Some(self.machine_profile.name.clone()),
+            active_layer: self.layers.get(self.active_layer_idx).map(|layer| {
+                ui::materials::ActiveLayerSummary {
+                    name: layer.name.clone(),
+                    speed: layer.speed,
+                    power: layer.power,
+                    passes: layer.passes,
+                    mode: layer.mode,
+                }
+            }),
+        }
+    }
+
+    fn apply_material_action(&mut self, mat_action: ui::materials::MaterialApplyAction) {
+        if let Some(update) = mat_action.apply_to_active_layer {
+            let mut applied_layer_name: Option<String> = None;
+            if let Some(layer) = self.layers.get_mut(self.active_layer_idx) {
+                layer.speed = update.speed;
+                layer.power = update.power;
+                layer.passes = update.passes.max(1);
+                layer.mode = update.mode;
+                applied_layer_name = Some(layer.name.clone());
+            }
+
+            if let Some(layer_name) = applied_layer_name {
+                self.log(format!(
+                    "Applied material preset '{}' to layer {}.",
+                    update.preset_name, layer_name
+                ));
+                if !self.drawing_state.shapes.is_empty() {
+                    self.regenerate_drawing_gcode();
+                }
+            }
+        }
+
+        if let Some(s) = mat_action.apply_speed {
+            self.jog_feed = s;
+        }
+        if let Some(p) = mat_action.apply_power {
+            self.test_fire_power = p / 10.0;
+        }
     }
 
     pub fn apply_theme(&self, ctx: &egui::Context) {
@@ -478,23 +534,18 @@ impl All4LaserApp {
                         if self.running && self.program_index < self.program_lines.len() {
                             self.send_next_program_line();
                         } else if self.running && self.program_index >= self.program_lines.len() {
-                            self.running = false;
-                            self.is_dry_run = false;
-                            // Air assist OFF
-                            if self.machine_profile.air_assist {
-                                self.send_command("M9");
-                            }
-                            self.log("Program complete.".to_string());
-                            self.notify_job_done = true;
+                            self.handle_program_completed();
                         }
                     }
                     GrblResponse::Error(code) => {
                         self.log(format!("error:{code}"));
+                        if self.running {
+                            self.handle_program_failed(format!("Controller error:{code}"));
+                        }
                     }
                     GrblResponse::Alarm(code) => {
                         self.log(format!("ALARM:{code}"));
-                        self.running = false;
-                        self.is_dry_run = false;
+                        self.handle_program_failed(format!("ALARM:{code}"));
                     }
                     GrblResponse::GrblVersion(ver) => {
                         self.log(format!("Grbl {ver}"));
@@ -517,6 +568,9 @@ impl All4LaserApp {
                     self.log(format!("Connected to {port}"));
                 }
                 SerialMsg::Disconnected(reason) => {
+                    if self.running {
+                        self.handle_program_failed(format!("Disconnected: {reason}"));
+                    }
                     self.connection = None;
                     self.grbl_state = GrblState::default();
                     self.running = false;
@@ -1360,6 +1414,87 @@ impl All4LaserApp {
         self.send_next_program_line();
     }
 
+    fn enqueue_current_job(&mut self) -> Option<u64> {
+        if self.program_lines.is_empty() {
+            self.show_error("No loaded program to enqueue.".into());
+            return None;
+        }
+
+        let base_name = self
+            .loaded_file
+            .as_ref()
+            .map(|f| f.filename.clone())
+            .unwrap_or_else(|| "current_job".to_string());
+        let id = self
+            .job_queue_state
+            .enqueue_job(base_name.clone(), self.program_lines.clone());
+        self.log(format!("Queued job #{id}: {base_name}"));
+        Some(id)
+    }
+
+    fn try_start_next_queued_job(&mut self) {
+        if self.running {
+            return;
+        }
+        if !self.is_connected() {
+            self.show_error("Connect machine before starting queued jobs.".into());
+            return;
+        }
+
+        let Some(job) = self.job_queue_state.pop_next_job() else {
+            return;
+        };
+
+        let file = GCodeFile::from_lines(&job.name, &job.lines);
+        self.set_loaded_file(file, job.lines.clone());
+        self.active_queue_job = Some(job.clone());
+        self.run_program();
+        self.log(format!("Queue start: #{} {}", job.id, job.name));
+    }
+
+    fn handle_program_completed(&mut self) {
+        self.running = false;
+        self.is_dry_run = false;
+        if self.machine_profile.air_assist {
+            self.send_command("M9");
+        }
+        self.log("Program complete.".to_string());
+        self.notify_job_done = true;
+
+        if let Some(job) = self.active_queue_job.take() {
+            self.job_queue_state.record_completion(job);
+            if self.job_queue_state.auto_run_next {
+                self.try_start_next_queued_job();
+            }
+        }
+    }
+
+    fn handle_program_failed(&mut self, reason: String) {
+        self.running = false;
+        self.is_dry_run = false;
+        self.framing_active = false;
+        if self.machine_profile.air_assist {
+            self.send_command("M9");
+        }
+
+        if let Some(job) = self.active_queue_job.take() {
+            self.job_queue_state.record_failure(job, reason);
+        }
+    }
+
+    fn handle_program_aborted(&mut self) {
+        self.running = false;
+        self.is_dry_run = false;
+        self.framing_active = false;
+        if self.machine_profile.air_assist {
+            self.send_command("M9");
+        }
+
+        if let Some(job) = self.active_queue_job.take() {
+            self.job_queue_state.record_aborted(job);
+        }
+    }
+
     fn abort_program(&mut self) {
         if !self.send_realtime(RealtimeCommand::Reset) && self.is_connected() {
             self.log(format!(
@@ -1367,13 +1502,7 @@ impl All4LaserApp {
                 self.machine_profile.controller_kind.label()
             ));
         }
-        self.running = false;
-        self.is_dry_run = false;
-        self.framing_active = false;
-        // Air assist OFF
-        if self.machine_profile.air_assist {
-            self.send_command("M9");
-        }
+        self.handle_program_aborted();
         self.log("Program aborted.".to_string());
     }
 
@@ -2277,13 +2406,9 @@ impl All4LaserApp {
 
                 ui.add_space(6.0);
 
-                let mat_action = ui::materials::show(ui, &mut self.materials_state);
-                if let Some(s) = mat_action.apply_speed {
-                    self.jog_feed = s;
-                }
-                if let Some(p) = mat_action.apply_power {
-                    self.test_fire_power = p / 10.0;
-                }
+                let mat_context = self.materials_ui_context();
+                let mat_action = ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
+                self.apply_material_action(mat_action);
 
                 ui.add_space(6.0);
 
@@ -2465,9 +2590,9 @@ impl All4LaserApp {
                     // We need a list view.
                     // For now, I'll put Materials here too.
                     ui.add_space(8.0);
-                    let mat_action = ui::materials::show(ui, &mut self.materials_state);
-                    if let Some(s) = mat_action.apply_speed { self.jog_feed = s; }
-                    if let Some(p) = mat_action.apply_power { self.test_fire_power = p / 10.0; }
+                    let mat_context = self.materials_ui_context();
+                    let mat_action = ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
+                    self.apply_material_action(mat_action);
 
                     ui.separator();
                     // Show full layers list with details
@@ -2680,6 +2805,65 @@ impl eframe::App for All4LaserApp {
                 let file = GCodeFile::from_lines("tiled", &lines);
                 self.set_loaded_file(file, lines);
                 self.log("Tiling applied.".into());
+            }
+        }
+
+        // === Auto Nesting Window ===
+        {
+            let selection = self.selected_shape_indices();
+            let workspace = egui::vec2(
+                self.machine_profile.workspace_x_mm,
+                self.machine_profile.workspace_y_mm,
+            );
+            let nesting_action = ui::nesting::show(
+                ctx,
+                &mut self.nesting_state,
+                selection.len(),
+                self.drawing_state.shapes.len(),
+                workspace,
+            );
+            if nesting_action.apply {
+                let result = ui::nesting::apply_nesting(
+                    &mut self.drawing_state,
+                    &selection,
+                    workspace,
+                    self.nesting_state.options(),
+                );
+                if result.placed > 0 {
+                    self.regenerate_drawing_gcode();
+                    self.needs_auto_fit = true;
+                    self.log(format!(
+                        "Nesting applied: {} placed, {} skipped ({} rotated).",
+                        result.placed, result.skipped, result.used_rotation
+                    ));
+                } else {
+                    self.show_error("Nesting could not place any shape in current workspace/margins.".into());
+                }
+            }
+        }
+
+        // === Job Queue Window ===
+        {
+            let active_name = self.active_queue_job.as_ref().map(|job| job.name.as_str());
+            let queue_action = ui::job_queue::show(
+                ctx,
+                &mut self.job_queue_state,
+                !self.program_lines.is_empty(),
+                self.running,
+                active_name,
+            );
+            if queue_action.enqueue_current {
+                self.enqueue_current_job();
+            }
+            if queue_action.retry_last_failed {
+                if let Some(id) = self.job_queue_state.retry_last_failed() {
+                    self.log(format!("Requeued last failed job as #{id}."));
+                } else {
+                    self.show_error("No failed/aborted job in history to retry.".into());
+                }
+            }
+            if queue_action.start_next {
+                self.try_start_next_queued_job();
             }
         }
 
@@ -2933,6 +3117,7 @@ impl eframe::App for All4LaserApp {
         TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.add_space(4.0);
             let has_file = self.loaded_file.is_some();
+            let has_shapes = !self.drawing_state.shapes.is_empty();
             let actions = ui::toolbar::show(
                 ui,
                 is_connected,
@@ -2942,6 +3127,7 @@ impl eframe::App for All4LaserApp {
                 self.framing_active,
                 &self.recent_files,
                 has_file,
+                has_shapes,
                 caps,
             );
             ui.add_space(4.0);
@@ -3002,6 +3188,12 @@ impl eframe::App for All4LaserApp {
             if actions.open_tiling {
                 self.tiling.is_open = true;
             }
+            if actions.open_nesting {
+                self.nesting_state.is_open = true;
+            }
+            if actions.open_job_queue {
+                self.job_queue_state.is_open = true;
+            }
             if actions.open_test_fire {
                 self.test_fire_open = true;
             }
@@ -3027,6 +3219,9 @@ impl eframe::App for All4LaserApp {
                             self.camera_state.device_index = proj.camera_device_index;
                             self.camera_state.live_streaming = proj.camera_live_streaming;
                             self.camera_state.snapshot_path = proj.camera_snapshot_path.clone();
+                            if let Some(preset_name) = proj.material_selected_preset.as_deref() {
+                                self.materials_state.select_preset_by_name(preset_name);
+                            }
                             if self.camera_state.live_streaming {
                                 self.start_live_camera();
                             } else if let Some(path) = proj.camera_snapshot_path {
@@ -3071,6 +3266,10 @@ impl eframe::App for All4LaserApp {
                         camera_snapshot_path: self.camera_state.snapshot_path.clone(),
                         camera_device_index: self.camera_state.device_index,
                         camera_live_streaming: self.camera_state.live_streaming,
+                        material_selected_preset: self
+                            .materials_state
+                            .selected_preset_name()
+                            .map(str::to_string),
                     };
                     match crate::config::project::ProjectFile::save(&path_str, &proj) {
                         Ok(_) => self.log(format!("Project saved: {path_str}")),

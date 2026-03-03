@@ -28,6 +28,10 @@ pub struct PreviewRenderer {
     pub simulation_progress: Option<f32>, // 0.0 to 1.0
     pub show_rapids: bool, // Toggle for G0 moves
     pub show_fill_preview: bool, // Overlay predicted hatch for fill layers
+    pub show_thermal_risk: bool, // Overlay thermal overburn risk heatmap
+    pub risk_threshold: f32, // Alert threshold for accumulated energy score
+    pub risk_cell_mm: f32, // Grid cell size in mm used by thermal risk map
+    pub last_risk_alert_cells: usize, // Number of currently highlighted risk cells
     pub realistic_preview: bool, // Toggle for realistic material texture
     _drag_start: Option<Pos2>,
     pub selected_shape_idx: IndexSet<usize>, // Selected indices in DrawingState (Multi-select). Ordered so last selected is last.
@@ -60,6 +64,10 @@ impl Default for PreviewRenderer {
             simulation_progress: None,
             show_rapids: true,
             show_fill_preview: true,
+            show_thermal_risk: false,
+            risk_threshold: 10.0,
+            risk_cell_mm: 2.0,
+            last_risk_alert_cells: 0,
             realistic_preview: false,
             _drag_start: None,
             selected_shape_idx: IndexSet::new(),
@@ -216,6 +224,9 @@ impl PreviewRenderer {
         // Draw GCode segments
         self.draw_gcode_segments(&painter, segments, rect, is_light, transform);
 
+        // Draw thermal risk overlay (advanced simulation)
+        self.draw_thermal_risk_overlay(&painter, segments, rect, &transform);
+
         if self.show_fill_preview {
             self.draw_fill_overlay(&painter, rect, shapes, layers, is_light);
         }
@@ -301,6 +312,63 @@ impl PreviewRenderer {
             && ux <= calib.offset_x + w
             && uy >= calib.offset_y
             && uy <= calib.offset_y + h
+    }
+
+    fn draw_thermal_risk_overlay<F>(
+        &mut self,
+        painter: &Painter,
+        segments: &[PreviewSegment],
+        rect: Rect,
+        transform: &F,
+    )
+    where
+        F: Fn(f32, f32) -> Pos2,
+    {
+        if !self.show_thermal_risk || segments.is_empty() {
+            self.last_risk_alert_cells = 0;
+            return;
+        }
+
+        let heat = thermal_risk_heatmap(
+            segments,
+            self.risk_cell_mm.max(0.5),
+            self.simulation_progress,
+            transform,
+        );
+
+        let threshold = self.risk_threshold.max(0.1);
+        let cell = self.risk_cell_mm.max(0.5);
+        let mut alert_count = 0usize;
+
+        for ((cx, cy), score) in heat {
+            if score < threshold {
+                continue;
+            }
+            alert_count += 1;
+
+            let x0 = cx as f32 * cell;
+            let y0 = cy as f32 * cell;
+            let x1 = x0 + cell;
+            let y1 = y0 + cell;
+
+            let p0 = self.world_to_screen(x0, y0, rect);
+            let p1 = self.world_to_screen(x1, y1, rect);
+            let overlay_rect = Rect::from_two_pos(p0, p1);
+
+            if !rect.intersects(overlay_rect) {
+                continue;
+            }
+
+            let intensity = ((score - threshold) / (threshold * 2.0)).clamp(0.15, 1.0);
+            let alpha = (55.0 + intensity * 145.0) as u8;
+            let fill = Color32::from_rgba_premultiplied(255, 64, 32, alpha);
+            let stroke = Color32::from_rgba_premultiplied(255, 140, 80, (alpha as f32 * 0.9) as u8);
+
+            painter.rect_filled(overlay_rect, 0.0, fill);
+            painter.rect_stroke(overlay_rect, 0.0, Stroke::new(0.7, stroke), StrokeKind::Inside);
+        }
+
+        self.last_risk_alert_cells = alert_count;
     }
 
     fn draw_gcode_segments<F>(&self, painter: &Painter, segments: &[PreviewSegment], rect: Rect, is_light: bool, transform: F)
@@ -1445,4 +1513,95 @@ fn point_segment_distance(p: Pos2, a: Pos2, b: Pos2) -> (f32, Pos2) {
     let t = ((ap.x * ab.x + ap.y * ab.y) / ab_len_sq).clamp(0.0, 1.0);
     let proj = a + ab * t;
     (p.distance(proj), proj)
+}
+
+fn thermal_risk_heatmap<F>(
+    segments: &[PreviewSegment],
+    cell_mm: f32,
+    progress: Option<f32>,
+    transform: &F,
+) -> HashMap<(i32, i32), f32>
+where
+    F: Fn(f32, f32) -> Pos2,
+{
+    let mut out = HashMap::new();
+    if segments.is_empty() {
+        return out;
+    }
+
+    let max_idx = if let Some(p) = progress {
+        let p = p.clamp(0.0, 1.0);
+        (((segments.len() - 1) as f32 * p).round() as usize + 1).min(segments.len())
+    } else {
+        segments.len()
+    };
+
+    for seg in segments.iter().take(max_idx) {
+        if !seg.laser_on {
+            continue;
+        }
+
+        let len = (seg.x2 - seg.x1).hypot(seg.y2 - seg.y1).max(0.01);
+        let samples = ((len / cell_mm.max(0.5)).ceil() as i32).max(1);
+        let sample_weight = seg.power.max(0.01) * len / samples as f32;
+
+        for i in 0..=samples {
+            let t = i as f32 / samples as f32;
+            let x = seg.x1 + (seg.x2 - seg.x1) * t;
+            let y = seg.y1 + (seg.y2 - seg.y1) * t;
+            let pt = transform(x, y);
+            let cx = (pt.x / cell_mm).floor() as i32;
+            let cy = (pt.y / cell_mm).floor() as i32;
+            *out.entry((cx, cy)).or_insert(0.0) += sample_weight;
+        }
+    }
+
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seg(x1: f32, y1: f32, x2: f32, y2: f32, power: f32) -> PreviewSegment {
+        PreviewSegment {
+            x1,
+            y1,
+            x2,
+            y2,
+            power,
+            layer_id: 0,
+            laser_on: true,
+        }
+    }
+
+    #[test]
+    fn thermal_risk_detects_overlapped_paths() {
+        let segments = vec![
+            seg(0.0, 0.0, 20.0, 0.0, 1.0),
+            seg(0.0, 0.0, 20.0, 0.0, 1.0),
+            seg(0.0, 0.0, 20.0, 0.0, 1.0),
+        ];
+
+        let heat = thermal_risk_heatmap(&segments, 2.0, None, &|x, y| egui::pos2(x, y));
+        let risky_cells = heat.values().filter(|score| **score >= 4.0).count();
+        assert!(risky_cells > 0);
+    }
+
+    #[test]
+    fn thermal_risk_progress_limits_alerts() {
+        let segments = vec![
+            seg(0.0, 0.0, 20.0, 0.0, 1.0),
+            seg(0.0, 2.0, 20.0, 2.0, 1.0),
+            seg(0.0, 4.0, 20.0, 4.0, 1.0),
+            seg(0.0, 6.0, 20.0, 6.0, 1.0),
+        ];
+
+        let full = thermal_risk_heatmap(&segments, 2.0, None, &|x, y| egui::pos2(x, y));
+        let half = thermal_risk_heatmap(&segments, 2.0, Some(0.25), &|x, y| egui::pos2(x, y));
+
+        let full_energy: f32 = full.values().copied().sum();
+        let half_energy: f32 = half.values().copied().sum();
+        assert!(half_energy < full_energy);
+    }
 }

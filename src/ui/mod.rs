@@ -14,6 +14,8 @@ pub mod power_speed_test;
 pub mod gcode_editor;
 pub mod shortcuts;
 pub mod tiling;
+pub mod nesting;
+pub mod job_queue;
 pub mod camera;
 pub mod layers;
 pub mod layers_new;
