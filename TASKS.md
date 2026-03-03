@@ -12,9 +12,9 @@ Statuts:
 - [x] F3 — Compensation kerf + assistant de calibration
 - [x] F4 — Job Queue & Batch Production
 - [x] F5 — Simulation avancée (risques de surbrûlure / thermique)
-- [ ] F6 — Alignement caméra avec vision assistée (repères auto)
-- [ ] F7 — Preflight contrôle qualité avant lancement
-- [ ] F8 — Macros / scripts utilisateur
+- [x] F6 — Alignement caméra avec vision assistée (repères auto)
+- [x] F7 — Preflight contrôle qualité avant lancement
+- [x] F8 — Macros / scripts utilisateur
 
 ---
 
@@ -69,28 +69,28 @@ Statuts:
 **Objectif**: détection automatique de repères d’alignement.
 
 **Validation**:
-- [ ] Détection de repères (croix/cercle)
-- [ ] Mapping vers coordonnées machine/projet
-- [ ] UX de correction manuelle si échec
-- [ ] Validation sur cas réels
+- [x] Détection de repères (croix/cercle)
+- [x] Mapping vers coordonnées machine/projet
+- [x] UX de correction manuelle si échec
+- [x] Validation sur cas réels
 
 ### F7 — Preflight contrôle qualité
 **Objectif**: vérifier erreurs avant envoi machine.
 
 **Validation**:
-- [ ] Détection chemins ouverts / doublons
-- [ ] Détection incohérences couches/paramètres
-- [ ] Rapport lisible en UI
-- [ ] Blocage optionnel de lancement si erreurs critiques
+- [x] Détection chemins ouverts / doublons
+- [x] Détection incohérences couches/paramètres
+- [x] Rapport lisible en UI
+- [x] Blocage optionnel de lancement si erreurs critiques
 
 ### F8 — Macros / scripts utilisateur
 **Objectif**: automatiser des séquences répétitives.
 
 **Validation**:
-- [ ] Format macro/script défini
-- [ ] Exécution séquentielle fiable
-- [ ] Gestion d’erreurs claire
-- [ ] Exemples prêts à l’emploi
+- [x] Format macro/script défini
+- [x] Exécution séquentielle fiable
+- [x] Gestion d’erreurs claire
+- [x] Exemples prêts à l’emploi
 
 ---
 
@@ -104,3 +104,5 @@ Statuts:
 - 2026-03-02: F3 implémentée et validée (assistant kerf + application toolpath + tests).
 - 2026-03-02: F4 implémentée et validée (Job Queue batch, retry échec, auto-run, historique).
 - 2026-03-02: F5 implémentée et validée (thermal risk heatmap, overlay preview, threshold/cell UI, 2 tests).
+- 2026-03-03: F8 implémentée et validée (format macro JSON, validation d’édition, exécution séquentielle filtrée, erreurs claires + exemples par défaut).
+- 2026-03-03: F6 et F7 implémentées et validées (auto-détection repères caméra + mapping + alignement assisté manuel, preflight chemins/couches avec rapport UI et blocage optionnel des erreurs critiques).
