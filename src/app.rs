@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::collections::{HashMap, HashSet};
 
 use egui::{CentralPanel, SidePanel, TopBottomPanel, RichText};
 
@@ -32,6 +33,223 @@ pub enum RightPanelTab {
     Console,
     Art,
     Laser,
+}
+
+type SegmentKey = ((i32, i32), (i32, i32));
+
+fn quantize_mm(v: f32) -> i32 {
+    (v * 100.0).round() as i32
+}
+
+fn normalized_segment_key(a: (f32, f32), b: (f32, f32)) -> SegmentKey {
+    let qa = (quantize_mm(a.0), quantize_mm(a.1));
+    let qb = (quantize_mm(b.0), quantize_mm(b.1));
+    if qa <= qb {
+        (qa, qb)
+    } else {
+        (qb, qa)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreflightSeverity {
+    Critical,
+    Warning,
+}
+
+#[derive(Clone, Debug)]
+struct PreflightIssue {
+    severity: PreflightSeverity,
+    message: String,
+}
+
+#[derive(Clone, Debug, Default)]
+struct PreflightReport {
+    issues: Vec<PreflightIssue>,
+}
+
+impl PreflightReport {
+    fn add_critical(&mut self, message: impl Into<String>) {
+        self.issues.push(PreflightIssue {
+            severity: PreflightSeverity::Critical,
+            message: message.into(),
+        });
+    }
+
+    fn add_warning(&mut self, message: impl Into<String>) {
+        self.issues.push(PreflightIssue {
+            severity: PreflightSeverity::Warning,
+            message: message.into(),
+        });
+    }
+
+    fn critical_count(&self) -> usize {
+        self.issues
+            .iter()
+            .filter(|i| i.severity == PreflightSeverity::Critical)
+            .count()
+    }
+
+    fn warning_count(&self) -> usize {
+        self.issues
+            .iter()
+            .filter(|i| i.severity == PreflightSeverity::Warning)
+            .count()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MarkerComponent {
+    center_x: f32,
+    center_y: f32,
+    fill_ratio: f32,
+    area: usize,
+    aspect_ratio: f32,
+}
+
+fn detect_marker_components(rgba: &[u8], width: usize, height: usize) -> Vec<MarkerComponent> {
+    if width == 0 || height == 0 || rgba.len() < width.saturating_mul(height).saturating_mul(4) {
+        return Vec::new();
+    }
+
+    let mut dark = vec![false; width * height];
+    for y in 0..height {
+        for x in 0..width {
+            let i = (y * width + x) * 4;
+            let lum = (rgba[i] as u16 + rgba[i + 1] as u16 + rgba[i + 2] as u16) / 3;
+            dark[y * width + x] = lum < 80;
+        }
+    }
+
+    let mut visited = vec![false; width * height];
+    let mut out = Vec::new();
+    let min_area = ((width * height) as f32 * 0.00025).max(36.0) as usize;
+
+    for y in 0..height {
+        for x in 0..width {
+            let idx = y * width + x;
+            if !dark[idx] || visited[idx] {
+                continue;
+            }
+
+            let mut stack = vec![idx];
+            visited[idx] = true;
+            let mut area = 0usize;
+            let mut sum_x = 0usize;
+            let mut sum_y = 0usize;
+            let mut min_x = x;
+            let mut max_x = x;
+            let mut min_y = y;
+            let mut max_y = y;
+
+            while let Some(cur) = stack.pop() {
+                let cx = cur % width;
+                let cy = cur / width;
+                area += 1;
+                sum_x += cx;
+                sum_y += cy;
+                min_x = min_x.min(cx);
+                max_x = max_x.max(cx);
+                min_y = min_y.min(cy);
+                max_y = max_y.max(cy);
+
+                if cx > 0 {
+                    let n = cur - 1;
+                    if dark[n] && !visited[n] {
+                        visited[n] = true;
+                        stack.push(n);
+                    }
+                }
+                if cx + 1 < width {
+                    let n = cur + 1;
+                    if dark[n] && !visited[n] {
+                        visited[n] = true;
+                        stack.push(n);
+                    }
+                }
+                if cy > 0 {
+                    let n = cur - width;
+                    if dark[n] && !visited[n] {
+                        visited[n] = true;
+                        stack.push(n);
+                    }
+                }
+                if cy + 1 < height {
+                    let n = cur + width;
+                    if dark[n] && !visited[n] {
+                        visited[n] = true;
+                        stack.push(n);
+                    }
+                }
+            }
+
+            if area < min_area {
+                continue;
+            }
+
+            let bw = (max_x - min_x + 1) as f32;
+            let bh = (max_y - min_y + 1) as f32;
+            let bbox_area = (bw * bh).max(1.0);
+            let fill_ratio = area as f32 / bbox_area;
+            let aspect_ratio = if bh > 0.0 { bw / bh } else { 0.0 };
+            let center_x = sum_x as f32 / area as f32;
+            let center_y = sum_y as f32 / area as f32;
+
+            out.push(MarkerComponent {
+                center_x,
+                center_y,
+                fill_ratio,
+                area,
+                aspect_ratio,
+            });
+        }
+    }
+
+    out
+}
+
+fn detect_cross_and_circle_markers(rgba: &[u8], width: usize, height: usize) -> Option<((f32, f32), (f32, f32))> {
+    let mut comps = detect_marker_components(rgba, width, height)
+        .into_iter()
+        .filter(|c| c.aspect_ratio > 0.55 && c.aspect_ratio < 1.8)
+        .collect::<Vec<_>>();
+
+    if comps.len() < 2 {
+        return None;
+    }
+
+    comps.sort_by(|a, b| {
+        b.area
+            .cmp(&a.area)
+            .then_with(|| a.fill_ratio.partial_cmp(&b.fill_ratio).unwrap_or(std::cmp::Ordering::Equal))
+    });
+
+    let candidates = comps.into_iter().take(12).collect::<Vec<_>>();
+    let mut best_pair: Option<(MarkerComponent, MarkerComponent, f32)> = None;
+    for i in 0..candidates.len() {
+        for j in 0..candidates.len() {
+            if i == j {
+                continue;
+            }
+            let cross = candidates[i];
+            let circle = candidates[j];
+            let fill_gap = circle.fill_ratio - cross.fill_ratio;
+            if fill_gap < 0.08 {
+                continue;
+            }
+            if cross.fill_ratio > 0.70 || circle.fill_ratio < 0.30 {
+                continue;
+            }
+            let score = fill_gap * 100.0 + (cross.area.min(circle.area) as f32).sqrt();
+            match best_pair {
+                Some((_, _, best)) if score <= best => {}
+                _ => best_pair = Some((cross, circle, score)),
+            }
+        }
+    }
+
+    let (cross, circle, _) = best_pair?;
+    Some(((cross.center_x, cross.center_y), (circle.center_x, circle.center_y)))
 }
 
 #[derive(Clone)]
@@ -219,6 +437,9 @@ pub struct All4LaserApp {
     // Camera
     camera_state: ui::camera::CameraState,
     camera_stream: Option<crate::camera_stream::CameraStream>,
+    camera_last_frame_rgba: Vec<u8>,
+    camera_last_frame_width: usize,
+    camera_last_frame_height: usize,
     camera_calibration_picks: Vec<egui::Pos2>,
     camera_point_align_picks: Vec<egui::Pos2>,
     circular_array_state: ui::circular_array::CircularArrayState,
@@ -240,6 +461,10 @@ pub struct All4LaserApp {
 
     // Persistence
     settings: AppSettings,
+
+    // Preflight checks
+    preflight_report: Option<PreflightReport>,
+    preflight_block_critical: bool,
 
     // Timing
     last_poll: Instant,
@@ -318,6 +543,9 @@ impl All4LaserApp {
             estimation: crate::gcode::estimation::EstimationResult::default(),
             camera_state: ui::camera::CameraState::default(),
             camera_stream: None,
+            camera_last_frame_rgba: Vec::new(),
+            camera_last_frame_width: 0,
+            camera_last_frame_height: 0,
             camera_calibration_picks: Vec::new(),
             camera_point_align_picks: Vec::new(),
             circular_array_state: ui::circular_array::CircularArrayState::default(),
@@ -331,6 +559,8 @@ impl All4LaserApp {
             language: crate::i18n::Language::English, // Will be overridden
             active_tab: RightPanelTab::Cuts,         // Will be overridden
             settings: AppSettings::load(),
+            preflight_report: None,
+            preflight_block_critical: true,
         };
 
         // Apply loaded settings
@@ -1041,6 +1271,9 @@ impl All4LaserApp {
         ctx: &egui::Context,
         frame: crate::camera_stream::CameraFrame,
     ) {
+        self.camera_last_frame_width = frame.width;
+        self.camera_last_frame_height = frame.height;
+        self.camera_last_frame_rgba = frame.rgba.clone();
         let color_image = egui::ColorImage::from_rgba_unmultiplied([frame.width, frame.height], &frame.rgba);
         if let Some(texture) = self.camera_state.texture.as_mut() {
             texture.set(color_image, Default::default());
@@ -1253,6 +1486,117 @@ impl All4LaserApp {
         )
     }
 
+    fn camera_pixel_to_world(&self, px: f32, py: f32, frame_w: usize, frame_h: usize) -> egui::Pos2 {
+        let w = frame_w.max(1) as f32;
+        let h = frame_h.max(1) as f32;
+        let nx = px / w;
+        let ny = py / h;
+
+        let wsx = self.renderer.workspace_size.x.max(1.0);
+        let wsy = self.renderer.workspace_size.y.max(1.0);
+        let scale = self.camera_state.calibration.scale.max(0.01);
+        let base_w = wsx * scale;
+        let base_h = wsy * scale;
+
+        let raw_x = self.camera_state.calibration.offset_x + nx * base_w;
+        let raw_y = self.camera_state.calibration.offset_y + ny * base_h;
+
+        let cx = self.camera_state.calibration.offset_x + base_w * 0.5;
+        let cy = self.camera_state.calibration.offset_y + base_h * 0.5;
+        let angle = self.camera_state.calibration.rotation.to_radians();
+        let (sin_a, cos_a) = angle.sin_cos();
+        let dx = raw_x - cx;
+        let dy = raw_y - cy;
+        egui::Pos2::new(cx + dx * cos_a - dy * sin_a, cy + dx * sin_a + dy * cos_a)
+    }
+
+    fn auto_detect_camera_markers(&mut self) {
+        let mut rgba: Vec<u8> = Vec::new();
+        let mut width = 0usize;
+        let mut height = 0usize;
+        let mut source = "none";
+
+        if !self.camera_last_frame_rgba.is_empty()
+            && self.camera_last_frame_width > 0
+            && self.camera_last_frame_height > 0
+        {
+            rgba = self.camera_last_frame_rgba.clone();
+            width = self.camera_last_frame_width;
+            height = self.camera_last_frame_height;
+            source = "live";
+        } else if let Some(path) = self.camera_state.snapshot_path.as_deref() {
+            match image::open(path) {
+                Ok(img) => {
+                    let data = img.to_rgba8();
+                    width = data.width() as usize;
+                    height = data.height() as usize;
+                    rgba = data.into_raw();
+                    source = "snapshot";
+                }
+                Err(e) => {
+                    self.camera_state.detection_status =
+                        format!("Marker detection failed: cannot read image ({e}).");
+                    self.camera_state.detected_cross_world = None;
+                    self.camera_state.detected_circle_world = None;
+                    self.show_error(self.camera_state.detection_status.clone());
+                    return;
+                }
+            }
+        }
+
+        if rgba.is_empty() || width == 0 || height == 0 {
+            self.camera_state.detection_status =
+                "Marker detection failed: no camera frame available (start live camera or load image)."
+                    .to_string();
+            self.camera_state.detected_cross_world = None;
+            self.camera_state.detected_circle_world = None;
+            self.show_error(self.camera_state.detection_status.clone());
+            return;
+        }
+
+        if let Some((cross_px, circle_px)) = detect_cross_and_circle_markers(&rgba, width, height) {
+            let cross_world = self.camera_pixel_to_world(cross_px.0, cross_px.1, width, height);
+            let circle_world = self.camera_pixel_to_world(circle_px.0, circle_px.1, width, height);
+            self.camera_state.detected_cross_world = Some(cross_world);
+            self.camera_state.detected_circle_world = Some(circle_world);
+            self.camera_state.auto_detection_success_count =
+                self.camera_state.auto_detection_success_count.saturating_add(1);
+            self.camera_state.detection_status = format!(
+                "Auto-detect success ({source}): markers mapped to workspace/project coordinates."
+            );
+            self.log(format!(
+                "Auto markers detected: cross ({:.1}, {:.1}) mm, circle ({:.1}, {:.1}) mm.",
+                cross_world.x, cross_world.y, circle_world.x, circle_world.y
+            ));
+        } else {
+            self.camera_state.detected_cross_world = None;
+            self.camera_state.detected_circle_world = None;
+            self.camera_state.detection_status =
+                "Auto-detect failed: marker shapes not recognized. Use Calibration Wizard or 2-Point Align manually."
+                    .to_string();
+            self.log("Auto marker detection failed. Manual correction workflow remains available.".into());
+        }
+    }
+
+    fn apply_detected_marker_align(&mut self) {
+        let (Some(cross), Some(circle)) = (
+            self.camera_state.detected_cross_world,
+            self.camera_state.detected_circle_world,
+        ) else {
+            self.show_error("No detected markers to apply. Run auto-detect first.".into());
+            return;
+        };
+
+        self.camera_point_align_picks.clear();
+        self.camera_point_align_picks.push(cross);
+        self.camera_point_align_picks.push(circle);
+        if self.apply_point_align_from_picks() {
+            self.stop_camera_point_align();
+            self.sync_settings();
+            self.log("Detected marker alignment applied via 2-point mapping.".into());
+        }
+    }
+
     fn align_job_to_camera(&mut self) {
         let Some(file) = self.loaded_file.as_ref() else {
             self.show_error("Load a job before Align Job to Camera.".into());
@@ -1414,6 +1758,122 @@ impl All4LaserApp {
         self.send_next_program_line();
     }
 
+    fn build_preflight_report(&self) -> PreflightReport {
+        let mut report = PreflightReport::default();
+
+        if self.program_lines.is_empty() {
+            report.add_critical("No program loaded.");
+            return report;
+        }
+
+        let mut duplicate_segments: HashMap<SegmentKey, usize> = HashMap::new();
+        let mut open_paths = 0usize;
+        let mut used_layers: HashSet<usize> = HashSet::new();
+
+        if !self.drawing_state.shapes.is_empty() {
+            for (idx, shape) in self.drawing_state.shapes.iter().enumerate() {
+                used_layers.insert(shape.layer_idx);
+                if shape.layer_idx >= self.layers.len() {
+                    report.add_critical(format!(
+                        "Shape #{} uses missing layer index {}.",
+                        idx + 1,
+                        shape.layer_idx
+                    ));
+                }
+
+                if let ShapeKind::Path(points) = &shape.shape {
+                    if points.len() >= 2 && !path_is_closed_for_fill(points) {
+                        open_paths += 1;
+                    }
+                    for seg in points.windows(2) {
+                        let p0 = shape.world_pos(seg[0].0, seg[0].1);
+                        let p1 = shape.world_pos(seg[1].0, seg[1].1);
+                        let key = normalized_segment_key(p0, p1);
+                        *duplicate_segments.entry(key).or_insert(0) += 1;
+                    }
+                }
+            }
+        } else if let Some(file) = &self.loaded_file {
+            for seg in &file.segments {
+                used_layers.insert(seg.layer_id);
+                let key = normalized_segment_key((seg.x1, seg.y1), (seg.x2, seg.y2));
+                *duplicate_segments.entry(key).or_insert(0) += 1;
+            }
+        }
+
+        if open_paths > 0 {
+            report.add_critical(format!(
+                "Detected {open_paths} open path(s). Close contours before launch."
+            ));
+        }
+
+        let duplicate_count = duplicate_segments.values().filter(|&&count| count > 1).count();
+        if duplicate_count > 0 {
+            report.add_critical(format!(
+                "Detected {duplicate_count} duplicated path segment group(s)."
+            ));
+        }
+
+        for layer_idx in used_layers {
+            let Some(layer) = self.layers.get(layer_idx) else {
+                report.add_critical(format!("Used layer index {layer_idx} is missing from layer list."));
+                continue;
+            };
+
+            if layer.speed <= 0.0 {
+                report.add_critical(format!("Layer {} has invalid speed (<= 0).", layer.name));
+            }
+            if layer.power < 0.0 {
+                report.add_critical(format!("Layer {} has invalid power (< 0).", layer.name));
+            }
+            if layer.passes == 0 {
+                report.add_critical(format!("Layer {} has invalid passes (= 0).", layer.name));
+            }
+            if matches!(
+                layer.mode,
+                ui::layers_new::CutMode::Fill | ui::layers_new::CutMode::FillAndLine
+            ) && layer.fill_interval_mm <= 0.0
+            {
+                report.add_critical(format!(
+                    "Layer {} fill interval must be > 0 for fill modes.",
+                    layer.name
+                ));
+            }
+            if !layer.visible {
+                report.add_warning(format!(
+                    "Layer {} is disabled but still referenced by current job.",
+                    layer.name
+                ));
+            }
+            if layer.power > 1000.0 {
+                report.add_warning(format!(
+                    "Layer {} power ({:.0}) exceeds nominal GRBL S1000 range.",
+                    layer.name, layer.power
+                ));
+            }
+        }
+
+        report
+    }
+
+    fn run_preflight(&mut self, source: &str, block_if_critical: bool) -> bool {
+        let report = self.build_preflight_report();
+        let critical = report.critical_count();
+        let warning = report.warning_count();
+        self.preflight_report = Some(report);
+        self.log(format!(
+            "Preflight ({source}): {critical} critical, {warning} warning."
+        ));
+
+        if block_if_critical && self.preflight_block_critical && critical > 0 {
+            self.show_error(format!(
+                "Preflight blocked launch: {critical} critical issue(s)."
+            ));
+            return false;
+        }
+        true
+    }
+
     fn enqueue_current_job(&mut self) -> Option<u64> {
         if self.program_lines.is_empty() {
             self.show_error("No loaded program to enqueue.".into());
@@ -1447,6 +1907,14 @@ impl All4LaserApp {
 
         let file = GCodeFile::from_lines(&job.name, &job.lines);
         self.set_loaded_file(file, job.lines.clone());
+        if !self.run_preflight("queue", true) {
+            self.job_queue_state
+                .record_failure(job.clone(), "Preflight blocked launch".into());
+            if self.job_queue_state.auto_run_next {
+                self.try_start_next_queued_job();
+            }
+            return;
+        }
         self.active_queue_job = Some(job.clone());
         self.run_program();
         self.log(format!("Queue start: #{} {}", job.id, job.name));
@@ -1512,6 +1980,40 @@ impl All4LaserApp {
             conn.send(cmd);
         } else {
             self.log("Not connected".to_string());
+        }
+    }
+
+    fn execute_macro_script(&mut self, macro_label: &str, gcode: &str) {
+        if !self.is_connected() {
+            self.show_error("Connect machine before running a macro.".into());
+            return;
+        }
+
+        let mut sent = 0usize;
+        let mut skipped = 0usize;
+        for raw_line in gcode.lines() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+                skipped += 1;
+                continue;
+            }
+            self.send_command(line);
+            sent += 1;
+        }
+
+        if sent == 0 {
+            self.show_error(format!(
+                "Macro '{macro_label}' has no executable command. Add at least one G-code line."
+            ));
+            return;
+        }
+
+        if skipped > 0 {
+            self.log(format!(
+                "Macro '{macro_label}' executed: {sent} command(s) sent ({skipped} line(s) skipped)."
+            ));
+        } else {
+            self.log(format!("Macro '{macro_label}' executed: {sent} command(s) sent."));
         }
     }
 
@@ -2140,6 +2642,12 @@ impl All4LaserApp {
                 if camera_action.stop_point_align {
                     self.stop_camera_point_align();
                 }
+                if camera_action.auto_detect_markers {
+                    self.auto_detect_camera_markers();
+                }
+                if camera_action.apply_detected_align {
+                    self.apply_detected_marker_align();
+                }
                 if self.camera_state.live_streaming
                     && self.camera_state.device_index != prev_cam_device_index
                 {
@@ -2150,6 +2658,12 @@ impl All4LaserApp {
                     self.stop_live_camera();
                     self.camera_state.texture = None;
                     self.camera_state.snapshot_path = None;
+                    self.camera_last_frame_rgba.clear();
+                    self.camera_last_frame_width = 0;
+                    self.camera_last_frame_height = 0;
+                    self.camera_state.detected_cross_world = None;
+                    self.camera_state.detected_circle_world = None;
+                    self.camera_state.detection_status = "No marker detection run yet.".to_string();
                     self.sync_settings();
                     self.log("Camera image cleared.".into());
                 }
@@ -2388,13 +2902,8 @@ impl All4LaserApp {
                 ui.add_space(6.0);
 
                 let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
-                if let Some(gcode) = macros_action.execute_macro {
-                    for line in gcode.lines() {
-                        let trimmed = line.trim();
-                        if !trimmed.is_empty() {
-                            self.send_command(trimmed);
-                        }
-                    }
+                if let Some(mac) = macros_action.execute_macro {
+                    self.execute_macro_script(&mac.label, &mac.gcode);
                 }
 
                 ui.add_space(6.0);
@@ -2675,9 +3184,63 @@ impl All4LaserApp {
                     ui.add_space(8.0);
                     // Macros
                     let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
-                    if let Some(gcode) = macros_action.execute_macro {
-                        for line in gcode.lines() { self.send_command(line.trim()); }
+                    if let Some(mac) = macros_action.execute_macro {
+                        self.execute_macro_script(&mac.label, &mac.gcode);
                     }
+
+                    ui.add_space(8.0);
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Preflight QA").color(theme::LAVENDER).strong());
+                            if ui.button("🧪 Run Preflight").clicked() {
+                                self.run_preflight("manual", false);
+                            }
+                        });
+                        ui.checkbox(
+                            &mut self.preflight_block_critical,
+                            "Block launch when critical issues are present",
+                        );
+
+                        if let Some(report) = &self.preflight_report {
+                            let critical = report.critical_count();
+                            let warning = report.warning_count();
+                            let head_color = if critical > 0 { theme::PEACH } else { theme::GREEN };
+                            ui.label(
+                                RichText::new(format!(
+                                    "Last report: {critical} critical, {warning} warning"
+                                ))
+                                .small()
+                                .color(head_color),
+                            );
+
+                            egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
+                                for issue in &report.issues {
+                                    let (icon, color) = match issue.severity {
+                                        PreflightSeverity::Critical => ("⛔", theme::RED),
+                                        PreflightSeverity::Warning => ("⚠", theme::PEACH),
+                                    };
+                                    ui.label(
+                                        RichText::new(format!("{icon} {}", issue.message))
+                                            .small()
+                                            .color(color),
+                                    );
+                                }
+                                if report.issues.is_empty() {
+                                    ui.label(
+                                        RichText::new("✅ No preflight issues detected.")
+                                            .small()
+                                            .color(theme::GREEN),
+                                    );
+                                }
+                            });
+                        } else {
+                            ui.label(
+                                RichText::new("No preflight report yet.")
+                                    .small()
+                                    .color(theme::SUBTEXT),
+                            );
+                        }
+                    });
                 }
             }
         });
@@ -3138,8 +3701,21 @@ impl eframe::App for All4LaserApp {
             if actions.open_file { self.open_file(); }
             if let Some(path) = actions.open_recent { self.load_file_path(&path); }
             if actions.save_file { self.save_file(); }
-            if actions.run_program { self.run_program(); }
+            if actions.run_program {
+                self.is_dry_run = false;
+                if self.run_preflight("run", true) {
+                    self.run_program();
+                }
+            }
             if actions.frame_bbox { self.frame_bbox(); }
+            if actions.dry_run {
+                self.is_dry_run = true;
+                if self.run_preflight("dry-run", true) {
+                    self.run_program();
+                } else {
+                    self.is_dry_run = false;
+                }
+            }
             if actions.abort_program { self.abort_program(); }
             if actions.hold {
                 self.send_realtime_or_warn(RealtimeCommand::FeedHold, "Feed hold");
@@ -3665,5 +4241,40 @@ mod tests {
 
         let warning = shape_fill_warning(&shape, &layers);
         assert_eq!(warning, None);
+    }
+
+    #[test]
+    fn normalized_segment_key_is_direction_agnostic() {
+        let a = normalized_segment_key((0.0, 0.0), (10.0, 5.0));
+        let b = normalized_segment_key((10.0, 5.0), (0.0, 0.0));
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn detect_cross_and_circle_markers_finds_two_components() {
+        let w = 80usize;
+        let h = 80usize;
+        let mut rgba = vec![255u8; w * h * 4];
+
+        let set_black = |buf: &mut [u8], x: usize, y: usize| {
+            let i = (y * w + x) * 4;
+            buf[i] = 0;
+            buf[i + 1] = 0;
+            buf[i + 2] = 0;
+            buf[i + 3] = 255;
+        };
+
+        for d in 0..9usize {
+            set_black(&mut rgba, 10 + d, 18);
+            set_black(&mut rgba, 14, 14 + d);
+        }
+        for y in 48..56usize {
+            for x in 52..60usize {
+                set_black(&mut rgba, x, y);
+            }
+        }
+
+        let markers = detect_cross_and_circle_markers(&rgba, w, h);
+        assert!(markers.is_some());
     }
 }

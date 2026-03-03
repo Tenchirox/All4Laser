@@ -54,7 +54,7 @@ impl MacrosState {
 }
 
 pub struct MacrosAction {
-    pub execute_macro: Option<String>,
+    pub execute_macro: Option<MacroDef>,
 }
 
 pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosAction {
@@ -86,9 +86,21 @@ pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosActi
                     });
                     ui.label("GCode (multiline):");
                     ui.text_edit_multiline(&mut state.edit_gcode);
+                    let has_executable = state
+                        .edit_gcode
+                        .lines()
+                        .map(str::trim)
+                        .any(|line| !line.is_empty() && !line.starts_with(';') && !line.starts_with('#'));
+                    if !has_executable {
+                        ui.label(RichText::new("Add at least one executable G-code line.").small().color(theme::SUBTEXT));
+                    }
                     ui.horizontal(|ui| {
-                        if ui.button(RichText::new("Save").color(theme::GREEN)).clicked() {
-                            state.items[i].label = state.edit_label.clone();
+                        let save_enabled = !state.edit_label.trim().is_empty() && has_executable;
+                        if ui
+                            .add_enabled(save_enabled, egui::Button::new(RichText::new("Save").color(theme::GREEN)))
+                            .clicked()
+                        {
+                            state.items[i].label = state.edit_label.trim().to_string();
                             state.items[i].gcode = state.edit_gcode.clone();
                             state.editing_idx = None;
                             state.save();
@@ -107,7 +119,10 @@ pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosActi
                 let mac_gcode = state.items[i].gcode.clone();
                 ui.horizontal(|ui| {
                     if ui.add_enabled(connected, egui::Button::new(&mac_label)).clicked() {
-                        action.execute_macro = Some(mac_gcode.clone());
+                        action.execute_macro = Some(MacroDef {
+                            label: mac_label.clone(),
+                            gcode: mac_gcode.clone(),
+                        });
                     }
                     if ui.button("✎").clicked() {
                         state.editing_idx = Some(i);

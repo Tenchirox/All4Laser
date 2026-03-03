@@ -15,7 +15,12 @@ pub fn list_camera_devices() -> Vec<CameraDeviceInfo> {
         list_linux_camera_devices()
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        list_windows_camera_devices()
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         Vec::new()
     }
@@ -45,10 +50,15 @@ impl CameraStream {
             start_linux(device_index)
         }
 
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
+        {
+            start_windows(device_index)
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
             let _ = device_index;
-            Err("Live camera is currently supported only on Linux builds.".to_string())
+            Err("Live camera is currently supported only on Linux and Windows builds.".to_string())
         }
     }
 
@@ -115,6 +125,34 @@ fn list_linux_camera_devices() -> Vec<CameraDeviceInfo> {
     devices
 }
 
+#[cfg(target_os = "windows")]
+fn list_windows_camera_devices() -> Vec<CameraDeviceInfo> {
+    use nokhwa::utils::CameraIndex;
+
+    let mut devices = Vec::new();
+    let infos = match nokhwa::query(nokhwa::utils::ApiBackend::MediaFoundation) {
+        Ok(infos) => infos,
+        Err(_) => return devices,
+    };
+
+    for info in infos {
+        let index = match info.index().clone() {
+            CameraIndex::Index(i) => i,
+            CameraIndex::String(_) => continue,
+        };
+        let label = info.human_name();
+        let label = if label.trim().is_empty() {
+            format!("Camera {index}")
+        } else {
+            label.to_string()
+        };
+        devices.push(CameraDeviceInfo { index, label });
+    }
+
+    devices.sort_by_key(|d| d.index);
+    devices
+}
+
 #[cfg(target_os = "linux")]
 fn start_linux(device_index: u32) -> Result<CameraStream, String> {
     let (frame_tx, frame_rx) = crossbeam_channel::bounded(2);
@@ -132,6 +170,90 @@ fn start_linux(device_index: u32) -> Result<CameraStream, String> {
         cmd_tx,
         worker: Some(worker),
     })
+}
+
+#[cfg(target_os = "windows")]
+fn start_windows(device_index: u32) -> Result<CameraStream, String> {
+    let (frame_tx, frame_rx) = crossbeam_channel::bounded(2);
+    let (error_tx, error_rx) = crossbeam_channel::bounded(8);
+    let (cmd_tx, cmd_rx) = crossbeam_channel::bounded(1);
+
+    let worker = thread::Builder::new()
+        .name(format!("camera-stream-{device_index}"))
+        .spawn(move || run_windows_capture(device_index, frame_tx, error_tx, cmd_rx))
+        .map_err(|e| e.to_string())?;
+
+    Ok(CameraStream {
+        frame_rx,
+        error_rx,
+        cmd_tx,
+        worker: Some(worker),
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn run_windows_capture(
+    device_index: u32,
+    frame_tx: Sender<CameraFrame>,
+    error_tx: Sender<String>,
+    cmd_rx: Receiver<CameraCommand>,
+) {
+    use nokhwa::Camera;
+    use nokhwa::pixel_format::RgbFormat;
+    use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
+
+    let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
+    let mut camera = match Camera::new(CameraIndex::Index(device_index), requested) {
+        Ok(cam) => cam,
+        Err(e) => {
+            let _ = error_tx.send(format!("Failed to initialize camera {device_index}: {e}"));
+            return;
+        }
+    };
+
+    if let Err(e) = camera.open_stream() {
+        let _ = error_tx.send(format!("Failed to open camera stream ({device_index}): {e}"));
+        return;
+    }
+
+    let mut sent_decode_error = false;
+    loop {
+        if let Ok(CameraCommand::Stop) = cmd_rx.try_recv() {
+            break;
+        }
+
+        let frame = match camera.frame() {
+            Ok(frame) => frame,
+            Err(e) => {
+                let _ = error_tx.send(format!("Camera read error ({device_index}): {e}"));
+                thread::sleep(Duration::from_millis(80));
+                continue;
+            }
+        };
+
+        match frame.decode_image::<RgbFormat>() {
+            Ok(rgb) => {
+                sent_decode_error = false;
+                let (width, height) = rgb.dimensions();
+                let rgba = rgb_to_rgba(rgb.as_raw());
+                push_latest_frame(
+                    &frame_tx,
+                    CameraFrame {
+                        width: width as usize,
+                        height: height as usize,
+                        rgba,
+                    },
+                );
+            }
+            Err(e) => {
+                if !sent_decode_error {
+                    let _ = error_tx.send(format!("Camera decode error ({device_index}): {e}"));
+                    sent_decode_error = true;
+                }
+                thread::sleep(Duration::from_millis(40));
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -241,13 +363,24 @@ fn configure_format(dev: &v4l::Device) -> Result<v4l::Format, String> {
     }
 }
 
-#[cfg(target_os = "linux")]
 fn push_latest_frame(frame_tx: &Sender<CameraFrame>, frame: CameraFrame) {
     match frame_tx.try_send(frame) {
         Ok(()) => {}
         Err(TrySendError::Full(_)) => {}
         Err(TrySendError::Disconnected(_)) => {}
     }
+}
+
+#[cfg(target_os = "windows")]
+fn rgb_to_rgba(rgb: &[u8]) -> Vec<u8> {
+    let mut rgba = Vec::with_capacity(rgb.len() / 3 * 4);
+    for px in rgb.chunks_exact(3) {
+        rgba.push(px[0]);
+        rgba.push(px[1]);
+        rgba.push(px[2]);
+        rgba.push(255);
+    }
+    rgba
 }
 
 #[cfg(target_os = "linux")]
