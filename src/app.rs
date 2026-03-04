@@ -421,10 +421,7 @@ pub struct All4LaserApp {
     controller_backend: Arc<dyn ControllerBackend>,
 
     // Job Transform
-    job_offset_x: f32,
-    job_offset_y: f32,
-    job_rotation: f32,
-    job_center: Option<egui::Pos2>,
+    job_transform: JobTransform,
 
     // Air Assist
     air_assist_on: bool,
@@ -516,14 +513,10 @@ pub struct All4LaserApp {
     project_notes: String,
 
     // Startup wizard (F43)
-    show_startup_wizard: bool,
-    wizard_step: u8,
+    wizard: WizardState,
 
     // Auto-save (F71)
-    last_autosave: Instant,
-    autosave_interval_secs: u64,
-    show_recovery_prompt: bool,
-    pending_recovery: Option<crate::config::project::ProjectFile>,
+    autosave: AutosaveState,
 
     // Timing
     last_poll: Instant,
@@ -574,10 +567,7 @@ impl All4LaserApp {
             machine_profile,
             profile_store,
             controller_backend,
-            job_offset_x: 0.0,
-            job_offset_y: 0.0,
-            job_rotation: 0.0,
-            job_center: None,
+            job_transform: JobTransform::default(),
             air_assist_on: false,
             notify_job_done: false,
             notify_sound_enabled: true,
@@ -626,12 +616,8 @@ impl All4LaserApp {
             preflight_block_critical: true,
             event_log: crate::config::event_log::EventLog::default(),
             project_notes: String::new(),
-            show_startup_wizard: false,
-            wizard_step: 0,
-            last_autosave: Instant::now(),
-            autosave_interval_secs: 60,
-            show_recovery_prompt: false,
-            pending_recovery: None,
+            wizard: WizardState::default(),
+            autosave: AutosaveState::default(),
         };
 
         // Apply loaded settings
@@ -659,14 +645,14 @@ impl All4LaserApp {
 
         // Check for recovery file (F71)
         if let Some(recovery) = crate::config::project::ProjectFile::load_recovery() {
-            app.pending_recovery = Some(recovery);
-            app.show_recovery_prompt = true;
+            app.autosave.pending_recovery = Some(recovery);
+            app.autosave.show_recovery_prompt = true;
         }
 
         // Startup wizard (F43)
         if !app.settings.first_run_done {
-            app.show_startup_wizard = true;
-            app.wizard_step = 0;
+            app.wizard.show = true;
+            app.wizard.step = 0;
         }
 
         crate::i18n::set_language(app.language);
@@ -683,9 +669,9 @@ impl All4LaserApp {
             } else {
                 None
             },
-            offset_x: self.job_offset_x,
-            offset_y: self.job_offset_y,
-            rotation_deg: self.job_rotation,
+            offset_x: self.job_transform.offset_x,
+            offset_y: self.job_transform.offset_y,
+            rotation_deg: self.job_transform.rotation,
             machine_profile: Some(self.machine_profile.clone()),
             camera_enabled: self.camera_state.enabled,
             camera_opacity: self.camera_state.opacity,
@@ -700,9 +686,9 @@ impl All4LaserApp {
     }
 
     fn apply_recovery(&mut self, recovery: crate::config::project::ProjectFile) {
-        self.job_offset_x = recovery.offset_x;
-        self.job_offset_y = recovery.offset_y;
-        self.job_rotation = recovery.rotation_deg;
+        self.job_transform.offset_x = recovery.offset_x;
+        self.job_transform.offset_y = recovery.offset_y;
+        self.job_transform.rotation = recovery.rotation_deg;
         if let Some(content) = recovery.gcode_content {
             let lines: Vec<String> = content.lines().map(String::from).collect();
             let name = recovery.gcode_path.as_deref().unwrap_or("recovered");
@@ -720,10 +706,10 @@ impl All4LaserApp {
     }
 
     fn perform_autosave(&mut self) {
-        if self.last_autosave.elapsed() < Duration::from_secs(self.autosave_interval_secs) {
+        if self.autosave.last_save.elapsed() < Duration::from_secs(self.autosave.interval_secs) {
             return;
         }
-        self.last_autosave = Instant::now();
+        self.autosave.last_save = Instant::now();
         if self.program_lines.is_empty() && self.drawing_state.shapes.is_empty() {
             return;
         }
@@ -986,10 +972,10 @@ impl All4LaserApp {
             let line_idx = self.program_index;
             self.program_index += 1;
 
-            let mut cmd = if let (Some(file), Some(center)) = (&self.loaded_file, self.job_center) {
+            let mut cmd = if let (Some(file), Some(center)) = (&self.loaded_file, self.job_transform.center) {
                 if let Some(parsed) = file.lines.get(line_idx) {
                     // Standard transform (offset/rotate)
-                    let transformed = parsed.transform(egui::vec2(self.job_offset_x, self.job_offset_y), self.job_rotation, center, 1.0);
+                    let transformed = parsed.transform(egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y), self.job_transform.rotation, center, 1.0);
 
                     // Apply Rotary transformation if enabled
                     if self.machine_profile.rotary_enabled {
@@ -1159,9 +1145,9 @@ impl All4LaserApp {
         self.program_index = 0;
         // Calculate job center for rotation
         if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
-            self.job_center = Some(egui::Pos2::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0));
+            self.job_transform.center = Some(egui::Pos2::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0));
         } else {
-            self.job_center = Some(egui::Pos2::ZERO);
+            self.job_transform.center = Some(egui::Pos2::ZERO);
         }
         
         self.loaded_file = Some(file);
@@ -1608,14 +1594,14 @@ impl All4LaserApp {
             center.y + dx * sin_a + dy * cos_a,
         );
 
-        self.job_rotation = rot;
-        self.job_offset_x = dst0.x - r0.x;
-        self.job_offset_y = dst0.y - r0.y;
+        self.job_transform.rotation = rot;
+        self.job_transform.offset_x = dst0.x - r0.x;
+        self.job_transform.offset_y = dst0.y - r0.y;
         self.needs_auto_fit = true;
 
         self.log(format!(
             "2-point align applied (offset X={:.2} Y={:.2}, rot={:.2}°).",
-            self.job_offset_x, self.job_offset_y, self.job_rotation
+            self.job_transform.offset_x, self.job_transform.offset_y, self.job_transform.rotation
         ));
         true
     }
@@ -1775,15 +1761,15 @@ impl All4LaserApp {
 
         let job_center = egui::Pos2::new((min_x + max_x) * 0.5, (min_y + max_y) * 0.5);
         let target = self.camera_overlay_center_world();
-        self.job_offset_x = target.x - job_center.x;
-        self.job_offset_y = target.y - job_center.y;
-        self.job_rotation = self.camera_state.calibration.rotation;
+        self.job_transform.offset_x = target.x - job_center.x;
+        self.job_transform.offset_y = target.y - job_center.y;
+        self.job_transform.rotation = self.camera_state.calibration.rotation;
         self.needs_auto_fit = true;
         self.sync_settings();
 
         self.log(format!(
             "Job aligned to camera overlay (offset X={:.2} Y={:.2}, rot={:.2}°).",
-            self.job_offset_x, self.job_offset_y, self.job_rotation
+            self.job_transform.offset_x, self.job_transform.offset_y, self.job_transform.rotation
         ));
     }
 
@@ -2740,19 +2726,19 @@ impl All4LaserApp {
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         ui.label("Offset X:");
-                        ui.add(egui::DragValue::new(&mut self.job_offset_x).speed(1.0).suffix(" mm"));
+                        ui.add(egui::DragValue::new(&mut self.job_transform.offset_x).speed(1.0).suffix(" mm"));
                         ui.label("Y:");
-                        ui.add(egui::DragValue::new(&mut self.job_offset_y).speed(1.0).suffix(" mm"));
+                        ui.add(egui::DragValue::new(&mut self.job_transform.offset_y).speed(1.0).suffix(" mm"));
                     });
                     ui.horizontal(|ui| {
                         ui.label("Rotation:");
-                        ui.add(egui::Slider::new(&mut self.job_rotation, -180.0..=180.0).suffix("°"));
+                        ui.add(egui::Slider::new(&mut self.job_transform.rotation, -180.0..=180.0).suffix("°"));
                         if ui
                             .button("Reset")
                             .on_hover_text("Reset job rotation to 0°")
                             .clicked()
                         {
-                            self.job_rotation = 0.0;
+                            self.job_transform.rotation = 0.0;
                         }
                     });
                     if ui.button("Center Job").clicked() {
@@ -2762,8 +2748,8 @@ impl All4LaserApp {
                                 let mid_y = (min_y + max_y) / 2.0;
                                 let wm_x = self.machine_profile.workspace_x_mm / 2.0;
                                 let wm_y = self.machine_profile.workspace_y_mm / 2.0;
-                                self.job_offset_x = wm_x - mid_x;
-                                self.job_offset_y = wm_y - mid_y;
+                                self.job_transform.offset_x = wm_x - mid_x;
+                                self.job_transform.offset_y = wm_y - mid_y;
                             }
                         }
                     }
@@ -3587,7 +3573,7 @@ impl eframe::App for All4LaserApp {
         self.perform_autosave();
 
         // Recovery prompt (F71)
-        if self.show_recovery_prompt {
+        if self.autosave.show_recovery_prompt {
             let mut restore = false;
             let mut discard = false;
             egui::Window::new("🔄 Session Recovery")
@@ -3607,27 +3593,27 @@ impl eframe::App for All4LaserApp {
                     });
                 });
             if restore {
-                if let Some(recovery) = self.pending_recovery.take() {
+                if let Some(recovery) = self.autosave.pending_recovery.take() {
                     self.apply_recovery(recovery);
                 }
-                self.show_recovery_prompt = false;
+                self.autosave.show_recovery_prompt = false;
             }
             if discard {
-                self.pending_recovery = None;
-                self.show_recovery_prompt = false;
+                self.autosave.pending_recovery = None;
+                self.autosave.show_recovery_prompt = false;
                 crate::config::project::ProjectFile::clear_recovery();
             }
         }
 
         // Startup wizard (F43)
-        if self.show_startup_wizard {
+        if self.wizard.show {
             let mut finish = false;
             egui::Window::new("🚀 Welcome to All4Laser")
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                 .show(ctx, |ui| {
-                    match self.wizard_step {
+                    match self.wizard.step {
                         0 => {
                             ui.label(egui::RichText::new("Step 1/3 — Language").size(16.0).strong());
                             ui.add_space(8.0);
@@ -3647,7 +3633,7 @@ impl eframe::App for All4LaserApp {
                                 }
                             }
                             ui.add_space(8.0);
-                            if ui.button("Next →").clicked() { self.wizard_step = 1; }
+                            if ui.button("Next →").clicked() { self.wizard.step = 1; }
                         }
                         1 => {
                             ui.label(egui::RichText::new("Step 2/3 — Machine Dimensions").size(16.0).strong());
@@ -3666,8 +3652,8 @@ impl eframe::App for All4LaserApp {
                             });
                             ui.add_space(8.0);
                             ui.horizontal(|ui| {
-                                if ui.button("← Back").clicked() { self.wizard_step = 0; }
-                                if ui.button("Next →").clicked() { self.wizard_step = 2; }
+                                if ui.button("← Back").clicked() { self.wizard.step = 0; }
+                                if ui.button("Next →").clicked() { self.wizard.step = 2; }
                             });
                         }
                         _ => {
@@ -3682,7 +3668,7 @@ impl eframe::App for All4LaserApp {
                             }
                             ui.add_space(8.0);
                             ui.horizontal(|ui| {
-                                if ui.button("← Back").clicked() { self.wizard_step = 1; }
+                                if ui.button("← Back").clicked() { self.wizard.step = 1; }
                                 if ui.button("✅ Finish").clicked() { finish = true; }
                             });
                         }
@@ -3691,7 +3677,7 @@ impl eframe::App for All4LaserApp {
                     if ui.small_button("Skip wizard").clicked() { finish = true; }
                 });
             if finish {
-                self.show_startup_wizard = false;
+                self.wizard.show = false;
                 self.settings.first_run_done = true;
                 // Save profile to store
                 if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
@@ -3710,8 +3696,8 @@ impl eframe::App for All4LaserApp {
         if self.needs_auto_fit {
             if let Some(file) = &self.loaded_file {
                 let rect = ctx.available_rect();
-                let offset = egui::vec2(self.job_offset_x, self.job_offset_y);
-                self.renderer.auto_fit(&file.segments, rect, offset, self.job_rotation);
+                let offset = egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y);
+                self.renderer.auto_fit(&file.segments, rect, offset, self.job_transform.rotation);
                 self.needs_auto_fit = false;
             }
         }
@@ -4234,9 +4220,9 @@ impl eframe::App for All4LaserApp {
                     let path_str = path.to_string_lossy().to_string();
                     match crate::config::project::ProjectFile::load(&path_str) {
                         Ok(proj) => {
-                            self.job_offset_x = proj.offset_x;
-                            self.job_offset_y = proj.offset_y;
-                            self.job_rotation = proj.rotation_deg;
+                            self.job_transform.offset_x = proj.offset_x;
+                            self.job_transform.offset_y = proj.offset_y;
+                            self.job_transform.rotation = proj.rotation_deg;
                             if let Some(mp) = proj.machine_profile {
                                 let previous_kind = self.machine_profile.controller_kind;
                                 self.machine_profile = mp;
@@ -4285,9 +4271,9 @@ impl eframe::App for All4LaserApp {
                         version: 1,
                         gcode_content: Some(self.program_lines.join("\n")),
                         gcode_path: None,
-                        offset_x: self.job_offset_x,
-                        offset_y: self.job_offset_y,
-                        rotation_deg: self.job_rotation,
+                        offset_x: self.job_transform.offset_x,
+                        offset_y: self.job_transform.offset_y,
+                        rotation_deg: self.job_transform.rotation,
                         machine_profile: Some(self.machine_profile.clone()),
                         camera_enabled: self.camera_state.enabled,
                         camera_opacity: self.camera_state.opacity,
@@ -4435,7 +4421,7 @@ impl eframe::App for All4LaserApp {
                 })
                 .unwrap_or_default();
 
-            let offset = egui::vec2(self.job_offset_x, self.job_offset_y);
+            let offset = egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y);
 
             let preview_action = ui::preview_panel::show(
                 ui, 
@@ -4445,7 +4431,7 @@ impl eframe::App for All4LaserApp {
                 &self.layers,
                 self.light_mode, 
                 offset, 
-                self.job_rotation,
+                self.job_transform.rotation,
                 &mut self.camera_state
             );
 
@@ -4455,7 +4441,7 @@ impl eframe::App for All4LaserApp {
                 if let Some(file) = self.loaded_file.as_ref() {
                     let segments = file.segments.clone();
                     let rect = ui.max_rect();
-                    self.renderer.auto_fit(&segments, rect, offset, self.job_rotation);
+                    self.renderer.auto_fit(&segments, rect, offset, self.job_transform.rotation);
                 }
             }
 
