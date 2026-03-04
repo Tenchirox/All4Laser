@@ -2609,212 +2609,7 @@ impl All4LaserApp {
                 });
 
                 ui.add_space(6.0);
-                let node_edit_text = if self.renderer.node_edit_mode { "✅ Node Editing" } else { "🖱 Node Editing" };
-                if ui.selectable_label(self.renderer.node_edit_mode, RichText::new(node_edit_text).color(theme::PEACH).strong()).clicked() {
-                    self.renderer.node_edit_mode = !self.renderer.node_edit_mode;
-                    if !self.renderer.node_edit_mode {
-                        self.renderer.selected_node = None;
-                        self.renderer.selected_nodes.clear();
-                    }
-                }
-
-                // Measure tool (F50)
-                let measure_text = if self.renderer.measure_mode { "✅ Measure" } else { "📏 Measure" };
-                if ui.selectable_label(self.renderer.measure_mode, RichText::new(measure_text).color(theme::TEAL).strong()).clicked() {
-                    self.renderer.measure_mode = !self.renderer.measure_mode;
-                    if !self.renderer.measure_mode {
-                        self.renderer.measure_start = None;
-                        self.renderer.measure_end = None;
-                    }
-                }
-                if self.renderer.measure_mode {
-                    if let (Some(s), Some(e)) = (self.renderer.measure_start, self.renderer.measure_end) {
-                        let dx = e.0 - s.0;
-                        let dy = e.1 - s.1;
-                        let dist = (dx * dx + dy * dy).sqrt();
-                        ui.label(RichText::new(format!("Distance: {dist:.2} mm")).color(theme::TEAL).small());
-                    } else {
-                        ui.label(RichText::new("Click two points on canvas to measure").small().color(theme::SUBTEXT));
-                    }
-                }
-
-                if self.renderer.node_edit_mode {
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(selection.len() >= 2, egui::Button::new("🔗 Join Paths"))
-                            .clicked()
-                        {
-                            self.push_node_undo_snapshot();
-                            match ui::vector_edit::join_selected_paths(&mut self.drawing_state, &selection) {
-                                Ok(new_idx) => {
-                                    self.renderer.selected_shape_idx.clear();
-                                    self.renderer.selected_shape_idx.insert(new_idx);
-                                    self.renderer.selected_node = None;
-                                    self.renderer.selected_nodes.clear();
-                                    self.regenerate_drawing_gcode();
-                                    self.log("Paths joined.".into());
-                                }
-                                Err(e) => self.log(format!("Join paths failed: {e}")),
-                            }
-                        }
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Node smooth:");
-                        ui.add(egui::Slider::new(&mut self.node_smooth_strength, 0.0..=1.0));
-                        ui.label("Corner strength:");
-                        ui.add(egui::Slider::new(&mut self.node_corner_strength, 0.0..=1.5));
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Simplify tol:");
-                        ui.add(egui::Slider::new(&mut self.path_simplify_tolerance, 0.01..=2.0));
-                        ui.label("Path smooth:");
-                        ui.add(egui::Slider::new(&mut self.path_smooth_strength, 0.0..=1.0));
-                        ui.label("iter:");
-                        ui.add(egui::DragValue::new(&mut self.path_smooth_iterations).range(1..=8));
-                    });
-
-                    if let Some((shape_idx, node_idx)) = self.renderer.selected_node {
-                        let mut selected_nodes: Vec<usize> = self
-                            .renderer
-                            .selected_nodes
-                            .iter()
-                            .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
-                            .collect();
-                        selected_nodes.sort_unstable();
-                        selected_nodes.dedup();
-                        if selected_nodes.is_empty() {
-                            selected_nodes.push(node_idx);
-                        }
-
-                        ui.horizontal(|ui| {
-                            if ui.button("➕ Node").on_hover_text("Insert midpoint after selected node").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::insert_midpoint_after(&mut self.drawing_state, shape_idx, node_idx) {
-                                    Ok(new_idx) => {
-                                        self.renderer.selected_node = Some((shape_idx, new_idx));
-                                        self.renderer.selected_nodes.clear();
-                                        self.renderer.selected_nodes.insert((shape_idx, new_idx));
-                                        self.regenerate_drawing_gcode();
-                                    }
-                                    Err(e) => self.log(format!("Insert node failed: {e}")),
-                                }
-                            }
-                            if ui.button("✂ Split").on_hover_text("Split path at selected node").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::split_path_at_node(&mut self.drawing_state, shape_idx, node_idx) {
-                                    Ok(other_idx) => {
-                                        self.renderer.selected_shape_idx.clear();
-                                        self.renderer.selected_shape_idx.insert(shape_idx);
-                                        self.renderer.selected_shape_idx.insert(other_idx);
-                                        self.renderer.selected_node = None;
-                                        self.renderer.selected_nodes.clear();
-                                        self.regenerate_drawing_gcode();
-                                    }
-                                    Err(e) => self.log(format!("Split path failed: {e}")),
-                                }
-                            }
-                            if ui.button("🧼 Smooth").on_hover_text("Soften selected node").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::smooth_nodes_weighted(
-                                    &mut self.drawing_state,
-                                    shape_idx,
-                                    &selected_nodes,
-                                    self.node_smooth_strength,
-                                ) {
-                                    Ok(()) => self.regenerate_drawing_gcode(),
-                                    Err(e) => self.log(format!("Smooth node failed: {e}")),
-                                }
-                            }
-                            if ui.button("📐 Corner").on_hover_text("Sharpen selected node").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::corner_nodes_weighted(
-                                    &mut self.drawing_state,
-                                    shape_idx,
-                                    &selected_nodes,
-                                    self.node_corner_strength,
-                                ) {
-                                    Ok(()) => self.regenerate_drawing_gcode(),
-                                    Err(e) => self.log(format!("Corner node failed: {e}")),
-                                }
-                            }
-                            if ui.button("🧹 Simplify").on_hover_text("Simplify path with quality guard").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::simplify_path(
-                                    &mut self.drawing_state,
-                                    shape_idx,
-                                    self.path_simplify_tolerance,
-                                ) {
-                                    Ok(removed) => {
-                                        self.regenerate_drawing_gcode();
-                                        self.log(format!("Path simplified: removed {removed} nodes."));
-                                    }
-                                    Err(e) => self.log(format!("Simplify path failed: {e}")),
-                                }
-                            }
-                            if ui.button("〰 Smooth Path").on_hover_text("Smooth entire path with iterations").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::smooth_path(
-                                    &mut self.drawing_state,
-                                    shape_idx,
-                                    self.path_smooth_iterations as usize,
-                                    self.path_smooth_strength,
-                                ) {
-                                    Ok(()) => self.regenerate_drawing_gcode(),
-                                    Err(e) => self.log(format!("Smooth path failed: {e}")),
-                                }
-                            }
-                            if ui.button("🗑 Delete Node").clicked() {
-                                self.push_node_undo_snapshot();
-                                let result = if selected_nodes.len() > 1 {
-                                    ui::vector_edit::delete_nodes(&mut self.drawing_state, shape_idx, &selected_nodes)
-                                } else {
-                                    ui::vector_edit::delete_node(&mut self.drawing_state, shape_idx, node_idx)
-                                };
-                                match result {
-                                    Ok(()) => {
-                                        self.renderer.selected_nodes.clear();
-                                        self.renderer.selected_node = Some((shape_idx, node_idx.saturating_sub(1)));
-                                        self.regenerate_drawing_gcode();
-                                    }
-                                    Err(e) => self.log(format!("Delete node failed: {e}")),
-                                }
-                            }
-                        });
-
-                        if selected_nodes.len() > 1 {
-                            ui.label(
-                                RichText::new(format!("{} nodes selected", selected_nodes.len()))
-                                    .small()
-                                    .color(theme::SUBTEXT),
-                            );
-                        }
-                    } else {
-                        ui.label(RichText::new("Node mode: click a node to edit, click a segment to add.").small().color(theme::SUBTEXT));
-                    }
-                }
-
-                if self.renderer.selected_shape_idx.len() == 1 {
-                    let idx = *self.renderer.selected_shape_idx.iter().next().unwrap();
-                    if let Some(shape) = self.drawing_state.shapes.get(idx) {
-                        if !matches!(shape.shape, ShapeKind::Path(_)) {
-                            if ui.button("🛤 Convert to Path").clicked() {
-                                if let Some(poly) = ui::offset::shape_to_polygon(shape) {
-                                    let exterior = poly.exterior();
-                                    let pts: Vec<(f32, f32)> = exterior.coords().map(|c| (c.x as f32, c.y as f32)).collect();
-                                    let mut new_shape = shape.clone();
-                                    new_shape.shape = ShapeKind::Path(pts);
-                                    new_shape.x = 0.0;
-                                    new_shape.y = 0.0;
-                                    self.drawing_state.shapes[idx] = new_shape;
-                                    self.log("Converted to path.".into());
-                                }
-                            }
-                        }
-                    }
-                }
+                self.ui_node_editing_tools(ui, &selection);
             });
 
         ui.add_space(6.0);
@@ -2830,6 +2625,215 @@ impl All4LaserApp {
                 .small()
                 .color(theme::SUBTEXT),
             );
+        }
+    }
+
+    fn ui_node_editing_tools(&mut self, ui: &mut egui::Ui, selection: &[usize]) {
+        let node_edit_text = if self.renderer.node_edit_mode { "✅ Node Editing" } else { "🖱 Node Editing" };
+        if ui.selectable_label(self.renderer.node_edit_mode, RichText::new(node_edit_text).color(theme::PEACH).strong()).clicked() {
+            self.renderer.node_edit_mode = !self.renderer.node_edit_mode;
+            if !self.renderer.node_edit_mode {
+                self.renderer.selected_node = None;
+                self.renderer.selected_nodes.clear();
+            }
+        }
+
+        // Measure tool (F50)
+        let measure_text = if self.renderer.measure_mode { "✅ Measure" } else { "📏 Measure" };
+        if ui.selectable_label(self.renderer.measure_mode, RichText::new(measure_text).color(theme::TEAL).strong()).clicked() {
+            self.renderer.measure_mode = !self.renderer.measure_mode;
+            if !self.renderer.measure_mode {
+                self.renderer.measure_start = None;
+                self.renderer.measure_end = None;
+            }
+        }
+        if self.renderer.measure_mode {
+            if let (Some(s), Some(e)) = (self.renderer.measure_start, self.renderer.measure_end) {
+                let dx = e.0 - s.0;
+                let dy = e.1 - s.1;
+                let dist = (dx * dx + dy * dy).sqrt();
+                ui.label(RichText::new(format!("Distance: {dist:.2} mm")).color(theme::TEAL).small());
+            } else {
+                ui.label(RichText::new("Click two points on canvas to measure").small().color(theme::SUBTEXT));
+            }
+        }
+
+        if self.renderer.node_edit_mode {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(selection.len() >= 2, egui::Button::new("🔗 Join Paths"))
+                    .clicked()
+                {
+                    self.push_node_undo_snapshot();
+                    match ui::vector_edit::join_selected_paths(&mut self.drawing_state, selection) {
+                        Ok(new_idx) => {
+                            self.renderer.selected_shape_idx.clear();
+                            self.renderer.selected_shape_idx.insert(new_idx);
+                            self.renderer.selected_node = None;
+                            self.renderer.selected_nodes.clear();
+                            self.regenerate_drawing_gcode();
+                            self.log("Paths joined.".into());
+                        }
+                        Err(e) => self.log(format!("Join paths failed: {e}")),
+                    }
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Node smooth:");
+                ui.add(egui::Slider::new(&mut self.node_smooth_strength, 0.0..=1.0));
+                ui.label("Corner strength:");
+                ui.add(egui::Slider::new(&mut self.node_corner_strength, 0.0..=1.5));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Simplify tol:");
+                ui.add(egui::Slider::new(&mut self.path_simplify_tolerance, 0.01..=2.0));
+                ui.label("Path smooth:");
+                ui.add(egui::Slider::new(&mut self.path_smooth_strength, 0.0..=1.0));
+                ui.label("iter:");
+                ui.add(egui::DragValue::new(&mut self.path_smooth_iterations).range(1..=8));
+            });
+
+            if let Some((shape_idx, node_idx)) = self.renderer.selected_node {
+                let mut selected_nodes: Vec<usize> = self
+                    .renderer
+                    .selected_nodes
+                    .iter()
+                    .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
+                    .collect();
+                selected_nodes.sort_unstable();
+                selected_nodes.dedup();
+                if selected_nodes.is_empty() {
+                    selected_nodes.push(node_idx);
+                }
+
+                ui.horizontal(|ui| {
+                    if ui.button("➕ Node").on_hover_text("Insert midpoint after selected node").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::insert_midpoint_after(&mut self.drawing_state, shape_idx, node_idx) {
+                            Ok(new_idx) => {
+                                self.renderer.selected_node = Some((shape_idx, new_idx));
+                                self.renderer.selected_nodes.clear();
+                                self.renderer.selected_nodes.insert((shape_idx, new_idx));
+                                self.regenerate_drawing_gcode();
+                            }
+                            Err(e) => self.log(format!("Insert node failed: {e}")),
+                        }
+                    }
+                    if ui.button("✂ Split").on_hover_text("Split path at selected node").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::split_path_at_node(&mut self.drawing_state, shape_idx, node_idx) {
+                            Ok(other_idx) => {
+                                self.renderer.selected_shape_idx.clear();
+                                self.renderer.selected_shape_idx.insert(shape_idx);
+                                self.renderer.selected_shape_idx.insert(other_idx);
+                                self.renderer.selected_node = None;
+                                self.renderer.selected_nodes.clear();
+                                self.regenerate_drawing_gcode();
+                            }
+                            Err(e) => self.log(format!("Split path failed: {e}")),
+                        }
+                    }
+                    if ui.button("🧼 Smooth").on_hover_text("Soften selected node").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::smooth_nodes_weighted(
+                            &mut self.drawing_state,
+                            shape_idx,
+                            &selected_nodes,
+                            self.node_smooth_strength,
+                        ) {
+                            Ok(()) => self.regenerate_drawing_gcode(),
+                            Err(e) => self.log(format!("Smooth node failed: {e}")),
+                        }
+                    }
+                    if ui.button("📐 Corner").on_hover_text("Sharpen selected node").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::corner_nodes_weighted(
+                            &mut self.drawing_state,
+                            shape_idx,
+                            &selected_nodes,
+                            self.node_corner_strength,
+                        ) {
+                            Ok(()) => self.regenerate_drawing_gcode(),
+                            Err(e) => self.log(format!("Corner node failed: {e}")),
+                        }
+                    }
+                    if ui.button("🧹 Simplify").on_hover_text("Simplify path with quality guard").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::simplify_path(
+                            &mut self.drawing_state,
+                            shape_idx,
+                            self.path_simplify_tolerance,
+                        ) {
+                            Ok(removed) => {
+                                self.regenerate_drawing_gcode();
+                                self.log(format!("Path simplified: removed {removed} nodes."));
+                            }
+                            Err(e) => self.log(format!("Simplify path failed: {e}")),
+                        }
+                    }
+                    if ui.button("〰 Smooth Path").on_hover_text("Smooth entire path with iterations").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::smooth_path(
+                            &mut self.drawing_state,
+                            shape_idx,
+                            self.path_smooth_iterations as usize,
+                            self.path_smooth_strength,
+                        ) {
+                            Ok(()) => self.regenerate_drawing_gcode(),
+                            Err(e) => self.log(format!("Smooth path failed: {e}")),
+                        }
+                    }
+                    if ui.button("🗑 Delete Node").clicked() {
+                        self.push_node_undo_snapshot();
+                        let result = if selected_nodes.len() > 1 {
+                            ui::vector_edit::delete_nodes(&mut self.drawing_state, shape_idx, &selected_nodes)
+                        } else {
+                            ui::vector_edit::delete_node(&mut self.drawing_state, shape_idx, node_idx)
+                        };
+                        match result {
+                            Ok(()) => {
+                                self.renderer.selected_nodes.clear();
+                                self.renderer.selected_node = Some((shape_idx, node_idx.saturating_sub(1)));
+                                self.regenerate_drawing_gcode();
+                            }
+                            Err(e) => self.log(format!("Delete node failed: {e}")),
+                        }
+                    }
+                });
+
+                if selected_nodes.len() > 1 {
+                    ui.label(
+                        RichText::new(format!("{} nodes selected", selected_nodes.len()))
+                            .small()
+                            .color(theme::SUBTEXT),
+                    );
+                }
+            } else {
+                ui.label(RichText::new("Node mode: click a node to edit, click a segment to add.").small().color(theme::SUBTEXT));
+            }
+        }
+
+        if self.renderer.selected_shape_idx.len() == 1 {
+            let idx = *self.renderer.selected_shape_idx.iter().next().unwrap();
+            if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                if !matches!(shape.shape, ShapeKind::Path(_)) {
+                    if ui.button("🛤 Convert to Path").clicked() {
+                        if let Some(poly) = ui::offset::shape_to_polygon(shape) {
+                            let exterior = poly.exterior();
+                            let pts: Vec<(f32, f32)> = exterior.coords().map(|c| (c.x as f32, c.y as f32)).collect();
+                            let mut new_shape = shape.clone();
+                            new_shape.shape = ShapeKind::Path(pts);
+                            new_shape.x = 0.0;
+                            new_shape.y = 0.0;
+                            self.drawing_state.shapes[idx] = new_shape;
+                            self.log("Converted to path.".into());
+                        }
+                    }
+                }
+            }
         }
     }
 
