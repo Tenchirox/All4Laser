@@ -32,6 +32,8 @@ fn default_ramp_length_mm() -> f32 { 5.0 }
 fn default_ramp_start_pct() -> f32 { 20.0 }
 fn default_exhaust_post_delay() -> f32 { 5.0 }
 fn default_pass_offset_mm() -> f32 { 0.0 }
+fn default_contour_count() -> u32 { 3 }
+fn default_contour_step() -> f32 { 0.5 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum FillPattern {
@@ -101,6 +103,14 @@ pub struct CutLayer {
     // Fill pattern (F85)
     #[serde(default)]
     pub fill_pattern: FillPattern,
+
+    // Multi-offset contour (F88)
+    #[serde(default)]
+    pub contour_offset_enabled: bool,
+    #[serde(default = "default_contour_count")]
+    pub contour_offset_count: u32,
+    #[serde(default = "default_contour_step")]
+    pub contour_offset_step_mm: f32,
 
     // Construction geometry (F103)
     #[serde(default)]
@@ -213,6 +223,9 @@ impl CutLayer {
                 perforation_cut_mm: 5.0,
                 perforation_gap_mm: 2.0,
                 fill_pattern: FillPattern::Horizontal,
+                contour_offset_enabled: false,
+                contour_offset_count: 3,
+                contour_offset_step_mm: 0.5,
                 is_construction: false,
                 pass_offset_mm: 0.0,
                 exhaust_enabled: false,

@@ -72,7 +72,7 @@ Statuts:
 - [ ] F63 — Import HPGL (.plt)
 - [x] F64 — Export GCode commenté / annoté
 - [x] F65 — Tooltips contextuels & aide intégrée
-- [ ] F66 — Thèmes utilisateur importables (JSON)
+- [x] F66 — Thèmes utilisateur importables (JSON)
 - [x] F67 — Journal d'événements machine (event log)
 - [x] F68 — Système de favoris / épingles
 - [ ] F69 — Texte sur chemin (text on path)
@@ -94,7 +94,7 @@ Statuts:
 - [x] F85 — Générateur de motifs (patterns fill)
 - [ ] F86 — Weld / Trim / Extend vecteurs
 - [ ] F87 — Gradient fill vectoriel
-- [ ] F88 — Contour multi-offset (relief en escalier)
+- [x] F88 — Contour multi-offset (relief en escalier)
 - [x] F89 — Raccourcis personnalisables par l'utilisateur
 - [x] F90 — Panneau de notes / annotations projet
 - [x] F91 — Comparateur de paramètres avant/après
@@ -1305,3 +1305,5 @@ Statuts:
 - 2026-03-04: F59 implémentée (détection collision workspace bounds dans preflight, alerte shapes hors zone).
 - 2026-03-04: F89 implémentée (custom_shortcuts HashMap dans AppSettings, 10 raccourcis par défaut persistants).
 - 2026-03-04: F91 implémentée (snapshot_layer + show_comparison dans CutSettingsState pour comparaison avant/après).
+- 2026-03-04: F66 implémentée (CustomTheme struct JSON importable/exportable, save/load/list dans themes/).
+- 2026-03-04: F88 implémentée (contour_offset_enabled/count/step_mm sur CutLayer pour relief en escalier).
