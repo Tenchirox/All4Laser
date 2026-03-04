@@ -3243,6 +3243,91 @@ impl All4LaserApp {
         });
     }
 
+    fn update_import_modal(&mut self, ctx: &egui::Context) {
+        if let Some(mut state) = self.import_state.take() {
+            if state.needs_texture_update {
+                if let ui::image_dialog::ImportType::Raster(base_img) = &state.import_type {
+                    let processed = imaging::raster::preprocess_image(base_img, &state.raster_params);
+                    let rgba = processed.to_rgba8();
+                    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                        [rgba.width() as _, rgba.height() as _],
+                        rgba.as_flat_samples().as_slice(),
+                    );
+                    state.texture = Some(ctx.load_texture(
+                        &state.filename,
+                        color_image,
+                        Default::default(),
+                    ));
+                    state.needs_texture_update = false;
+                }
+            }
+
+            let mut open = true;
+            let mut import_triggered = false;
+            let mut cancel_triggered = false;
+
+            egui::Window::new("Import Settings")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(true)
+                .default_width(600.0)
+                .show(ctx, |ui| {
+                    let res = ui::image_dialog::show(ui, &mut state);
+                    if res.imported { import_triggered = true; }
+                    if res.cancel { cancel_triggered = true; }
+                });
+
+            if !open || cancel_triggered {
+                self.import_state = None;
+            } else if import_triggered {
+                match &state.import_type {
+                    ui::image_dialog::ImportType::Raster(img) => {
+                        if state.vectorize {
+                            let mut vector_shapes = crate::imaging::tracing::trace_image(img, &state.raster_params);
+                            for shape in vector_shapes.iter_mut() {
+                                shape.layer_idx = self.active_layer_idx;
+                            }
+                            self.drawing_state.shapes.extend(vector_shapes);
+                        } else {
+                            let shape = crate::ui::drawing::ShapeParams {
+                                shape: crate::ui::drawing::ShapeKind::RasterImage {
+                                    data: crate::ui::drawing::ImageData(std::sync::Arc::new(img.clone())),
+                                    params: state.raster_params.clone(),
+                                },
+                                x: 0.0,
+                                y: 0.0,
+                                width: state.raster_params.width_mm,
+                                height: state.raster_params.height_mm,
+                                ..Default::default()
+                            };
+                            self.drawing_state.shapes.push(shape);
+                        }
+                        self.regenerate_drawing_gcode();
+                    }
+                    ui::image_dialog::ImportType::Svg(data) => {
+                        match imaging::svg::svg_to_paths(data, &state.svg_params) {
+                            Ok(paths) => {
+                                for (pts, layer_idx) in paths {
+                                    let shape = crate::ui::drawing::ShapeParams {
+                                        shape: crate::ui::drawing::ShapeKind::Path(pts),
+                                        layer_idx,
+                                        ..Default::default()
+                                    };
+                                    self.drawing_state.shapes.push(shape);
+                                }
+                                self.regenerate_drawing_gcode();
+                            }
+                            Err(e) => self.log(format!("SVG Conversion failed: {e}")),
+                        }
+                    }
+                }
+                self.import_state = None;
+            } else {
+                self.import_state = Some(state);
+            }
+        }
+    }
+
     fn update_tool_windows(&mut self, ctx: &egui::Context) {
         // === Power/Speed Test Window ===
         {
@@ -3583,94 +3668,8 @@ impl eframe::App for All4LaserApp {
         // Tool windows dispatch
         self.update_tool_windows(ctx);
 
-        // --- Handle Import Modal ---
-        if let Some(mut state) = self.import_state.take() {
-            // Lazy load or Refresh texture
-            if state.needs_texture_update {
-                if let ui::image_dialog::ImportType::Raster(base_img) = &state.import_type {
-                    // Apply adjustments for preview
-                    let processed = imaging::raster::preprocess_image(base_img, &state.raster_params);
-                    let rgba = processed.to_rgba8();
-                    let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                        [rgba.width() as _, rgba.height() as _],
-                        rgba.as_flat_samples().as_slice(),
-                    );
-                    state.texture = Some(ctx.load_texture(
-                        &state.filename,
-                        color_image,
-                        Default::default(),
-                    ));
-                    state.needs_texture_update = false;
-                }
-            }
-
-            let mut open = true;
-            let mut import_triggered = false;
-            let mut cancel_triggered = false;
-
-            egui::Window::new("Import Settings")
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(true)
-                .default_width(600.0)
-                .show(ctx, |ui| {
-                    let res = ui::image_dialog::show(ui, &mut state);
-                    if res.imported { import_triggered = true; }
-                    if res.cancel { cancel_triggered = true; }
-                });
-
-            if !open || cancel_triggered {
-                self.import_state = None;
-            } else if import_triggered {
-                match &state.import_type {
-                    ui::image_dialog::ImportType::Raster(img) => {
-                        if state.vectorize {
-                            let mut vector_shapes = crate::imaging::tracing::trace_image(img, &state.raster_params);
-                            // Ensure shapes are placed correctly
-                            for shape in vector_shapes.iter_mut() {
-                                shape.layer_idx = self.active_layer_idx;
-                            }
-                            self.drawing_state.shapes.extend(vector_shapes);
-                        } else {
-                            let shape = crate::ui::drawing::ShapeParams {
-                                shape: crate::ui::drawing::ShapeKind::RasterImage {
-                                    data: crate::ui::drawing::ImageData(std::sync::Arc::new(img.clone())),
-                                    params: state.raster_params.clone(),
-                                },
-                                x: 0.0,
-                                y: 0.0,
-                                width: state.raster_params.width_mm,
-                                height: state.raster_params.height_mm,
-                                ..Default::default()
-                            };
-                            self.drawing_state.shapes.push(shape);
-                        }
-
-                        self.regenerate_drawing_gcode();
-                    }
-                    ui::image_dialog::ImportType::Svg(data) => {
-                        match imaging::svg::svg_to_paths(data, &state.svg_params) {
-                            Ok(paths) => {
-                                for (pts, layer_idx) in paths {
-                                    let shape = crate::ui::drawing::ShapeParams {
-                                        shape: crate::ui::drawing::ShapeKind::Path(pts),
-                                        layer_idx,
-                                        ..Default::default()
-                                    };
-                                    self.drawing_state.shapes.push(shape);
-                                }
-                                self.regenerate_drawing_gcode();
-                            }
-                            Err(e) => self.log(format!("SVG Conversion failed: {e}")),
-                        }
-                    }
-                }
-                self.import_state = None;
-            } else {
-                // Keep it open
-                self.import_state = Some(state);
-            }
-        }
+        // Import modal
+        self.update_import_modal(ctx);
 
         // === Handle Cut Settings Modal ===
         {
