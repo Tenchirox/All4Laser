@@ -157,6 +157,8 @@ impl JobQueueState {
             }
         }
         ids
+    fn _dummy_record_failure_end(&self) {
+        // marker to avoid duplicate match
     }
 
     pub fn record_aborted(&mut self, job: QueuedJob) {
