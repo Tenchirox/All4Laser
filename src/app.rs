@@ -3243,6 +3243,58 @@ impl All4LaserApp {
         });
     }
 
+    fn update_modals(&mut self, ctx: &egui::Context) {
+        // === Handle Cut Settings Modal ===
+        {
+            let action = ui::cut_settings::show(
+                ctx,
+                &mut self.cut_settings_state,
+                &self.layers,
+                &self.drawing_state.shapes,
+            );
+            if let Some((idx, new_layer)) = action.apply {
+                if idx < self.layers.len() {
+                    self.layers[idx] = new_layer;
+                    if !self.drawing_state.shapes.is_empty() {
+                        self.regenerate_drawing_gcode();
+                    }
+                }
+            }
+        }
+
+        // === Handle Settings Modal ===
+        let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
+        let mut settings_write_blocked = false;
+        if let Some(state) = &mut self.settings_state {
+            ui::settings_dialog::show(ctx, state);
+            if !state.is_open {
+                self.settings_state = None;
+            } else {
+                if !state.pending_writes.is_empty() {
+                    if !supports_grbl_settings {
+                        settings_write_blocked = true;
+                        state.pending_writes.clear();
+                    } else {
+                        let writes = std::mem::take(&mut state.pending_writes);
+                        for (id, val) in writes {
+                            if id == -1 && val == "$$" {
+                                self.send_command("$$");
+                            } else {
+                                self.send_command(&format!("${}={}", id, val));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if settings_write_blocked {
+            self.log(format!(
+                "Settings write is not supported by {} backend.",
+                self.machine_profile.controller_kind.label()
+            ));
+        }
+    }
+
     fn update_import_modal(&mut self, ctx: &egui::Context) {
         if let Some(mut state) = self.import_state.take() {
             if state.needs_texture_update {
@@ -3671,56 +3723,8 @@ impl eframe::App for All4LaserApp {
         // Import modal
         self.update_import_modal(ctx);
 
-        // === Handle Cut Settings Modal ===
-        {
-            let action = ui::cut_settings::show(
-                ctx,
-                &mut self.cut_settings_state,
-                &self.layers,
-                &self.drawing_state.shapes,
-            );
-            if let Some((idx, new_layer)) = action.apply {
-                if idx < self.layers.len() {
-                    self.layers[idx] = new_layer;
-                    if !self.drawing_state.shapes.is_empty() {
-                        self.regenerate_drawing_gcode();
-                    }
-                }
-            }
-        }
-
-        // === Handle Settings Modal ===
-        let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
-        let mut settings_write_blocked = false;
-        if let Some(state) = &mut self.settings_state {
-            ui::settings_dialog::show(ctx, state);
-            if !state.is_open {
-                self.settings_state = None;
-            } else {
-                // If there are pending writes, send them
-                if !state.pending_writes.is_empty() {
-                    if !supports_grbl_settings {
-                        settings_write_blocked = true;
-                        state.pending_writes.clear();
-                    } else {
-                        let writes = std::mem::take(&mut state.pending_writes);
-                        for (id, val) in writes {
-                            if id == -1 && val == "$$" {
-                                self.send_command("$$"); // Refresh
-                            } else {
-                                self.send_command(&format!("${}={}", id, val));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if settings_write_blocked {
-            self.log(format!(
-                "Settings write is not supported by {} backend.",
-                self.machine_profile.controller_kind.label()
-            ));
-        }
+        // Modals dispatch (cut settings, GRBL settings)
+        self.update_modals(ctx);
 
         // === TOP: Toolbar ===
         let is_connected = self.is_connected();
