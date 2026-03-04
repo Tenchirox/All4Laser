@@ -39,6 +39,18 @@ pub struct MachineProfile {
     #[serde(default)]
     pub total_jobs_completed: u32,
 
+    // Axis calibration (F112)
+    #[serde(default = "default_steps_per_mm")]
+    pub steps_per_mm_x: f32,
+    #[serde(default = "default_steps_per_mm")]
+    pub steps_per_mm_y: f32,
+    #[serde(default)]
+    pub squareness_correction_deg: f32,
+    #[serde(default)]
+    pub backlash_x_mm: f32,
+    #[serde(default)]
+    pub backlash_y_mm: f32,
+
     // Interlock safety (F94)
     #[serde(default)]
     pub interlock_lid_enabled: bool,
@@ -56,6 +68,7 @@ fn default_controller_kind() -> ControllerKind {
 fn default_tube_life() -> f64 { 2000.0 }
 fn default_lens_clean_interval() -> u32 { 20 }
 fn default_belt_check_interval() -> u32 { 100 }
+fn default_steps_per_mm() -> f32 { 80.0 }
 
 impl Default for MachineProfile {
     fn default() -> Self {
@@ -81,6 +94,11 @@ impl Default for MachineProfile {
             maintenance_jobs_since_belt_check: 0,
             belt_check_interval_jobs: default_belt_check_interval(),
             total_jobs_completed: 0,
+            steps_per_mm_x: default_steps_per_mm(),
+            steps_per_mm_y: default_steps_per_mm(),
+            squareness_correction_deg: 0.0,
+            backlash_x_mm: 0.0,
+            backlash_y_mm: 0.0,
             interlock_lid_enabled: false,
             interlock_water_enabled: false,
             interlock_lid_pin: String::new(),

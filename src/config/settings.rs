@@ -81,6 +81,26 @@ pub struct AppSettings {
     // Custom shortcuts (F89)
     #[serde(default = "default_shortcuts")]
     pub custom_shortcuts: std::collections::HashMap<String, String>,
+    // Darkroom mode (F70)
+    #[serde(default)]
+    pub darkroom_mode: bool,
+    // Accessibility (F56)
+    #[serde(default)]
+    pub colorblind_mode: ColorblindMode,
+    #[serde(default)]
+    pub high_contrast: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ColorblindMode {
+    None,
+    Protanopia,
+    Deuteranopia,
+    Tritanopia,
+}
+
+impl Default for ColorblindMode {
+    fn default() -> Self { ColorblindMode::None }
 }
 
 fn default_theme() -> UiTheme { UiTheme::Modern }
@@ -127,6 +147,9 @@ impl Default for AppSettings {
             cost_per_m2: 0.0,
             cost_currency: "€".into(),
             custom_shortcuts: default_shortcuts(),
+            darkroom_mode: false,
+            colorblind_mode: ColorblindMode::None,
+            high_contrast: false,
         }
     }
 }

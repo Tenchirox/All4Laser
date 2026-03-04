@@ -203,6 +203,53 @@ impl JobTemplate {
     }
 }
 
+/// Project revision entry (F110)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ProjectRevision {
+    pub revision: u32,
+    pub timestamp: u64,
+    pub description: String,
+}
+
+/// Project version history (F110)
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ProjectHistory {
+    pub revisions: Vec<ProjectRevision>,
+}
+
+impl ProjectHistory {
+    fn history_path(project_path: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(project_path).with_extension("history.json")
+    }
+
+    pub fn save(&self, project_path: &str) -> Result<(), String> {
+        let path = Self::history_path(project_path);
+        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    pub fn load(project_path: &str) -> Self {
+        let path = Self::history_path(project_path);
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn add_revision(&mut self, description: &str) {
+        let rev = self.revisions.len() as u32 + 1;
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.revisions.push(ProjectRevision {
+            revision: rev,
+            timestamp: ts,
+            description: description.to_string(),
+        });
+    }
+}
+
 impl ProjectFile {
     pub fn save(path: &str, project: &ProjectFile) -> Result<(), String> {
         let json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;
