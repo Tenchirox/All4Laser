@@ -3295,6 +3295,184 @@ impl All4LaserApp {
         }
     }
 
+    fn handle_toolbar_actions(&mut self, ctx: &egui::Context, actions: ui::toolbar::ToolbarAction) {
+        let is_connected = self.is_connected();
+        if actions.connect_toggle {
+            if is_connected { self.disconnect(); } else { self.connect(); }
+        }
+        if actions.open_file { self.open_file(); }
+        if let Some(path) = actions.open_recent { self.load_file_path(&path); }
+        if actions.save_file { self.save_file(); }
+        if actions.save_file && !self.drawing_state.shapes.is_empty() {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("SVG", &["svg"])
+                .set_file_name("export.svg")
+                .save_file()
+            {
+                let svg = crate::ui::drawing::export_shapes_to_svg(
+                    &self.drawing_state.shapes,
+                    &self.layers,
+                );
+                match std::fs::write(&path, svg) {
+                    Ok(()) => self.log(format!("SVG exported: {}", path.display())),
+                    Err(e) => self.show_error(format!("SVG export failed: {e}")),
+                }
+            }
+        }
+        if actions.run_program {
+            self.is_dry_run = false;
+            if self.run_preflight("run", true) {
+                self.run_program();
+            }
+        }
+        if actions.frame_bbox { self.frame_bbox(); }
+        if actions.dry_run {
+            self.is_dry_run = true;
+            if self.run_preflight("dry-run", true) {
+                self.run_program();
+            } else {
+                self.is_dry_run = false;
+            }
+        }
+        if actions.abort_program { self.abort_program(); }
+        if actions.hold {
+            self.send_realtime_or_warn(RealtimeCommand::FeedHold, "Feed hold");
+        }
+        if actions.resume {
+            self.send_realtime_or_warn(RealtimeCommand::CycleStart, "Cycle start");
+        }
+        if actions.home { self.send_command("$H"); }
+        if actions.unlock { self.send_command("$X"); }
+        if actions.set_zero { self.send_command("G92X0Y0Z0"); }
+        if actions.reset {
+            self.send_realtime_or_warn(RealtimeCommand::Reset, "Reset");
+        }
+        if let Some(t) = actions.set_theme {
+            self.ui_theme = t;
+            self.apply_theme(ctx);
+            self.sync_settings();
+        }
+        if let Some(l) = actions.set_layout {
+            self.ui_layout = l;
+            self.sync_settings();
+        }
+        if let Some(lang) = actions.set_language {
+            self.language = lang;
+            crate::i18n::set_language(lang);
+            self.sync_settings();
+        }
+        if actions.toggle_light_mode {
+            self.light_mode = !self.light_mode;
+            self.apply_theme(ctx);
+            self.sync_settings();
+        }
+        if actions.toggle_beginner_mode {
+            self.beginner_mode = !self.beginner_mode;
+            self.sync_settings();
+        }
+        if actions.open_power_speed_test { self.power_speed_test.is_open = true; }
+        if actions.open_gcode_editor { self.gcode_editor.is_open = true; }
+        if actions.open_shortcuts { self.shortcuts.is_open = true; }
+        if actions.open_tiling { self.tiling.is_open = true; }
+        if actions.open_nesting { self.nesting_state.is_open = true; }
+        if actions.open_job_queue { self.job_queue_state.is_open = true; }
+        if actions.open_test_fire { self.test_fire.is_open = true; }
+        if actions.open_project { self.handle_open_project(ctx); }
+        if actions.save_project { self.handle_save_project(); }
+        if actions.open_settings {
+            if self.settings_state.is_none() {
+                let mut state = ui::settings_dialog::SettingsDialogState::default();
+                state.is_open = true;
+                state.pending_writes.push((-1, "$$".to_string()));
+                self.settings_state = Some(state);
+            }
+        }
+    }
+
+    fn handle_open_project(&mut self, ctx: &egui::Context) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("All4Laser Project", &["a4l"])
+            .pick_file()
+        {
+            let path_str = path.to_string_lossy().to_string();
+            match crate::config::project::ProjectFile::load(&path_str) {
+                Ok(proj) => {
+                    self.job_transform.offset_x = proj.offset_x;
+                    self.job_transform.offset_y = proj.offset_y;
+                    self.job_transform.rotation = proj.rotation_deg;
+                    if let Some(mp) = proj.machine_profile {
+                        let previous_kind = self.machine_profile.controller_kind;
+                        self.machine_profile = mp;
+                        self.apply_controller_kind_change(previous_kind);
+                    }
+                    self.camera_state.enabled = proj.camera_enabled;
+                    self.camera_state.opacity = proj.camera_opacity;
+                    self.camera_state.calibration = proj.camera_calibration;
+                    self.camera_state.device_index = proj.camera_device_index;
+                    self.camera_state.live_streaming = proj.camera_live_streaming;
+                    self.camera_state.snapshot_path = proj.camera_snapshot_path.clone();
+                    if let Some(preset_name) = proj.material_selected_preset.as_deref() {
+                        self.materials_state.select_preset_by_name(preset_name);
+                    }
+                    if self.camera_state.live_streaming {
+                        self.start_live_camera();
+                    } else if let Some(path) = proj.camera_snapshot_path {
+                        if self.load_camera_snapshot_from_path(ctx, &path).is_err() {
+                            self.camera_state.texture = None;
+                        }
+                    } else {
+                        self.camera_state.texture = None;
+                    }
+                    if let Some(gc_path) = proj.gcode_path {
+                        self.load_file_path(&gc_path);
+                    } else if let Some(content) = proj.gcode_content {
+                        let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+                        let file = GCodeFile::from_lines("project", &lines);
+                        self.set_loaded_file(file, lines);
+                    }
+                    self.sync_settings();
+                    self.log("Project loaded.".into());
+                }
+                Err(e) => self.show_error(format!("Project load failed: {e}")),
+            }
+        }
+    }
+
+    fn handle_save_project(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("All4Laser Project", &["a4l"])
+            .set_file_name("project.a4l")
+            .save_file()
+        {
+            let path_str = path.to_string_lossy().to_string();
+            let proj = crate::config::project::ProjectFile {
+                version: 1,
+                gcode_content: Some(self.program_lines.join("\n")),
+                gcode_path: None,
+                offset_x: self.job_transform.offset_x,
+                offset_y: self.job_transform.offset_y,
+                rotation_deg: self.job_transform.rotation,
+                machine_profile: Some(self.machine_profile.clone()),
+                camera_enabled: self.camera_state.enabled,
+                camera_opacity: self.camera_state.opacity,
+                camera_calibration: self.camera_state.calibration.clone(),
+                camera_snapshot_path: self.camera_state.snapshot_path.clone(),
+                camera_device_index: self.camera_state.device_index,
+                camera_live_streaming: self.camera_state.live_streaming,
+                material_selected_preset: self
+                    .materials_state
+                    .selected_preset_name()
+                    .map(str::to_string),
+                checkpoint_line: None,
+                project_notes: self.project_notes.clone(),
+            };
+            match crate::config::project::ProjectFile::save(&path_str, &proj) {
+                Ok(_) => self.log(format!("Project saved: {path_str}")),
+                Err(e) => self.show_error(format!("Project save failed: {e}")),
+            }
+        }
+    }
+
     fn update_import_modal(&mut self, ctx: &egui::Context) {
         if let Some(mut state) = self.import_state.take() {
             if state.needs_texture_update {
@@ -3750,192 +3928,7 @@ impl eframe::App for All4LaserApp {
             );
             ui.add_space(4.0);
 
-            if actions.connect_toggle {
-                if is_connected { self.disconnect(); } else { self.connect(); }
-            }
-            if actions.open_file { self.open_file(); }
-            if let Some(path) = actions.open_recent { self.load_file_path(&path); }
-            if actions.save_file { self.save_file(); }
-            // Export SVG (F54) — triggered from File > Save when shapes exist
-            if actions.save_file && !self.drawing_state.shapes.is_empty() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("SVG", &["svg"])
-                    .set_file_name("export.svg")
-                    .save_file()
-                {
-                    let svg = crate::ui::drawing::export_shapes_to_svg(
-                        &self.drawing_state.shapes,
-                        &self.layers,
-                    );
-                    match std::fs::write(&path, svg) {
-                        Ok(()) => self.log(format!("SVG exported: {}", path.display())),
-                        Err(e) => self.show_error(format!("SVG export failed: {e}")),
-                    }
-                }
-            }
-            if actions.run_program {
-                self.is_dry_run = false;
-                if self.run_preflight("run", true) {
-                    self.run_program();
-                }
-            }
-            if actions.frame_bbox { self.frame_bbox(); }
-            if actions.dry_run {
-                self.is_dry_run = true;
-                if self.run_preflight("dry-run", true) {
-                    self.run_program();
-                } else {
-                    self.is_dry_run = false;
-                }
-            }
-            if actions.abort_program { self.abort_program(); }
-            if actions.hold {
-                self.send_realtime_or_warn(RealtimeCommand::FeedHold, "Feed hold");
-            }
-            if actions.resume {
-                self.send_realtime_or_warn(RealtimeCommand::CycleStart, "Cycle start");
-            }
-            if actions.home { self.send_command("$H"); }
-            if actions.unlock { self.send_command("$X"); }
-            if actions.set_zero { self.send_command("G92X0Y0Z0"); }
-            if actions.reset {
-                self.send_realtime_or_warn(RealtimeCommand::Reset, "Reset");
-            }
-            if let Some(t) = actions.set_theme {
-                self.ui_theme = t;
-                self.apply_theme(ctx);
-                self.sync_settings();
-            }
-            if let Some(l) = actions.set_layout {
-                self.ui_layout = l;
-                self.sync_settings();
-            }
-            if let Some(lang) = actions.set_language {
-                self.language = lang;
-                crate::i18n::set_language(lang);
-                self.sync_settings();
-            }
-            if actions.toggle_light_mode {
-                self.light_mode = !self.light_mode;
-                self.apply_theme(ctx);
-                self.sync_settings();
-            }
-            if actions.toggle_beginner_mode {
-                self.beginner_mode = !self.beginner_mode;
-                self.sync_settings();
-            }
-            if actions.open_power_speed_test {
-                self.power_speed_test.is_open = true;
-            }
-            if actions.open_gcode_editor {
-                self.gcode_editor.is_open = true;
-            }
-            if actions.open_shortcuts {
-                self.shortcuts.is_open = true;
-            }
-            if actions.open_tiling {
-                self.tiling.is_open = true;
-            }
-            if actions.open_nesting {
-                self.nesting_state.is_open = true;
-            }
-            if actions.open_job_queue {
-                self.job_queue_state.is_open = true;
-            }
-            if actions.open_test_fire {
-                self.test_fire.is_open = true;
-            }
-            if actions.open_project {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("All4Laser Project", &["a4l"])
-                    .pick_file()
-                {
-                    let path_str = path.to_string_lossy().to_string();
-                    match crate::config::project::ProjectFile::load(&path_str) {
-                        Ok(proj) => {
-                            self.job_transform.offset_x = proj.offset_x;
-                            self.job_transform.offset_y = proj.offset_y;
-                            self.job_transform.rotation = proj.rotation_deg;
-                            if let Some(mp) = proj.machine_profile {
-                                let previous_kind = self.machine_profile.controller_kind;
-                                self.machine_profile = mp;
-                                self.apply_controller_kind_change(previous_kind);
-                            }
-                            self.camera_state.enabled = proj.camera_enabled;
-                            self.camera_state.opacity = proj.camera_opacity;
-                            self.camera_state.calibration = proj.camera_calibration;
-                            self.camera_state.device_index = proj.camera_device_index;
-                            self.camera_state.live_streaming = proj.camera_live_streaming;
-                            self.camera_state.snapshot_path = proj.camera_snapshot_path.clone();
-                            if let Some(preset_name) = proj.material_selected_preset.as_deref() {
-                                self.materials_state.select_preset_by_name(preset_name);
-                            }
-                            if self.camera_state.live_streaming {
-                                self.start_live_camera();
-                            } else if let Some(path) = proj.camera_snapshot_path {
-                                if self.load_camera_snapshot_from_path(ctx, &path).is_err() {
-                                    self.camera_state.texture = None;
-                                }
-                            } else {
-                                self.camera_state.texture = None;
-                            }
-                            if let Some(gc_path) = proj.gcode_path {
-                                self.load_file_path(&gc_path);
-                            } else if let Some(content) = proj.gcode_content {
-                                let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
-                                let file = GCodeFile::from_lines("project", &lines);
-                                self.set_loaded_file(file, lines);
-                            }
-                            self.sync_settings();
-                            self.log("Project loaded.".into());
-                        }
-                        Err(e) => self.show_error(format!("Project load failed: {e}")),
-                    }
-                }
-            }
-            if actions.save_project {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("All4Laser Project", &["a4l"])
-                    .set_file_name("project.a4l")
-                    .save_file()
-                {
-                    let path_str = path.to_string_lossy().to_string();
-                    let proj = crate::config::project::ProjectFile {
-                        version: 1,
-                        gcode_content: Some(self.program_lines.join("\n")),
-                        gcode_path: None,
-                        offset_x: self.job_transform.offset_x,
-                        offset_y: self.job_transform.offset_y,
-                        rotation_deg: self.job_transform.rotation,
-                        machine_profile: Some(self.machine_profile.clone()),
-                        camera_enabled: self.camera_state.enabled,
-                        camera_opacity: self.camera_state.opacity,
-                        camera_calibration: self.camera_state.calibration.clone(),
-                        camera_snapshot_path: self.camera_state.snapshot_path.clone(),
-                        camera_device_index: self.camera_state.device_index,
-                        camera_live_streaming: self.camera_state.live_streaming,
-                        material_selected_preset: self
-                            .materials_state
-                            .selected_preset_name()
-                            .map(str::to_string),
-                        checkpoint_line: None,
-                        project_notes: self.project_notes.clone(),
-                    };
-                    match crate::config::project::ProjectFile::save(&path_str, &proj) {
-                        Ok(_) => self.log(format!("Project saved: {path_str}")),
-                        Err(e) => self.show_error(format!("Project save failed: {e}")),
-                    }
-                }
-            }
-            if actions.open_settings {
-                if self.settings_state.is_none() {
-                    let mut state = ui::settings_dialog::SettingsDialogState::default();
-                    state.is_open = true;
-                    // Trigger a refresh automatically on open
-                    state.pending_writes.push((-1, "$$".to_string()));
-                    self.settings_state = Some(state);
-                }
-            }
+            self.handle_toolbar_actions(ctx, actions);
         });
 
         // === BOTTOM: Progress bar + Status bar ===
