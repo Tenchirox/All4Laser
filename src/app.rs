@@ -40,7 +40,6 @@ fn play_notification_sound() {
 }
 const STATUS_POLL_MS: u64 = 250;
 const LEFT_PANEL_WIDTH: f32 = 280.0;
-const MAX_NODE_HISTORY: usize = 128;
 
 #[derive(Debug, PartialEq, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum RightPanelTab {
@@ -1120,7 +1119,7 @@ impl All4LaserApp {
 
     fn push_node_undo_snapshot(&mut self) {
         self.node_undo_stack.push_back(self.capture_node_snapshot());
-        if self.node_undo_stack.len() > MAX_NODE_HISTORY {
+        if self.node_undo_stack.len() > crate::ui::node_edit::MAX_NODE_HISTORY {
             self.node_undo_stack.pop_front();
         }
         self.node_redo_stack.clear();
