@@ -3242,145 +3242,8 @@ impl All4LaserApp {
             }
         });
     }
-}
 
-impl eframe::App for All4LaserApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.poll_camera_stream(ctx);
-
-        // Poll serial
-        self.poll_serial();
-
-        // Handle keyboard shortcuts (only when no text input is focused)
-        if !ctx.wants_keyboard_input() {
-            self.handle_keyboard(ctx);
-        }
-
-        // Handle drag-and-drop
-        self.handle_file_drop(ctx);
-
-        // Auto-save (F71)
-        self.perform_autosave();
-
-        // Recovery prompt (F71)
-        if self.autosave.show_recovery_prompt {
-            let mut restore = false;
-            let mut discard = false;
-            egui::Window::new("🔄 Session Recovery")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    ui.label("A previous session was interrupted. Restore it?");
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("✅ Restore").clicked() {
-                            restore = true;
-                        }
-                        if ui.button("🗑 Discard").clicked() {
-                            discard = true;
-                        }
-                    });
-                });
-            if restore {
-                if let Some(recovery) = self.autosave.pending_recovery.take() {
-                    self.apply_recovery(recovery);
-                }
-                self.autosave.show_recovery_prompt = false;
-            }
-            if discard {
-                self.autosave.pending_recovery = None;
-                self.autosave.show_recovery_prompt = false;
-                crate::config::project::ProjectFile::clear_recovery();
-            }
-        }
-
-        // Startup wizard (F43)
-        {
-            let mut wctx = ui::wizard::WizardContext {
-                wizard: &mut self.wizard,
-                language: &mut self.language,
-                machine_profile: &mut self.machine_profile,
-            };
-            let wresult = ui::wizard::show_wizard(ctx, &mut wctx);
-            if wresult.controller_changed {
-                self.sync_controller_backend();
-            }
-            if wresult.finished {
-                self.settings.first_run_done = true;
-                if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
-                    *p = self.machine_profile.clone();
-                }
-                self.profile_store.save();
-                self.sync_settings();
-                self.log("Setup wizard completed.".into());
-            }
-        }
-
-        // Request repaint for live updates
-        ctx.request_repaint_after(Duration::from_millis(50));
-
-        // Auto-fit after file load
-        if self.needs_auto_fit {
-            if let Some(file) = &self.loaded_file {
-                let rect = ctx.available_rect();
-                let offset = egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y);
-                self.renderer.auto_fit(&file.segments, rect, offset, self.job_transform.rotation);
-                self.needs_auto_fit = false;
-            }
-        }
-
-        // Sync workspace size from machine profile to renderer
-        self.renderer.workspace_size = egui::vec2(
-            self.machine_profile.workspace_x_mm,
-            self.machine_profile.workspace_y_mm,
-        );
-
-        // === Error Notification ===
-        // We clone the error first to avoid borrowing `self` in the closure
-        let error_to_show = self.last_error.clone();
-        if let Some(err) = error_to_show {
-             let mut open = true;
-             egui::Window::new("❌ Error")
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    ui.label(egui::RichText::new(err).color(theme::RED));
-                    ui.add_space(8.0);
-                    if ui.button("OK").clicked() {
-                        self.last_error = None;
-                    }
-                });
-             if !open {
-                 self.last_error = None;
-             }
-        }
-
-        // === Job Done Notification ===
-        if self.notify_job_done {
-            egui::Window::new("✅ Job Complete")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    ui.label(egui::RichText::new("Program finished successfully!").size(16.0));
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.notify_sound_enabled, "🔔 Sound");
-                    });
-                    ui.add_space(4.0);
-                    if ui.button("OK").clicked() {
-                        self.notify_job_done = false;
-                    }
-                });
-            if self.notify_sound_enabled {
-                play_notification_sound();
-            }
-            self.notify_job_done = false;
-        }
-
+    fn update_tool_windows(&mut self, ctx: &egui::Context) {
         // === Power/Speed Test Window ===
         {
             let pst_action = ui::power_speed_test::show(ctx, &mut self.power_speed_test);
@@ -3395,7 +3258,6 @@ impl eframe::App for All4LaserApp {
             let ed_action = ui::gcode_editor::show(ctx, &mut self.gcode_editor);
             if let Some(lines) = ed_action.apply {
                 let file = GCodeFile::from_lines("edited", &lines);
-                // Don't re-sync editor text (it's the source)
                 self.log(format!("GCode editor applied ({} lines)", lines.len()));
                 self.program_lines = lines.clone();
                 self.program_index = 0;
@@ -3406,13 +3268,11 @@ impl eframe::App for All4LaserApp {
 
         // === Shortcuts Panel ===
         {
-            // Allow '?' on keyboard to open
             if !ctx.wants_keyboard_input() {
                 if ctx.input(|i| i.key_pressed(egui::Key::Questionmark)) {
                     self.shortcuts.is_open = true;
                 }
             }
-            // Render via Ui trick: pass a dummy Ui context using CentralPanel? No — use ctx wrapper
             egui::Area::new(egui::Id::new("shortcuts_area"))
                 .interactable(false)
                 .fixed_pos(egui::pos2(0.0, 0.0))
@@ -3580,6 +3440,148 @@ impl eframe::App for All4LaserApp {
                     }
                 });
         }
+    }
+}
+
+impl eframe::App for All4LaserApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_camera_stream(ctx);
+
+        // Poll serial
+        self.poll_serial();
+
+        // Handle keyboard shortcuts (only when no text input is focused)
+        if !ctx.wants_keyboard_input() {
+            self.handle_keyboard(ctx);
+        }
+
+        // Handle drag-and-drop
+        self.handle_file_drop(ctx);
+
+        // Auto-save (F71)
+        self.perform_autosave();
+
+        // Recovery prompt (F71)
+        if self.autosave.show_recovery_prompt {
+            let mut restore = false;
+            let mut discard = false;
+            egui::Window::new("🔄 Session Recovery")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.label("A previous session was interrupted. Restore it?");
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("✅ Restore").clicked() {
+                            restore = true;
+                        }
+                        if ui.button("🗑 Discard").clicked() {
+                            discard = true;
+                        }
+                    });
+                });
+            if restore {
+                if let Some(recovery) = self.autosave.pending_recovery.take() {
+                    self.apply_recovery(recovery);
+                }
+                self.autosave.show_recovery_prompt = false;
+            }
+            if discard {
+                self.autosave.pending_recovery = None;
+                self.autosave.show_recovery_prompt = false;
+                crate::config::project::ProjectFile::clear_recovery();
+            }
+        }
+
+        // Startup wizard (F43)
+        {
+            let mut wctx = ui::wizard::WizardContext {
+                wizard: &mut self.wizard,
+                language: &mut self.language,
+                machine_profile: &mut self.machine_profile,
+            };
+            let wresult = ui::wizard::show_wizard(ctx, &mut wctx);
+            if wresult.controller_changed {
+                self.sync_controller_backend();
+            }
+            if wresult.finished {
+                self.settings.first_run_done = true;
+                if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
+                    *p = self.machine_profile.clone();
+                }
+                self.profile_store.save();
+                self.sync_settings();
+                self.log("Setup wizard completed.".into());
+            }
+        }
+
+        // Request repaint for live updates
+        ctx.request_repaint_after(Duration::from_millis(50));
+
+        // Auto-fit after file load
+        if self.needs_auto_fit {
+            if let Some(file) = &self.loaded_file {
+                let rect = ctx.available_rect();
+                let offset = egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y);
+                self.renderer.auto_fit(&file.segments, rect, offset, self.job_transform.rotation);
+                self.needs_auto_fit = false;
+            }
+        }
+
+        // Sync workspace size from machine profile to renderer
+        self.renderer.workspace_size = egui::vec2(
+            self.machine_profile.workspace_x_mm,
+            self.machine_profile.workspace_y_mm,
+        );
+
+        // === Error Notification ===
+        // We clone the error first to avoid borrowing `self` in the closure
+        let error_to_show = self.last_error.clone();
+        if let Some(err) = error_to_show {
+             let mut open = true;
+             egui::Window::new("❌ Error")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.label(egui::RichText::new(err).color(theme::RED));
+                    ui.add_space(8.0);
+                    if ui.button("OK").clicked() {
+                        self.last_error = None;
+                    }
+                });
+             if !open {
+                 self.last_error = None;
+             }
+        }
+
+        // === Job Done Notification ===
+        if self.notify_job_done {
+            egui::Window::new("✅ Job Complete")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.label(egui::RichText::new("Program finished successfully!").size(16.0));
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.notify_sound_enabled, "🔔 Sound");
+                    });
+                    ui.add_space(4.0);
+                    if ui.button("OK").clicked() {
+                        self.notify_job_done = false;
+                    }
+                });
+            if self.notify_sound_enabled {
+                play_notification_sound();
+            }
+            self.notify_job_done = false;
+        }
+
+        // Tool windows dispatch
+        self.update_tool_windows(ctx);
 
         // --- Handle Import Modal ---
         if let Some(mut state) = self.import_state.take() {
