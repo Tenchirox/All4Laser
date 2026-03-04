@@ -3473,6 +3473,203 @@ impl All4LaserApp {
         }
     }
 
+    fn update_preview(&mut self, ctx: &egui::Context) {
+        CentralPanel::default().show(ctx, |ui| {
+            let segments = self.loaded_file
+                .as_ref()
+                .map(|f| {
+                    f.segments.iter()
+                        .filter(|seg| {
+                            f.layers.get(seg.layer_id).map(|l| l.visible).unwrap_or(true)
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            let offset = egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y);
+
+            let preview_action = ui::preview_panel::show(
+                ui,
+                &mut self.renderer,
+                &segments,
+                &self.drawing_state.shapes,
+                &self.layers,
+                self.light_mode,
+                offset,
+                self.job_transform.rotation,
+                &mut self.camera_state
+            );
+
+            if preview_action.zoom_in { self.renderer.zoom_in(); }
+            if preview_action.zoom_out { self.renderer.zoom_out(); }
+            if preview_action.auto_fit {
+                if let Some(file) = self.loaded_file.as_ref() {
+                    let segments = file.segments.clone();
+                    let rect = ui.max_rect();
+                    self.renderer.auto_fit(&segments, rect, offset, self.job_transform.rotation);
+                }
+            }
+
+            if !matches!(
+                preview_action.interactive_action,
+                crate::preview::renderer::InteractiveAction::MoveNode { .. }
+                    | crate::preview::renderer::InteractiveAction::MoveNodeHandle { .. }
+            ) {
+                self.node_move_undo_armed = true;
+            }
+
+            if !matches!(
+                preview_action.interactive_action,
+                crate::preview::renderer::InteractiveAction::DragSelection { .. }
+                    | crate::preview::renderer::InteractiveAction::RotateSelection { .. }
+            ) {
+                self.shape_transform_undo_armed = true;
+            }
+
+            self.handle_interactive_action(preview_action.interactive_action);
+
+            self.renderer.machine_pos = egui::Pos2::new(
+                self.grbl_state.wpos.x,
+                self.grbl_state.wpos.y,
+            );
+        });
+    }
+
+    fn handle_interactive_action(&mut self, action: crate::preview::renderer::InteractiveAction) {
+        use crate::preview::renderer::InteractiveAction;
+        match action {
+            InteractiveAction::SelectShape(idx, _is_multi) => {
+                if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                    self.drawing_state.current = shape.clone();
+                }
+            }
+            InteractiveAction::Deselect => {}
+            InteractiveAction::DragSelection { delta } => {
+                if self.shape_transform_undo_armed {
+                    self.push_node_undo_snapshot();
+                    self.shape_transform_undo_armed = false;
+                }
+                for &idx in &self.renderer.selected_shape_idx {
+                    if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
+                        shape.x += delta.x;
+                        shape.y += delta.y;
+                    }
+                }
+                self.regenerate_drawing_gcode();
+            }
+            InteractiveAction::RotateSelection { shape_idx, delta_deg } => {
+                if self.shape_transform_undo_armed {
+                    self.push_node_undo_snapshot();
+                    self.shape_transform_undo_armed = false;
+                }
+                if let Some(shape) = self.drawing_state.shapes.get_mut(shape_idx) {
+                    let local_center = shape.local_center();
+                    let (old_cx, old_cy) = shape.world_pos(local_center.0, local_center.1);
+                    shape.rotation += delta_deg;
+                    shape.rotation = (shape.rotation + 360.0) % 360.0;
+                    let (new_cx, new_cy) = shape.world_pos(local_center.0, local_center.1);
+                    shape.x += old_cx - new_cx;
+                    shape.y += old_cy - new_cy;
+                    self.regenerate_drawing_gcode();
+                }
+            }
+            InteractiveAction::MoveNode { shape_idx, node_idx, new_pos } => {
+                if self.node_move_undo_armed {
+                    self.push_node_undo_snapshot();
+                    self.node_move_undo_armed = false;
+                }
+                if let Some(shape_ro) = self.drawing_state.shapes.get(shape_idx) {
+                    if let ShapeKind::Path(pts_ro) = &shape_ro.shape {
+                        if let Some(p0) = pts_ro.get(node_idx) {
+                            let (cur_wx, cur_wy) = shape_ro.world_pos(p0.0, p0.1);
+                            let dx = new_pos.x - cur_wx;
+                            let dy = new_pos.y - cur_wy;
+                            let angle = shape_ro.rotation.to_radians();
+                            let (sin_a, cos_a) = angle.sin_cos();
+                            let dlx = dx * cos_a + dy * sin_a;
+                            let dly = -dx * sin_a + dy * cos_a;
+
+                            let mut selected_nodes: Vec<usize> = self
+                                .renderer
+                                .selected_nodes
+                                .iter()
+                                .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
+                                .collect();
+                            selected_nodes.sort_unstable();
+                            selected_nodes.dedup();
+                            if selected_nodes.is_empty() {
+                                selected_nodes.push(node_idx);
+                            }
+
+                            if let Some(shape_rw) = self.drawing_state.shapes.get_mut(shape_idx) {
+                                if let ShapeKind::Path(pts_rw) = &mut shape_rw.shape {
+                                    for idx in selected_nodes {
+                                        if let Some(p) = pts_rw.get_mut(idx) {
+                                            p.0 += dlx;
+                                            p.1 += dly;
+                                        }
+                                    }
+                                }
+                            }
+                            self.regenerate_drawing_gcode();
+                        }
+                    }
+                }
+            }
+            InteractiveAction::MoveNodeHandle { shape_idx, node_idx, handle, new_pos } => {
+                if self.node_move_undo_armed {
+                    self.push_node_undo_snapshot();
+                    self.node_move_undo_armed = false;
+                }
+                if let Some(shape_ro) = self.drawing_state.shapes.get(shape_idx) {
+                    let (lx, ly) = Self::world_to_shape_local(shape_ro, new_pos.x, new_pos.y);
+                    if let Some(shape_rw) = self.drawing_state.shapes.get_mut(shape_idx) {
+                        if let ShapeKind::Path(pts) = &mut shape_rw.shape {
+                            let target_idx = match handle {
+                                crate::preview::renderer::NodeHandleKind::In => node_idx.saturating_sub(1),
+                                crate::preview::renderer::NodeHandleKind::Out => node_idx.saturating_add(1),
+                            };
+                            if target_idx < pts.len() {
+                                if let Some(p) = pts.get_mut(target_idx) {
+                                    p.0 = lx;
+                                    p.1 = ly;
+                                    self.regenerate_drawing_gcode();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            InteractiveAction::AddNode { shape_idx, insert_after, new_pos } => {
+                self.push_node_undo_snapshot();
+                if let Some(shape) = self.drawing_state.shapes.get(shape_idx) {
+                    let (lx, ly) = Self::world_to_shape_local(shape, new_pos.x, new_pos.y);
+                    match ui::vector_edit::insert_node_on_segment(
+                        &mut self.drawing_state,
+                        shape_idx,
+                        insert_after,
+                        (lx, ly),
+                    ) {
+                        Ok(insert_idx) => {
+                            self.renderer.selected_shape_idx.clear();
+                            self.renderer.selected_shape_idx.insert(shape_idx);
+                            self.renderer.selected_node = Some((shape_idx, insert_idx));
+                            self.renderer.selected_nodes.clear();
+                            self.renderer.selected_nodes.insert((shape_idx, insert_idx));
+                            self.regenerate_drawing_gcode();
+                        }
+                        Err(e) => self.log(format!("Add node failed: {e}")),
+                    }
+                }
+            }
+            InteractiveAction::CameraPickPoint(pos) => {
+                self.handle_camera_pick_point(pos);
+            }
+            _ => {}
+        }
+    }
+
     fn update_import_modal(&mut self, ctx: &egui::Context) {
         if let Some(mut state) = self.import_state.take() {
             if state.needs_texture_update {
@@ -4033,213 +4230,7 @@ impl eframe::App for All4LaserApp {
         });
 
         // === CENTER: Preview ===
-        CentralPanel::default().show(ctx, |ui| {
-            let segments = self.loaded_file
-                .as_ref()
-                .map(|f| {
-                    // Filter segments by layer visibility
-                    f.segments.iter()
-                        .filter(|seg| {
-                            f.layers.get(seg.layer_id).map(|l| l.visible).unwrap_or(true)
-                        })
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-
-            let offset = egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y);
-
-            let preview_action = ui::preview_panel::show(
-                ui, 
-                &mut self.renderer, 
-                &segments,
-                &self.drawing_state.shapes,
-                &self.layers,
-                self.light_mode, 
-                offset, 
-                self.job_transform.rotation,
-                &mut self.camera_state
-            );
-
-            if preview_action.zoom_in { self.renderer.zoom_in(); }
-            if preview_action.zoom_out { self.renderer.zoom_out(); }
-            if preview_action.auto_fit {
-                if let Some(file) = self.loaded_file.as_ref() {
-                    let segments = file.segments.clone();
-                    let rect = ui.max_rect();
-                    self.renderer.auto_fit(&segments, rect, offset, self.job_transform.rotation);
-                }
-            }
-
-            if !matches!(
-                preview_action.interactive_action,
-                crate::preview::renderer::InteractiveAction::MoveNode { .. }
-                    | crate::preview::renderer::InteractiveAction::MoveNodeHandle { .. }
-            ) {
-                self.node_move_undo_armed = true;
-            }
-
-            if !matches!(
-                preview_action.interactive_action,
-                crate::preview::renderer::InteractiveAction::DragSelection { .. }
-                    | crate::preview::renderer::InteractiveAction::RotateSelection { .. }
-            ) {
-                self.shape_transform_undo_armed = true;
-            }
-
-            // Handle Interaction from Preview
-            match preview_action.interactive_action {
-                crate::preview::renderer::InteractiveAction::SelectShape(idx, _is_multi) => {
-                    // Update drawing tool to reflect selection (of the most recently clicked)
-                    if let Some(shape) = self.drawing_state.shapes.get(idx) {
-                        self.drawing_state.current = shape.clone();
-                    }
-                }
-                crate::preview::renderer::InteractiveAction::Deselect => {
-                    // Selection cleared in renderer, app doesn't need to do much
-                }
-                crate::preview::renderer::InteractiveAction::DragSelection { delta } => {
-                    if self.shape_transform_undo_armed {
-                        self.push_node_undo_snapshot();
-                        self.shape_transform_undo_armed = false;
-                    }
-                    // Iterate over all selected shapes in renderer
-                    for &idx in &self.renderer.selected_shape_idx {
-                        if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
-                            shape.x += delta.x;
-                            shape.y += delta.y;
-                        }
-                    }
-
-                    // Trigger Live Update
-                    self.regenerate_drawing_gcode();
-                }
-                crate::preview::renderer::InteractiveAction::RotateSelection { shape_idx, delta_deg } => {
-                    if self.shape_transform_undo_armed {
-                        self.push_node_undo_snapshot();
-                        self.shape_transform_undo_armed = false;
-                    }
-                    if let Some(shape) = self.drawing_state.shapes.get_mut(shape_idx) {
-                        // 1. Get current world center
-                        let local_center = shape.local_center();
-                        let (old_cx, old_cy) = shape.world_pos(local_center.0, local_center.1);
-
-                        // 2. Apply rotation
-                        shape.rotation += delta_deg;
-                        // Normalize 0-360
-                        shape.rotation = (shape.rotation + 360.0) % 360.0;
-
-                        // 3. Get new world center if (x,y) stayed same
-                        let (new_cx, new_cy) = shape.world_pos(local_center.0, local_center.1);
-
-                        // 4. Adjust (x,y) to keep center at (old_cx, old_cy)
-                        shape.x += old_cx - new_cx;
-                        shape.y += old_cy - new_cy;
-                        
-                        self.regenerate_drawing_gcode();
-                    }
-                }
-                crate::preview::renderer::InteractiveAction::MoveNode { shape_idx, node_idx, new_pos } => {
-                    if self.node_move_undo_armed {
-                        self.push_node_undo_snapshot();
-                        self.node_move_undo_armed = false;
-                    }
-                    if let Some(shape_ro) = self.drawing_state.shapes.get(shape_idx) {
-                        if let ShapeKind::Path(pts_ro) = &shape_ro.shape {
-                            if let Some(p0) = pts_ro.get(node_idx) {
-                                let (cur_wx, cur_wy) = shape_ro.world_pos(p0.0, p0.1);
-                                let dx = new_pos.x - cur_wx;
-                                let dy = new_pos.y - cur_wy;
-                                let angle = shape_ro.rotation.to_radians();
-                                let (sin_a, cos_a) = angle.sin_cos();
-                                let dlx = dx * cos_a + dy * sin_a;
-                                let dly = -dx * sin_a + dy * cos_a;
-
-                                let mut selected_nodes: Vec<usize> = self
-                                    .renderer
-                                    .selected_nodes
-                                    .iter()
-                                    .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
-                                    .collect();
-                                selected_nodes.sort_unstable();
-                                selected_nodes.dedup();
-                                if selected_nodes.is_empty() {
-                                    selected_nodes.push(node_idx);
-                                }
-
-                                if let Some(shape_rw) = self.drawing_state.shapes.get_mut(shape_idx) {
-                                    if let ShapeKind::Path(pts_rw) = &mut shape_rw.shape {
-                                        for idx in selected_nodes {
-                                            if let Some(p) = pts_rw.get_mut(idx) {
-                                                p.0 += dlx;
-                                                p.1 += dly;
-                                            }
-                                        }
-                                    }
-                                }
-                                self.regenerate_drawing_gcode();
-                            }
-                        }
-                    }
-                }
-                crate::preview::renderer::InteractiveAction::MoveNodeHandle { shape_idx, node_idx, handle, new_pos } => {
-                    if self.node_move_undo_armed {
-                        self.push_node_undo_snapshot();
-                        self.node_move_undo_armed = false;
-                    }
-                    if let Some(shape_ro) = self.drawing_state.shapes.get(shape_idx) {
-                        let (lx, ly) = Self::world_to_shape_local(shape_ro, new_pos.x, new_pos.y);
-                        if let Some(shape_rw) = self.drawing_state.shapes.get_mut(shape_idx) {
-                            if let ShapeKind::Path(pts) = &mut shape_rw.shape {
-                                let target_idx = match handle {
-                                    crate::preview::renderer::NodeHandleKind::In => node_idx.saturating_sub(1),
-                                    crate::preview::renderer::NodeHandleKind::Out => node_idx.saturating_add(1),
-                                };
-                                if target_idx < pts.len() {
-                                    if let Some(p) = pts.get_mut(target_idx) {
-                                        p.0 = lx;
-                                        p.1 = ly;
-                                        self.regenerate_drawing_gcode();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                crate::preview::renderer::InteractiveAction::AddNode { shape_idx, insert_after, new_pos } => {
-                    self.push_node_undo_snapshot();
-                    if let Some(shape) = self.drawing_state.shapes.get(shape_idx) {
-                        let (lx, ly) = Self::world_to_shape_local(shape, new_pos.x, new_pos.y);
-                        match ui::vector_edit::insert_node_on_segment(
-                            &mut self.drawing_state,
-                            shape_idx,
-                            insert_after,
-                            (lx, ly),
-                        ) {
-                            Ok(insert_idx) => {
-                                self.renderer.selected_shape_idx.clear();
-                                self.renderer.selected_shape_idx.insert(shape_idx);
-                                self.renderer.selected_node = Some((shape_idx, insert_idx));
-                                self.renderer.selected_nodes.clear();
-                                self.renderer.selected_nodes.insert((shape_idx, insert_idx));
-                                self.regenerate_drawing_gcode();
-                            }
-                            Err(e) => self.log(format!("Add node failed: {e}")),
-                        }
-                    }
-                }
-                crate::preview::renderer::InteractiveAction::CameraPickPoint(pos) => {
-                    self.handle_camera_pick_point(pos);
-                }
-                _ => {}
-            }
-
-            // Update machine position in preview
-            self.renderer.machine_pos = egui::Pos2::new(
-                self.grbl_state.wpos.x,
-                self.grbl_state.wpos.y,
-            );
-        });
+        self.update_preview(ctx);
     }
 }
 
