@@ -1,4 +1,5 @@
 use egui::{Ui, RichText};
+use crate::config::settings::DisplayUnit;
 use crate::controller::ControllerCapabilities;
 use crate::grbl::types::{GrblState, MacStatus};
 use crate::theme;
@@ -11,6 +12,7 @@ pub struct StatusBarAction {
     pub rapid_down: bool,
     pub spindle_up: bool,
     pub spindle_down: bool,
+    pub toggle_unit: bool,
 }
 
 impl Default for StatusBarAction {
@@ -19,6 +21,7 @@ impl Default for StatusBarAction {
             feed_up: false, feed_down: false,
             rapid_up: false, rapid_down: false,
             spindle_up: false, spindle_down: false,
+            toggle_unit: false,
         }
     }
 }
@@ -29,6 +32,8 @@ pub fn show(
     file_info: Option<(&str, usize, Duration)>,
     progress: Option<(usize, usize)>,
     caps: ControllerCapabilities,
+    display_unit: DisplayUnit,
+    cost_estimate: Option<(f32, &str)>,
 ) -> StatusBarAction {
     let mut action = StatusBarAction::default();
 
@@ -100,8 +105,21 @@ pub fn show(
             action.spindle_down = true;
         }
 
+        ui.separator();
+
+        // Unit toggle (F96)
+        let unit_label = display_unit.label();
+        if ui.small_button(unit_label).on_hover_text("Toggle mm / inches").clicked() {
+            action.toggle_unit = true;
+        }
+
         // File info on the right
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if let Some((cost, currency)) = cost_estimate {
+                if cost > 0.0 {
+                    ui.label(RichText::new(format!("~{cost:.2}{currency}")).color(theme::GREEN).size(11.0));
+                }
+            }
             if let Some((filename, lines, est)) = file_info {
                 let time_str = format_duration(est);
                 ui.label(RichText::new(format!("{filename} | {lines} lines | ~{time_str}")).color(theme::SUBTEXT).size(11.0));

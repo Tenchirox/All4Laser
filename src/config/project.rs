@@ -33,6 +33,10 @@ pub struct ProjectFile {
     pub camera_live_streaming: bool,
     #[serde(default)]
     pub material_selected_preset: Option<String>,
+    #[serde(default)]
+    pub checkpoint_line: Option<usize>,
+    #[serde(default)]
+    pub project_notes: String,
 }
 
 fn default_camera_opacity() -> f32 { 0.5 }
@@ -46,6 +50,39 @@ impl ProjectFile {
     pub fn load(path: &str) -> Result<ProjectFile, String> {
         let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&data).map_err(|e| e.to_string())
+    }
+
+    /// Path to the auto-save recovery file (F71)
+    pub fn recovery_path() -> std::path::PathBuf {
+        std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("autosave.a4l.recovery")
+    }
+
+    /// Save recovery snapshot (called periodically)
+    pub fn save_recovery(project: &ProjectFile) {
+        let path = Self::recovery_path();
+        if let Ok(json) = serde_json::to_string(project) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+
+    /// Try loading a recovery file (called on startup)
+    pub fn load_recovery() -> Option<ProjectFile> {
+        let path = Self::recovery_path();
+        if !path.exists() {
+            return None;
+        }
+        let data = std::fs::read_to_string(&path).ok()?;
+        serde_json::from_str(&data).ok()
+    }
+
+    /// Delete the recovery file (called after successful load or explicit save)
+    pub fn clear_recovery() {
+        let path = Self::recovery_path();
+        let _ = std::fs::remove_file(path);
     }
 }
 

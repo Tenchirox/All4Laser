@@ -4,6 +4,41 @@ use crate::i18n::Language;
 use crate::app::RightPanelTab;
 use crate::ui::camera::CameraCalibration;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DisplayUnit {
+    Millimeters,
+    Inches,
+}
+
+impl Default for DisplayUnit {
+    fn default() -> Self { DisplayUnit::Millimeters }
+}
+
+impl DisplayUnit {
+    pub fn label(self) -> &'static str {
+        match self {
+            DisplayUnit::Millimeters => "mm",
+            DisplayUnit::Inches => "in",
+        }
+    }
+
+    /// Convert mm to display unit
+    pub fn from_mm(self, mm: f32) -> f32 {
+        match self {
+            DisplayUnit::Millimeters => mm,
+            DisplayUnit::Inches => mm / 25.4,
+        }
+    }
+
+    /// Convert display unit back to mm
+    pub fn to_mm(self, val: f32) -> f32 {
+        match self {
+            DisplayUnit::Millimeters => val,
+            DisplayUnit::Inches => val * 25.4,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(default = "default_theme")]
@@ -32,6 +67,17 @@ pub struct AppSettings {
     pub camera_live_streaming: bool,
     #[serde(default)]
     pub material_selected_preset: Option<String>,
+    #[serde(default)]
+    pub display_unit: DisplayUnit,
+    #[serde(default)]
+    pub first_run_done: bool,
+    // Cost estimation (F17)
+    #[serde(default = "default_cost_per_hour")]
+    pub cost_per_hour: f32,
+    #[serde(default)]
+    pub cost_per_m2: f32,
+    #[serde(default)]
+    pub cost_currency: String,
 }
 
 fn default_theme() -> UiTheme { UiTheme::Modern }
@@ -40,6 +86,7 @@ fn default_light_mode() -> bool { true }
 fn default_beginner_mode() -> bool { true }
 fn default_active_tab() -> RightPanelTab { RightPanelTab::Art }
 fn default_camera_opacity() -> f32 { 0.5 }
+fn default_cost_per_hour() -> f32 { 15.0 }
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -57,6 +104,11 @@ impl Default for AppSettings {
             camera_device_index: 0,
             camera_live_streaming: false,
             material_selected_preset: None,
+            display_unit: DisplayUnit::Millimeters,
+            first_run_done: false,
+            cost_per_hour: default_cost_per_hour(),
+            cost_per_m2: 0.0,
+            cost_currency: "€".into(),
         }
     }
 }

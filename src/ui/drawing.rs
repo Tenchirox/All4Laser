@@ -98,6 +98,180 @@ impl Default for ShapeParams {
     }
 }
 
+/// Bounding box of a shape in world coordinates (F39 helper)
+fn shape_world_bounds(s: &ShapeParams) -> (f32, f32, f32, f32) {
+    match &s.shape {
+        ShapeKind::Rectangle => {
+            let corners = [(0.0, 0.0), (s.width, 0.0), (s.width, s.height), (0.0, s.height)];
+            let world: Vec<(f32, f32)> = corners.iter().map(|&(lx, ly)| s.world_pos(lx, ly)).collect();
+            let min_x = world.iter().map(|p| p.0).fold(f32::MAX, f32::min);
+            let max_x = world.iter().map(|p| p.0).fold(f32::MIN, f32::max);
+            let min_y = world.iter().map(|p| p.1).fold(f32::MAX, f32::min);
+            let max_y = world.iter().map(|p| p.1).fold(f32::MIN, f32::max);
+            (min_x, min_y, max_x, max_y)
+        }
+        ShapeKind::Circle => (s.x - s.radius, s.y - s.radius, s.x + s.radius, s.y + s.radius),
+        ShapeKind::Path(pts) => {
+            let mut min_x = f32::MAX; let mut max_x = f32::MIN;
+            let mut min_y = f32::MAX; let mut max_y = f32::MIN;
+            for p in pts {
+                let (wx, wy) = s.world_pos(p.0, p.1);
+                min_x = min_x.min(wx); max_x = max_x.max(wx);
+                min_y = min_y.min(wy); max_y = max_y.max(wy);
+            }
+            if min_x > max_x { return (s.x, s.y, s.x, s.y); }
+            (min_x, min_y, max_x, max_y)
+        }
+        _ => {
+            let (cx, cy) = s.local_center();
+            let (wx, wy) = s.world_pos(cx, cy);
+            (wx - 5.0, wy - 5.0, wx + 5.0, wy + 5.0)
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AlignOp {
+    Left, Right, Top, Bottom, CenterH, CenterV, DistributeH, DistributeV,
+}
+
+/// Align/distribute selected shapes (F39)
+pub fn align_shapes(shapes: &mut [ShapeParams], selection: &[usize], op: AlignOp) {
+    if selection.len() < 2 && !matches!(op, AlignOp::Left | AlignOp::Right | AlignOp::Top | AlignOp::Bottom | AlignOp::CenterH | AlignOp::CenterV) {
+        return;
+    }
+    if selection.is_empty() { return; }
+
+    let bounds: Vec<(usize, f32, f32, f32, f32)> = selection.iter()
+        .filter_map(|&i| shapes.get(i).map(|s| { let b = shape_world_bounds(s); (i, b.0, b.1, b.2, b.3) }))
+        .collect();
+    if bounds.is_empty() { return; }
+
+    match op {
+        AlignOp::Left => {
+            let target = bounds.iter().map(|b| b.1).fold(f32::MAX, f32::min);
+            for &(i, min_x, _, _, _) in &bounds {
+                shapes[i].x += target - min_x;
+            }
+        }
+        AlignOp::Right => {
+            let target = bounds.iter().map(|b| b.3).fold(f32::MIN, f32::max);
+            for &(i, _, _, max_x, _) in &bounds {
+                shapes[i].x += target - max_x;
+            }
+        }
+        AlignOp::Top => {
+            let target = bounds.iter().map(|b| b.1 + 0.0).fold(f32::MAX, f32::min);
+            let target_y = bounds.iter().map(|b| b.2).fold(f32::MAX, f32::min);
+            for &(i, _, min_y, _, _) in &bounds {
+                shapes[i].y += target_y - min_y;
+            }
+        }
+        AlignOp::Bottom => {
+            let target = bounds.iter().map(|b| b.4).fold(f32::MIN, f32::max);
+            for &(i, _, _, _, max_y) in &bounds {
+                shapes[i].y += target - max_y;
+            }
+        }
+        AlignOp::CenterH => {
+            let sum: f32 = bounds.iter().map(|b| (b.1 + b.3) / 2.0).sum();
+            let center = sum / bounds.len() as f32;
+            for &(i, min_x, _, max_x, _) in &bounds {
+                let cx = (min_x + max_x) / 2.0;
+                shapes[i].x += center - cx;
+            }
+        }
+        AlignOp::CenterV => {
+            let sum: f32 = bounds.iter().map(|b| (b.2 + b.4) / 2.0).sum();
+            let center = sum / bounds.len() as f32;
+            for &(i, _, min_y, _, max_y) in &bounds {
+                let cy = (min_y + max_y) / 2.0;
+                shapes[i].y += center - cy;
+            }
+        }
+        AlignOp::DistributeH => {
+            if bounds.len() < 3 { return; }
+            let mut sorted = bounds.clone();
+            sorted.sort_by(|a, b| ((a.1 + a.3) / 2.0).partial_cmp(&((b.1 + b.3) / 2.0)).unwrap());
+            let first_cx = (sorted[0].1 + sorted[0].3) / 2.0;
+            let last_cx = (sorted.last().unwrap().1 + sorted.last().unwrap().3) / 2.0;
+            let step = (last_cx - first_cx) / (sorted.len() - 1) as f32;
+            for (j, &(i, min_x, _, max_x, _)) in sorted.iter().enumerate() {
+                let cx = (min_x + max_x) / 2.0;
+                let target = first_cx + step * j as f32;
+                shapes[i].x += target - cx;
+            }
+        }
+        AlignOp::DistributeV => {
+            if bounds.len() < 3 { return; }
+            let mut sorted = bounds.clone();
+            sorted.sort_by(|a, b| ((a.2 + a.4) / 2.0).partial_cmp(&((b.2 + b.4) / 2.0)).unwrap());
+            let first_cy = (sorted[0].2 + sorted[0].4) / 2.0;
+            let last_cy = (sorted.last().unwrap().2 + sorted.last().unwrap().4) / 2.0;
+            let step = (last_cy - first_cy) / (sorted.len() - 1) as f32;
+            for (j, &(i, _, min_y, _, max_y)) in sorted.iter().enumerate() {
+                let cy = (min_y + max_y) / 2.0;
+                let target = first_cy + step * j as f32;
+                shapes[i].y += target - cy;
+            }
+        }
+    }
+}
+
+/// Export shapes to SVG string (F54)
+pub fn export_shapes_to_svg(shapes: &[ShapeParams], layers: &[CutLayer]) -> String {
+    if shapes.is_empty() {
+        return String::from(r#"<?xml version="1.0" encoding="UTF-8"?><svg xmlns="http://www.w3.org/2000/svg"/>"#);
+    }
+    // Compute global bounds
+    let mut gmin_x = f32::MAX; let mut gmin_y = f32::MAX;
+    let mut gmax_x = f32::MIN; let mut gmax_y = f32::MIN;
+    for s in shapes {
+        let (a, b, c, d) = shape_world_bounds(s);
+        gmin_x = gmin_x.min(a); gmin_y = gmin_y.min(b);
+        gmax_x = gmax_x.max(c); gmax_y = gmax_y.max(d);
+    }
+    let w = (gmax_x - gmin_x).max(1.0);
+    let h = (gmax_y - gmin_y).max(1.0);
+
+    let mut svg = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="{w:.3}mm" height="{h:.3}mm" viewBox="{} {} {w:.3} {h:.3}">
+"#, gmin_x, gmin_y
+    );
+
+    for s in shapes {
+        let color = layers.get(s.layer_idx).map(|l| l.color).unwrap_or(egui::Color32::BLACK);
+        let hex = format!("#{:02x}{:02x}{:02x}", color.r(), color.g(), color.b());
+        match &s.shape {
+            ShapeKind::Rectangle => {
+                let pts = [(0.0,0.0),(s.width,0.0),(s.width,s.height),(0.0,s.height),(0.0,0.0)];
+                let d: Vec<String> = pts.iter().enumerate().map(|(i,(lx,ly))| {
+                    let (wx,wy) = s.world_pos(*lx,*ly);
+                    if i==0 { format!("M{wx:.3},{wy:.3}") } else { format!("L{wx:.3},{wy:.3}") }
+                }).collect();
+                svg += &format!(r#"  <path d="{}" fill="none" stroke="{hex}" stroke-width="0.1"/>"#, d.join(" "));
+                svg += "\n";
+            }
+            ShapeKind::Circle => {
+                svg += &format!(r#"  <circle cx="{:.3}" cy="{:.3}" r="{:.3}" fill="none" stroke="{hex}" stroke-width="0.1"/>"#, s.x, s.y, s.radius);
+                svg += "\n";
+            }
+            ShapeKind::Path(pts) if pts.len() >= 2 => {
+                let d: Vec<String> = pts.iter().enumerate().map(|(i,p)| {
+                    let (wx,wy) = s.world_pos(p.0,p.1);
+                    if i==0 { format!("M{wx:.3},{wy:.3}") } else { format!("L{wx:.3},{wy:.3}") }
+                }).collect();
+                svg += &format!(r#"  <path d="{}" fill="none" stroke="{hex}" stroke-width="0.1"/>"#, d.join(" "));
+                svg += "\n";
+            }
+            _ => {}
+        }
+    }
+    svg += "</svg>\n";
+    svg
+}
+
 pub struct DrawingState {
     pub current: ShapeParams,
     pub shapes: Vec<ShapeParams>,
@@ -230,6 +404,7 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
     builder.comment("Compiled Drawing — All4Laser");
     builder.raw("G90");
     builder.raw("G21");
+    builder.comment("");
 
     // Create a default layer fallback once, outside the loop
     let default_layer = if !layers.is_empty() {
@@ -273,7 +448,10 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
             continue;
         }
 
-        builder.comment(&format!("Layer C{:02} ({})", layer.id, layer.name));
+        builder.comment(&format!("Layer C{:02} ({}) — Speed:{:.0} Power:{:.0} Passes:{} Mode:{:?}{}",
+            layer.id, layer.name, layer.speed, layer.power, layer.passes, layer.mode,
+            if layer.air_assist { " AirAssist:ON" } else { "" }
+        ));
 
         // Apply Z-offset if needed (simple implementation: move Z before layer start)
         if layer.z_offset != 0.0 {
@@ -282,6 +460,9 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
 
         if layer.air_assist {
             builder.raw("M8");
+        }
+        if layer.exhaust_enabled {
+            builder.raw("M7"); // Exhaust fan on (F77)
         }
 
         for pass in 0..layer.passes {
@@ -319,6 +500,13 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
         }
 
         if layer.air_assist {
+            builder.raw("M9");
+        }
+        if layer.exhaust_enabled && layer.exhaust_post_delay_s > 0.0 {
+            builder.comment(&format!("Exhaust post-delay {:.1}s", layer.exhaust_post_delay_s));
+            builder.raw(&format!("G4 P{:.1}", layer.exhaust_post_delay_s));
+            builder.raw("M9"); // Exhaust off after delay (F77)
+        } else if layer.exhaust_enabled {
             builder.raw("M9");
         }
     }
