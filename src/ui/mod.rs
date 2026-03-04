@@ -29,3 +29,4 @@ pub mod circular_array;
 pub mod offset;
 pub mod boolean_ops;
 pub mod vector_edit;
+pub mod preflight;

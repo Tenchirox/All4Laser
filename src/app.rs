@@ -52,68 +52,7 @@ pub enum RightPanelTab {
     Notes,
 }
 
-type SegmentKey = ((i32, i32), (i32, i32));
-
-fn quantize_mm(v: f32) -> i32 {
-    (v * 100.0).round() as i32
-}
-
-fn normalized_segment_key(a: (f32, f32), b: (f32, f32)) -> SegmentKey {
-    let qa = (quantize_mm(a.0), quantize_mm(a.1));
-    let qb = (quantize_mm(b.0), quantize_mm(b.1));
-    if qa <= qb {
-        (qa, qb)
-    } else {
-        (qb, qa)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PreflightSeverity {
-    Critical,
-    Warning,
-}
-
-#[derive(Clone, Debug)]
-struct PreflightIssue {
-    severity: PreflightSeverity,
-    message: String,
-}
-
-#[derive(Clone, Debug, Default)]
-struct PreflightReport {
-    issues: Vec<PreflightIssue>,
-}
-
-impl PreflightReport {
-    fn add_critical(&mut self, message: impl Into<String>) {
-        self.issues.push(PreflightIssue {
-            severity: PreflightSeverity::Critical,
-            message: message.into(),
-        });
-    }
-
-    fn add_warning(&mut self, message: impl Into<String>) {
-        self.issues.push(PreflightIssue {
-            severity: PreflightSeverity::Warning,
-            message: message.into(),
-        });
-    }
-
-    fn critical_count(&self) -> usize {
-        self.issues
-            .iter()
-            .filter(|i| i.severity == PreflightSeverity::Critical)
-            .count()
-    }
-
-    fn warning_count(&self) -> usize {
-        self.issues
-            .iter()
-            .filter(|i| i.severity == PreflightSeverity::Warning)
-            .count()
-    }
-}
+use crate::ui::preflight::{PreflightReport, PreflightSeverity, PreflightContext};
 
 #[derive(Clone, Copy, Debug)]
 struct MarkerComponent {
@@ -489,7 +428,7 @@ pub struct All4LaserApp {
     preflight_block_critical: bool,
 
     // Event log (F67)
-    event_log: Vec<String>,
+    event_log: crate::config::event_log::EventLog,
 
     // Project notes (F90)
     project_notes: String,
@@ -603,7 +542,7 @@ impl All4LaserApp {
             settings: AppSettings::load(),
             preflight_report: None,
             preflight_block_critical: true,
-            event_log: Self::load_event_log(),
+            event_log: crate::config::event_log::EventLog::default(),
             project_notes: String::new(),
             show_startup_wizard: false,
             wizard_step: 0,
@@ -727,7 +666,7 @@ impl All4LaserApp {
         self.settings.material_selected_preset =
             self.materials_state.selected_preset_name().map(str::to_string);
         self.settings.save();
-        self.save_event_log();
+        self.event_log.save();
     }
 
     fn materials_ui_context(&self) -> ui::materials::MaterialsUiContext {
@@ -837,34 +776,7 @@ impl All4LaserApp {
         if self.console_log.len() > MAX_LOG_LINES {
             self.console_log.pop_front();
         }
-        // Persist to event log (F67)
         self.event_log.push(entry);
-        if self.event_log.len() > 2000 {
-            self.event_log.drain(0..500);
-        }
-    }
-
-    fn event_log_path() -> std::path::PathBuf {
-        std::env::current_exe()
-            .unwrap_or_default()
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("event_log.txt")
-    }
-
-    fn load_event_log() -> Vec<String> {
-        let path = Self::event_log_path();
-        std::fs::read_to_string(path)
-            .unwrap_or_default()
-            .lines()
-            .map(String::from)
-            .collect()
-    }
-
-    fn save_event_log(&self) {
-        let path = Self::event_log_path();
-        let content = self.event_log.join("\n");
-        let _ = std::fs::write(path, content);
     }
 
     fn show_error(&mut self, msg: String) {
@@ -1931,147 +1843,14 @@ impl All4LaserApp {
     }
 
     fn build_preflight_report(&self) -> PreflightReport {
-        let mut report = PreflightReport::default();
-
-        if self.program_lines.is_empty() {
-            report.add_critical("No program loaded.");
-            return report;
-        }
-
-        let mut duplicate_segments: HashMap<SegmentKey, usize> = HashMap::new();
-        let mut open_paths = 0usize;
-        let mut used_layers: HashSet<usize> = HashSet::new();
-
-        if !self.drawing_state.shapes.is_empty() {
-            for (idx, shape) in self.drawing_state.shapes.iter().enumerate() {
-                used_layers.insert(shape.layer_idx);
-                if shape.layer_idx >= self.layers.len() {
-                    report.add_critical(format!(
-                        "Shape #{} uses missing layer index {}.",
-                        idx + 1,
-                        shape.layer_idx
-                    ));
-                }
-
-                if let ShapeKind::Path(points) = &shape.shape {
-                    if points.len() >= 2 && !path_is_closed_for_fill(points) {
-                        open_paths += 1;
-                    }
-                    for seg in points.windows(2) {
-                        let p0 = shape.world_pos(seg[0].0, seg[0].1);
-                        let p1 = shape.world_pos(seg[1].0, seg[1].1);
-                        let key = normalized_segment_key(p0, p1);
-                        *duplicate_segments.entry(key).or_insert(0) += 1;
-                    }
-                }
-            }
-        } else if let Some(file) = &self.loaded_file {
-            for seg in &file.segments {
-                used_layers.insert(seg.layer_id);
-                let key = normalized_segment_key((seg.x1, seg.y1), (seg.x2, seg.y2));
-                *duplicate_segments.entry(key).or_insert(0) += 1;
-            }
-        }
-
-        if open_paths > 0 {
-            report.add_critical(format!(
-                "Detected {open_paths} open path(s). Close contours before launch."
-            ));
-        }
-
-        let duplicate_count = duplicate_segments.values().filter(|&&count| count > 1).count();
-        if duplicate_count > 0 {
-            report.add_critical(format!(
-                "Detected {duplicate_count} duplicated path segment group(s)."
-            ));
-        }
-
-        // F84: Detect fully overlapping shapes (same position + same type + same size)
-        if self.drawing_state.shapes.len() >= 2 {
-            let mut overlap_count = 0usize;
-            for i in 0..self.drawing_state.shapes.len() {
-                for j in (i + 1)..self.drawing_state.shapes.len() {
-                    let a = &self.drawing_state.shapes[i];
-                    let b = &self.drawing_state.shapes[j];
-                    if (a.x - b.x).abs() < 0.01
-                        && (a.y - b.y).abs() < 0.01
-                        && (a.width - b.width).abs() < 0.01
-                        && (a.height - b.height).abs() < 0.01
-                        && (a.radius - b.radius).abs() < 0.01
-                        && std::mem::discriminant(&a.shape) == std::mem::discriminant(&b.shape)
-                    {
-                        overlap_count += 1;
-                    }
-                }
-            }
-            if overlap_count > 0 {
-                report.add_warning(format!(
-                    "{overlap_count} pair(s) of shapes appear identical/overlapping — risk of double-burn."
-                ));
-            }
-        }
-
-        // Workspace bounds collision detection (F59)
-        let ws_x = self.machine_profile.workspace_x_mm;
-        let ws_y = self.machine_profile.workspace_y_mm;
-        for (idx, shape) in self.drawing_state.shapes.iter().enumerate() {
-            let (min_x, min_y, max_x, max_y) = crate::ui::drawing::shape_world_bounds_pub(shape);
-            if min_x < -0.1 || min_y < -0.1 || max_x > ws_x + 0.1 || max_y > ws_y + 0.1 {
-                report.add_warning(format!(
-                    "Shape #{} extends outside workspace bounds ({:.0}x{:.0}mm).",
-                    idx + 1, ws_x, ws_y
-                ));
-            }
-        }
-
-        // Interlock safety checks (F94)
-        if self.machine_profile.interlock_lid_enabled {
-            report.add_warning("Lid interlock enabled -- ensure lid is closed before running.".to_string());
-        }
-        if self.machine_profile.interlock_water_enabled {
-            report.add_warning("Water cooling interlock enabled -- ensure water flow is active.".to_string());
-        }
-
-        for layer_idx in used_layers {
-            let Some(layer) = self.layers.get(layer_idx) else {
-                report.add_critical(format!("Used layer index {layer_idx} is missing from layer list."));
-                continue;
-            };
-
-            if layer.speed <= 0.0 {
-                report.add_critical(format!("Layer {} has invalid speed (<= 0).", layer.name));
-            }
-            if layer.power < 0.0 {
-                report.add_critical(format!("Layer {} has invalid power (< 0).", layer.name));
-            }
-            if layer.passes == 0 {
-                report.add_critical(format!("Layer {} has invalid passes (= 0).", layer.name));
-            }
-            if matches!(
-                layer.mode,
-                ui::layers_new::CutMode::Fill | ui::layers_new::CutMode::FillAndLine
-            ) && layer.fill_interval_mm <= 0.0
-            {
-                report.add_critical(format!(
-                    "Layer {} fill interval must be > 0 for fill modes.",
-                    layer.name
-                ));
-            }
-            if !layer.visible {
-                report.add_warning(format!(
-                    "Layer {} is disabled but still referenced by current job.",
-                    layer.name
-                ));
-            }
-            if layer.power > 1000.0 {
-                report.add_warning(format!(
-                    "Layer {} power ({:.0}) exceeds nominal GRBL S1000 range.",
-                    layer.name, layer.power
-                ));
-            }
-        }
-
-        report
+        let ctx = PreflightContext {
+            shapes: &self.drawing_state.shapes,
+            layers: &self.layers,
+            loaded_file: self.loaded_file.as_ref(),
+            program_lines: &self.program_lines,
+            machine_profile: &self.machine_profile,
+        };
+        crate::ui::preflight::build_preflight_report(&ctx)
     }
 
     fn run_preflight(&mut self, source: &str, block_if_critical: bool) -> bool {
@@ -2174,7 +1953,11 @@ impl All4LaserApp {
             &self.machine_profile.name,
             self.program_lines.len(),
         );
-        let report_path = Self::event_log_path().with_file_name("last_job_report.csv");
+        let report_path = std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("last_job_report.csv");
         let _ = std::fs::write(&report_path, &report_csv);
 
         self.log("Program complete.".to_string());
