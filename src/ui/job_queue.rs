@@ -143,8 +143,20 @@ impl JobQueueState {
             .join("job_history.txt")
     }
 
-    fn _dummy_record_failure_end(&self) {
-        // marker to avoid duplicate match
+    /// Batch enqueue multiple files from a directory (F109)
+    pub fn batch_enqueue_from_paths(&mut self, paths: &[std::path::PathBuf]) -> Vec<u64> {
+        let mut ids = Vec::new();
+        for path in paths {
+            if let Ok(content) = std::fs::read_to_string(path) {
+                let name = path.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "batch_file".into());
+                let lines: Vec<String> = content.lines().map(String::from).collect();
+                let id = self.enqueue_job(name, lines);
+                ids.push(id);
+            }
+        }
+        ids
     }
 
     pub fn record_aborted(&mut self, job: QueuedJob) {

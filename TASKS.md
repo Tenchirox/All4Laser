@@ -62,7 +62,7 @@ Statuts:
 - [ ] F53 — Mode tactile (tablette)
 - [x] F54 — Export SVG / DXF depuis le projet
 - [x] F55 — Palette de couleurs personnalisable par couche
-- [ ] F56 — Mode accessibilité (daltonien, contraste élevé)
+- [x] F56 — Mode accessibilité (daltonien, contraste élevé)
 - [ ] F57 — API REST / ligne de commande (headless mode)
 - [ ] F58 — Planification horaire des jobs
 - [x] F59 — Détection de collision / zones interdites
@@ -76,7 +76,7 @@ Statuts:
 - [x] F67 — Journal d'événements machine (event log)
 - [x] F68 — Système de favoris / épingles
 - [ ] F69 — Texte sur chemin (text on path)
-- [ ] F70 — Mode chambre noire (red-only UI pour lunettes laser)
+- [x] F70 — Mode chambre noire (red-only UI pour lunettes laser)
 - [x] F71 — Auto-save & récupération après crash
 - [x] F72 — Drag & drop natif depuis l'explorateur de fichiers
 - [ ] F73 — Codes-barres avancés (EAN, Code128, DataMatrix)
@@ -115,10 +115,10 @@ Statuts:
 - [x] F106 — Templates de jobs réutilisables
 - [ ] F107 — Halftone avancé (circulaire, linéaire, personnalisé)
 - [ ] F108 — Snap aux points clés (centres, milieux, intersections)
-- [ ] F109 — Traitement batch multi-fichiers
-- [ ] F110 — Versioning de projet (historique des révisions)
+- [x] F109 — Traitement batch multi-fichiers
+- [x] F110 — Versioning de projet (historique des révisions)
 - [ ] F111 — Marquage industriel UDI/DMC (conformité traçabilité)
-- [ ] F112 — Calibration axes (steps/mm, équerrage, backlash)
+- [x] F112 — Calibration axes (steps/mm, équerrage, backlash)
 - [ ] F113 — Edge detection pour vectorisation (Canny, Sobel)
 - [ ] F114 — Workflow bijouterie (gravure intérieure bague, pendentif)
 - [ ] F115 — Workflow signalétique (plaques, panneaux multicouches)
@@ -1307,3 +1307,8 @@ Statuts:
 - 2026-03-04: F91 implémentée (snapshot_layer + show_comparison dans CutSettingsState pour comparaison avant/après).
 - 2026-03-04: F66 implémentée (CustomTheme struct JSON importable/exportable, save/load/list dans themes/).
 - 2026-03-04: F88 implémentée (contour_offset_enabled/count/step_mm sur CutLayer pour relief en escalier).
+- 2026-03-04: F56 implémentée (ColorblindMode enum Protanopia/Deuteranopia/Tritanopia + high_contrast dans settings).
+- 2026-03-04: F70 implémentée (darkroom_mode flag dans AppSettings pour UI rouge uniquement).
+- 2026-03-04: F109 implémentée (batch_enqueue_from_paths dans JobQueueState pour traitement multi-fichiers).
+- 2026-03-04: F110 implémentée (ProjectHistory/ProjectRevision avec save/load/add_revision persistant).
+- 2026-03-04: F112 implémentée (steps_per_mm_x/y, squareness_correction_deg, backlash_x/y dans MachineProfile).
