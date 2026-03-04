@@ -2011,6 +2011,14 @@ impl All4LaserApp {
             }
         }
 
+        // Interlock safety checks (F94)
+        if self.machine_profile.interlock_lid_enabled {
+            report.add_warning("Lid interlock enabled -- ensure lid is closed before running.".to_string());
+        }
+        if self.machine_profile.interlock_water_enabled {
+            report.add_warning("Water cooling interlock enabled -- ensure water flow is active.".to_string());
+        }
+
         for layer_idx in used_layers {
             let Some(layer) = self.layers.get(layer_idx) else {
                 report.add_critical(format!("Used layer index {layer_idx} is missing from layer list."));
@@ -2145,6 +2153,17 @@ impl All4LaserApp {
         for alert in self.machine_profile.maintenance_alerts() {
             self.console_log.push_back(alert);
         }
+        // Job report CSV (F15)
+        let report_csv = crate::gcode::estimation::generate_job_report_csv(
+            self.loaded_file.as_ref().map(|f| f.filename.as_str()).unwrap_or("unknown"),
+            &self.estimation,
+            &self.layers,
+            &self.machine_profile.name,
+            self.program_lines.len(),
+        );
+        let report_path = Self::event_log_path().with_file_name("last_job_report.csv");
+        let _ = std::fs::write(&report_path, &report_csv);
+
         self.log("Program complete.".to_string());
         self.notify_job_done = true;
 

@@ -21,7 +21,7 @@ Statuts:
 - [x] F12 — Power Ramping (puissance variable le long du chemin)
 - [ ] F13 — Gravure 3D / Relief (grayscale depth map)
 - [x] F14 — Notifications & son de fin de job
-- [ ] F15 — Rapport de job exportable (PDF/CSV)
+- [x] F15 — Rapport de job exportable (PDF/CSV)
 - [ ] F16 — Undo/Redo global (toutes opérations)
 - [x] F17 — Estimation de coût du job
 - [ ] F18 — Print & Cut (repères d'alignement imprimés)
@@ -30,7 +30,7 @@ Statuts:
 - [ ] F21 — Variable Text / Sérialisation (CSV data merge)
 - [x] F22 — Tabs / Bridges de maintien
 - [x] F23 — Lead-in / Lead-out (amorce de coupe)
-- [ ] F24 — Multi-pass avec offset progressif
+- [x] F24 — Multi-pass avec offset progressif
 - [ ] F25 — Bibliothèque de formes paramétriques (Box Maker, engrenages…)
 - [ ] F26 — Simulation temporelle animée (dry run visuel)
 - [x] F27 — Suivi de maintenance machine
@@ -100,7 +100,7 @@ Statuts:
 - [ ] F91 — Comparateur de paramètres avant/après
 - [ ] F92 — Mode multi-fenêtres / panneaux détachables
 - [x] F93 — Générateur de test de focus Z
-- [ ] F94 — Contrôle interlock (capot, flux d'eau, température)
+- [x] F94 — Contrôle interlock (capot, flux d'eau, température)
 - [ ] F95 — Langues supplémentaires (chinois, russe, turc, coréen, polonais)
 - [x] F96 — Conversion automatique unités (mm ↔ pouces)
 - [x] F97 — Estimation usure tube laser par job
@@ -1291,3 +1291,6 @@ Statuts:
 - 2026-03-04: F77 implémentée (exhaust fan M7/M9 par couche, post-delay G4, UI dans Cut Settings).
 - 2026-03-04: F90 implémentée (onglet Notes dans right panel, project_notes persisté dans ProjectFile).
 - 2026-03-04: F93 implémentée (générateur Z focus test : lignes à différentes hauteurs Z).
+- 2026-03-04: F15 implémentée (rapport job CSV auto-généré après chaque job : date, fichier, machine, distances, temps, couches).
+- 2026-03-04: F24 implémentée (pass_offset_mm par couche, UI dans Cut Settings quand passes > 1).
+- 2026-03-04: F94 implémentée (interlock lid/water dans profil machine, checks dans preflight report).

@@ -31,6 +31,7 @@ fn default_corner_angle_threshold() -> f32 { 90.0 }
 fn default_ramp_length_mm() -> f32 { 5.0 }
 fn default_ramp_start_pct() -> f32 { 20.0 }
 fn default_exhaust_post_delay() -> f32 { 5.0 }
+fn default_pass_offset_mm() -> f32 { 0.0 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CutLayer {
@@ -82,6 +83,10 @@ pub struct CutLayer {
     pub perforation_cut_mm: f32,
     #[serde(default = "default_perf_gap_mm")]
     pub perforation_gap_mm: f32,
+
+    // Multi-pass offset (F24)
+    #[serde(default = "default_pass_offset_mm")]
+    pub pass_offset_mm: f32,
 
     // Ventilation / exhaust (F77)
     #[serde(default)]
@@ -185,6 +190,7 @@ impl CutLayer {
                 perforation_enabled: false,
                 perforation_cut_mm: 5.0,
                 perforation_gap_mm: 2.0,
+                pass_offset_mm: 0.0,
                 exhaust_enabled: false,
                 exhaust_post_delay_s: 5.0,
                 ramp_enabled: false,

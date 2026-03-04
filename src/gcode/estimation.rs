@@ -14,6 +14,40 @@ impl EstimationResult {
     }
 }
 
+/// Generate a CSV job report (F15)
+pub fn generate_job_report_csv(
+    filename: &str,
+    result: &EstimationResult,
+    layers: &[crate::ui::layers_new::CutLayer],
+    machine_name: &str,
+    total_lines: usize,
+) -> String {
+    let mut csv = String::new();
+    csv += "Field,Value\n";
+    csv += &format!("Date,{}\n", chrono_now());
+    csv += &format!("File,{filename}\n");
+    csv += &format!("Machine,{machine_name}\n");
+    csv += &format!("GCode Lines,{total_lines}\n");
+    csv += &format!("Travel Distance (mm),{:.1}\n", result.total_travel_mm);
+    csv += &format!("Burn Distance (mm),{:.1}\n", result.total_burn_mm);
+    csv += &format!("Estimated Time (s),{:.1}\n", result.estimated_seconds);
+    csv += "\nLayer,Speed,Power,Passes,Mode\n";
+    for layer in layers {
+        if !layer.visible { continue; }
+        csv += &format!("{},{:.0},{:.0},{},{:?}\n",
+            layer.name, layer.speed, layer.power, layer.passes, layer.mode);
+    }
+    csv
+}
+
+fn chrono_now() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!("{now}")
+}
+
 pub fn estimate(lines: &[GCodeLine]) -> EstimationResult {
     let mut result = EstimationResult::default();
     let mut state = ModalState::default();

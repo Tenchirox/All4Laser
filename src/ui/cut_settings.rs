@@ -226,6 +226,16 @@ pub fn show(
                     }
                 });
 
+                // Multi-pass offset (F24)
+                if layer.passes > 1 {
+                    ui.add_space(4.0);
+                    egui::Grid::new("pass_offset_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                        ui.label("Pass offset (mm):");
+                        ui.add(egui::DragValue::new(&mut layer.pass_offset_mm).speed(0.01).range(0.0..=2.0).suffix(" mm"));
+                        ui.end_row();
+                    });
+                }
+
                 // Power Ramping (F12)
                 ui.add_space(4.0);
                 ui.checkbox(&mut layer.ramp_enabled, "⚡ Power Ramping");

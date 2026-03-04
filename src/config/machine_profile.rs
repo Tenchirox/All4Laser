@@ -38,6 +38,16 @@ pub struct MachineProfile {
     pub belt_check_interval_jobs: u32,
     #[serde(default)]
     pub total_jobs_completed: u32,
+
+    // Interlock safety (F94)
+    #[serde(default)]
+    pub interlock_lid_enabled: bool,
+    #[serde(default)]
+    pub interlock_water_enabled: bool,
+    #[serde(default)]
+    pub interlock_lid_pin: String,   // M-code or input pin to check
+    #[serde(default)]
+    pub interlock_water_pin: String,
 }
 
 fn default_controller_kind() -> ControllerKind {
@@ -71,6 +81,10 @@ impl Default for MachineProfile {
             maintenance_jobs_since_belt_check: 0,
             belt_check_interval_jobs: default_belt_check_interval(),
             total_jobs_completed: 0,
+            interlock_lid_enabled: false,
+            interlock_water_enabled: false,
+            interlock_lid_pin: String::new(),
+            interlock_water_pin: String::new(),
         }
     }
 }
