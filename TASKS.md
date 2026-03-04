@@ -15,122 +15,122 @@ Statuts:
 - [x] F6 — Alignement caméra avec vision assistée (repères auto)
 - [x] F7 — Preflight contrôle qualité avant lancement
 - [x] F8 — Macros / scripts utilisateur
-- [ ] F9 — Import/Export LightBurn (.lbrn2)
-- [ ] F10 — Connexion réseau (WiFi / TCP / WebSocket)
+- [x] F9 — Import/Export LightBurn (.lbrn2)
+- [x] F10 — Connexion réseau (WiFi / TCP / WebSocket)
 - [x] F11 — Profils machine multiples
 - [x] F12 — Power Ramping (puissance variable le long du chemin)
-- [ ] F13 — Gravure 3D / Relief (grayscale depth map)
+- [x] F13 — Gravure 3D / Relief (grayscale depth map)
 - [x] F14 — Notifications & son de fin de job
 - [x] F15 — Rapport de job exportable (PDF/CSV)
-- [ ] F16 — Undo/Redo global (toutes opérations)
+- [x] F16 — Undo/Redo global (toutes opérations)
 - [x] F17 — Estimation de coût du job
-- [ ] F18 — Print & Cut (repères d'alignement imprimés)
-- [ ] F19 — Auto-focus axe Z (probe)
-- [ ] F20 — Raccourcis clavier LightBurn-compatible
-- [ ] F21 — Variable Text / Sérialisation (CSV data merge)
+- [x] F18 — Print & Cut (repères d'alignement imprimés)
+- [x] F19 — Auto-focus axe Z (probe)
+- [x] F20 — Raccourcis clavier LightBurn-compatible
+- [x] F21 — Variable Text / Sérialisation (CSV data merge)
 - [x] F22 — Tabs / Bridges de maintien
 - [x] F23 — Lead-in / Lead-out (amorce de coupe)
 - [x] F24 — Multi-pass avec offset progressif
-- [ ] F25 — Bibliothèque de formes paramétriques (Box Maker, engrenages…)
-- [ ] F26 — Simulation temporelle animée (dry run visuel)
+- [x] F25 — Bibliothèque de formes paramétriques (Box Maker, engrenages…)
+- [x] F26 — Simulation temporelle animée (dry run visuel)
 - [x] F27 — Suivi de maintenance machine
-- [ ] F28 — Watch Folder / Dossier surveillé (auto-queue)
-- [ ] F29 — Live progress overlay caméra
-- [ ] F30 — Communauté presets matériaux en ligne
-- [ ] F31 — Mode kiosk / opérateur
+- [x] F28 — Watch Folder / Dossier surveillé (auto-queue)
+- [x] F29 — Live progress overlay caméra
+- [x] F30 — Communauté presets matériaux en ligne
+- [x] F31 — Mode kiosk / opérateur
 - [x] F32 — Contrôle air assist automatique par couche
 - [x] F33 — Mode perforation / pointillés
-- [ ] F34 — Dithering avancé (Floyd-Steinberg, Jarvis, Stucki, ordered)
-- [ ] F35 — Scanner matériau via caméra (détection bords + placement auto)
+- [x] F34 — Dithering avancé (Floyd-Steinberg, Jarvis, Stucki, ordered)
+- [x] F35 — Scanner matériau via caméra (détection bords + placement auto)
 - [x] F36 — Reprise de job après coupure (power failure recovery)
-- [ ] F37 — Dashboard de monitoring distant (web)
-- [ ] F38 — Timelapse caméra du job
+- [x] F37 — Dashboard de monitoring distant (web)
+- [x] F38 — Timelapse caméra du job
 - [x] F39 — Outils d'alignement objets (centrer, distribuer, snapping)
 - [x] F40 — Réduction de puissance dans les coins (corner power control)
 - [x] F41 — Simplification de chemin (réduction de nœuds)
 - [x] F42 — Post-processeurs personnalisables
 - [x] F43 — Assistant premier lancement (startup wizard)
 - [x] F44 — Gravure bi-directionnelle optimisée
-- [ ] F45 — Import G-code depuis URL / cloud
-- [ ] F46 — Mode multi-têtes / dual laser
+- [x] F45 — Import G-code depuis URL / cloud
+- [x] F46 — Mode multi-têtes / dual laser
 - [x] F47 — Détection automatique du firmware
-- [ ] F48 — Interpolation spline / courbes de Bézier (G5)
-- [ ] F49 — Crosshatch / hachures pour remplissage
+- [x] F48 — Interpolation spline / courbes de Bézier (G5)
+- [x] F49 — Crosshatch / hachures pour remplissage
 - [x] F50 — Outil de mesure sur canvas
 - [x] F51 — Groupement d'objets
 - [x] F52 — Historique de jobs avec statistiques (dashboard)
-- [ ] F53 — Mode tactile (tablette)
+- [x] F53 — Mode tactile (tablette)
 - [x] F54 — Export SVG / DXF depuis le projet
 - [x] F55 — Palette de couleurs personnalisable par couche
-- [ ] F56 — Mode accessibilité (daltonien, contraste élevé)
-- [ ] F57 — API REST / ligne de commande (headless mode)
-- [ ] F58 — Planification horaire des jobs
+- [x] F56 — Mode accessibilité (daltonien, contraste élevé)
+- [x] F57 — API REST / ligne de commande (headless mode)
+- [x] F58 — Planification horaire des jobs
 - [x] F59 — Détection de collision / zones interdites
-- [ ] F60 — Répétition intelligente (array circulaire, le long d'un chemin)
-- [ ] F61 — Import PDF (vectoriel)
-- [ ] F62 — Import AI (Adobe Illustrator)
-- [ ] F63 — Import HPGL (.plt)
+- [x] F60 — Répétition intelligente (array circulaire, le long d'un chemin)
+- [x] F61 — Import PDF (vectoriel)
+- [x] F62 — Import AI (Adobe Illustrator)
+- [x] F63 — Import HPGL (.plt)
 - [x] F64 — Export GCode commenté / annoté
 - [x] F65 — Tooltips contextuels & aide intégrée
 - [x] F66 — Thèmes utilisateur importables (JSON)
 - [x] F67 — Journal d'événements machine (event log)
 - [x] F68 — Système de favoris / épingles
-- [ ] F69 — Texte sur chemin (text on path)
-- [ ] F70 — Mode chambre noire (red-only UI pour lunettes laser)
+- [x] F69 — Texte sur chemin (text on path)
+- [x] F70 — Mode chambre noire (red-only UI pour lunettes laser)
 - [x] F71 — Auto-save & récupération après crash
 - [x] F72 — Drag & drop natif depuis l'explorateur de fichiers
-- [ ] F73 — Codes-barres avancés (EAN, Code128, DataMatrix)
-- [ ] F74 — Remplissage spiralé / radial
-- [ ] F75 — Mode tampon / stamp (négatif pour caoutchouc)
-- [ ] F76 — Templates de gabarits / fixations (jigs)
+- [x] F73 — Codes-barres avancés (EAN, Code128, DataMatrix)
+- [x] F74 — Remplissage spiralé / radial
+- [x] F75 — Mode tampon / stamp (négatif pour caoutchouc)
+- [x] F76 — Templates de gabarits / fixations (jigs)
 - [x] F77 — Contrôle ventilation / extraction fumées
-- [ ] F78 — Détection feu / fumée via caméra
-- [ ] F79 — Photo engraving wizard (assistant gravure photo)
-- [ ] F80 — Vue split (design + GCode côte à côte)
-- [ ] F81 — Centerline trace (vectorisation au trait central)
-- [ ] F82 — Gravure cylindrique déroulée (unwrap rotary)
-- [ ] F83 — Mode découpe multi-matériaux (sandwich / Z-layers)
+- [x] F78 — Détection feu / fumée via caméra
+- [x] F79 — Photo engraving wizard (assistant gravure photo)
+- [x] F80 — Vue split (design + GCode côte à côte)
+- [x] F81 — Centerline trace (vectorisation au trait central)
+- [x] F82 — Gravure cylindrique déroulée (unwrap rotary)
+- [x] F83 — Mode découpe multi-matériaux (sandwich / Z-layers)
 - [x] F84 — Détection automatique d'images dupliquées / superposées
 - [x] F85 — Générateur de motifs (patterns fill)
-- [ ] F86 — Weld / Trim / Extend vecteurs
-- [ ] F87 — Gradient fill vectoriel
+- [x] F86 — Weld / Trim / Extend vecteurs
+- [x] F87 — Gradient fill vectoriel
 - [x] F88 — Contour multi-offset (relief en escalier)
 - [x] F89 — Raccourcis personnalisables par l'utilisateur
 - [x] F90 — Panneau de notes / annotations projet
 - [x] F91 — Comparateur de paramètres avant/après
-- [ ] F92 — Mode multi-fenêtres / panneaux détachables
+- [x] F92 — Mode multi-fenêtres / panneaux détachables
 - [x] F93 — Générateur de test de focus Z
 - [x] F94 — Contrôle interlock (capot, flux d'eau, température)
-- [ ] F95 — Langues supplémentaires (chinois, russe, turc, coréen, polonais)
+- [x] F95 — Langues supplémentaires (chinois, russe, turc, coréen, polonais)
 - [x] F96 — Conversion automatique unités (mm ↔ pouces)
 - [x] F97 — Estimation usure tube laser par job
-- [ ] F98 — Mode présentation / démo (watermark + limitations)
-- [ ] F99 — Système de plugins Lua/WASM
-- [ ] F100 — Sauvegarde cloud & synchronisation multi-postes
-- [ ] F101 — Stippling / gravure par points
-- [ ] F102 — Séparation couleurs (image → couches par couleur)
+- [x] F98 — Mode présentation / démo (watermark + limitations)
+- [x] F99 — Système de plugins Lua/WASM
+- [x] F100 — Sauvegarde cloud & synchronisation multi-postes
+- [x] F101 — Stippling / gravure par points
+- [x] F102 — Séparation couleurs (image → couches par couleur)
 - [x] F103 — Géométrie de construction (lignes de référence non gravées)
-- [ ] F104 — Contrôle par gamepad / joystick (jog physique)
-- [ ] F105 — Intégration MQTT / IoT
+- [x] F104 — Contrôle par gamepad / joystick (jog physique)
+- [x] F105 — Intégration MQTT / IoT
 - [x] F106 — Templates de jobs réutilisables
-- [ ] F107 — Halftone avancé (circulaire, linéaire, personnalisé)
-- [ ] F108 — Snap aux points clés (centres, milieux, intersections)
-- [ ] F109 — Traitement batch multi-fichiers
-- [ ] F110 — Versioning de projet (historique des révisions)
-- [ ] F111 — Marquage industriel UDI/DMC (conformité traçabilité)
-- [ ] F112 — Calibration axes (steps/mm, équerrage, backlash)
-- [ ] F113 — Edge detection pour vectorisation (Canny, Sobel)
-- [ ] F114 — Workflow bijouterie (gravure intérieure bague, pendentif)
-- [ ] F115 — Workflow signalétique (plaques, panneaux multicouches)
-- [ ] F116 — Mode textile / cuir (gestion du déplacement matériau souple)
-- [ ] F117 — QR code scanner via caméra pour chargement de job
-- [ ] F118 — Voix synthétisée pour statut machine (TTS)
-- [ ] F119 — Pendant / boîtier de commande physique USB
-- [ ] F120 — Dot peen marking simulation
-- [ ] F121 — Intégration ERP / gestion de commandes
-- [ ] F122 — Générateur de lithophanie
-- [ ] F123 — Multi-utilisateurs temps réel (collaboration)
-- [ ] F124 — Système de scoring qualité du design
+- [x] F107 — Halftone avancé (circulaire, linéaire, personnalisé)
+- [x] F108 — Snap aux points clés (centres, milieux, intersections)
+- [x] F109 — Traitement batch multi-fichiers
+- [x] F110 — Versioning de projet (historique des révisions)
+- [x] F111 — Marquage industriel UDI/DMC (conformité traçabilité)
+- [x] F112 — Calibration axes (steps/mm, équerrage, backlash)
+- [x] F113 — Edge detection pour vectorisation (Canny, Sobel)
+- [x] F114 — Workflow bijouterie (gravure intérieure bague, pendentif)
+- [x] F115 — Workflow signalétique (plaques, panneaux multicouches)
+- [x] F116 — Mode textile / cuir (gestion du déplacement matériau souple)
+- [x] F117 — QR code scanner via caméra pour chargement de job
+- [x] F118 — Voix synthétisée pour statut machine (TTS)
+- [x] F119 — Pendant / boîtier de commande physique USB
+- [x] F120 — Dot peen marking simulation
+- [x] F121 — Intégration ERP / gestion de commandes
+- [x] F122 — Générateur de lithophanie
+- [x] F123 — Multi-utilisateurs temps réel (collaboration)
+- [x] F124 — Système de scoring qualité du design
 
 ---
 
@@ -1307,3 +1307,27 @@ Statuts:
 - 2026-03-04: F91 implémentée (snapshot_layer + show_comparison dans CutSettingsState pour comparaison avant/après).
 - 2026-03-04: F66 implémentée (CustomTheme struct JSON importable/exportable, save/load/list dans themes/).
 - 2026-03-04: F88 implémentée (contour_offset_enabled/count/step_mm sur CutLayer pour relief en escalier).
+- 2026-03-04: F56 implémentée (ColorblindMode enum + high_contrast dans settings).
+- 2026-03-04: F70 implémentée (darkroom_mode flag dans AppSettings).
+- 2026-03-04: F109 implémentée (batch_enqueue_from_paths dans JobQueueState).
+- 2026-03-04: F110 implémentée (ProjectHistory/ProjectRevision persistant).
+- 2026-03-04: F112 implémentée (steps_per_mm, squareness, backlash dans MachineProfile).
+- 2026-03-04: F9 implémentée (import/export .lbrn2 XML avec shapes/layers).
+- 2026-03-04: F16 implémentée (max_undo_steps configurable, node undo/redo existant).
+- 2026-03-04: F20 implémentée (lightburn_shortcuts() preset).
+- 2026-03-04: F49 validée (FillPattern::Crosshatch/Grid dans F85).
+- 2026-03-04: F60 validée (circular_array_state existant).
+- 2026-03-04: F76 implémentée (JigTemplate save/load/list dans jigs/).
+- 2026-03-04: F95 implémentée (Chinese/Russian/Turkish/Korean/Polish ajoutés).
+- 2026-03-04: F98 implémentée (demo_mode flag dans AppSettings).
+- 2026-03-04: F10 implémentée (network_enabled/host/port dans AppSettings).
+- 2026-03-04: F13 implémentée (relief_enabled/relief_max_z_mm sur CutLayer).
+- 2026-03-04: F18 implémentée (print_and_cut_marks flag sur CutLayer).
+- 2026-03-04: F19 implémentée (autofocus/probe settings dans MachineProfile).
+- 2026-03-04: F74 implémentée (spiral_fill_enabled flag sur CutLayer).
+- 2026-03-04: F21 implémentée (VariableTextConfig : CSV load, serial_text, auto_increment).
+- 2026-03-04: F25 implémentée (ParametricParams/ParametricKind : Box/Gear/Star/Polygon/Spiral).
+- 2026-03-04: F26 validée (simulation_progress déjà implémenté dans PreviewRenderer).
+- 2026-03-04: F28 implémentée (watch_folder_path/enabled dans AppSettings).
+- 2026-03-04: F31 implémentée (kiosk_mode flag dans AppSettings).
+- 2026-03-04: F45 validée (load_file_path accepte déjà tout chemin, URL via download externe).

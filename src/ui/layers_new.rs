@@ -34,6 +34,7 @@ fn default_exhaust_post_delay() -> f32 { 5.0 }
 fn default_pass_offset_mm() -> f32 { 0.0 }
 fn default_contour_count() -> u32 { 3 }
 fn default_contour_step() -> f32 { 0.5 }
+fn default_relief_max_z() -> f32 { 5.0 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum FillPattern {
@@ -111,6 +112,20 @@ pub struct CutLayer {
     pub contour_offset_count: u32,
     #[serde(default = "default_contour_step")]
     pub contour_offset_step_mm: f32,
+
+    // Print & Cut registration (F18)
+    #[serde(default)]
+    pub print_and_cut_marks: bool,
+
+    // Spiral fill (F74)
+    #[serde(default)]
+    pub spiral_fill_enabled: bool,
+
+    // 3D Relief / depth map (F13)
+    #[serde(default)]
+    pub relief_enabled: bool,
+    #[serde(default = "default_relief_max_z")]
+    pub relief_max_z_mm: f32,
 
     // Construction geometry (F103)
     #[serde(default)]
@@ -226,6 +241,10 @@ impl CutLayer {
                 contour_offset_enabled: false,
                 contour_offset_count: 3,
                 contour_offset_step_mm: 0.5,
+                print_and_cut_marks: false,
+                spiral_fill_enabled: false,
+                relief_enabled: false,
+                relief_max_z_mm: 5.0,
                 is_construction: false,
                 pass_offset_mm: 0.0,
                 exhaust_enabled: false,

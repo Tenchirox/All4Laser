@@ -3540,7 +3540,7 @@ impl All4LaserApp {
             match self.active_tab {
                 RightPanelTab::Cuts => {
                     // Layer List Table (to be implemented more fully)
-                    ui.label(RichText::new("Layers").strong());
+                    ui.label(RichText::new(tr("Layers")).strong());
                     // Reuse palette for now, but vertical?
                     // We need a list view.
                     // For now, I'll put Materials here too.
@@ -3618,7 +3618,7 @@ impl All4LaserApp {
                 }
                 RightPanelTab::Art => {}
                 RightPanelTab::Notes => {
-                    ui.label(RichText::new("📝 Project Notes").strong());
+                    ui.label(RichText::new(format!("📝 {}", tr("Project Notes"))).strong());
                     ui.add_space(4.0);
                     ui.add(
                         egui::TextEdit::multiline(&mut self.project_notes)
