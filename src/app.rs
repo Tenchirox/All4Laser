@@ -3592,80 +3592,18 @@ impl eframe::App for All4LaserApp {
         }
 
         // Startup wizard (F43)
-        if self.wizard.show {
-            let mut finish = false;
-            egui::Window::new("🚀 Welcome to All4Laser")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    match self.wizard.step {
-                        0 => {
-                            ui.label(egui::RichText::new("Step 1/3 — Language").size(16.0).strong());
-                            ui.add_space(8.0);
-                            for lang in &[
-                                crate::i18n::Language::English,
-                                crate::i18n::Language::French,
-                                crate::i18n::Language::German,
-                                crate::i18n::Language::Spanish,
-                                crate::i18n::Language::Italian,
-                                crate::i18n::Language::Portuguese,
-                                crate::i18n::Language::Japanese,
-                                crate::i18n::Language::Arabic,
-                            ] {
-                                if ui.selectable_label(self.language == *lang, lang.name()).clicked() {
-                                    self.language = *lang;
-                                    crate::i18n::set_language(self.language);
-                                }
-                            }
-                            ui.add_space(8.0);
-                            if ui.button("Next →").clicked() { self.wizard.step = 1; }
-                        }
-                        1 => {
-                            ui.label(egui::RichText::new("Step 2/3 — Machine Dimensions").size(16.0).strong());
-                            ui.add_space(8.0);
-                            ui.horizontal(|ui| {
-                                ui.label("Name:");
-                                ui.text_edit_singleline(&mut self.machine_profile.name);
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("Width (mm):");
-                                ui.add(egui::DragValue::new(&mut self.machine_profile.workspace_x_mm).speed(10.0));
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("Height (mm):");
-                                ui.add(egui::DragValue::new(&mut self.machine_profile.workspace_y_mm).speed(10.0));
-                            });
-                            ui.add_space(8.0);
-                            ui.horizontal(|ui| {
-                                if ui.button("← Back").clicked() { self.wizard.step = 0; }
-                                if ui.button("Next →").clicked() { self.wizard.step = 2; }
-                            });
-                        }
-                        _ => {
-                            ui.label(egui::RichText::new("Step 3/3 — Controller").size(16.0).strong());
-                            ui.add_space(8.0);
-                            let prev_kind = self.machine_profile.controller_kind;
-                            ui.selectable_value(&mut self.machine_profile.controller_kind, ControllerKind::Grbl, "GRBL");
-                            ui.selectable_value(&mut self.machine_profile.controller_kind, ControllerKind::Ruida, "Ruida (beta)");
-                            ui.selectable_value(&mut self.machine_profile.controller_kind, ControllerKind::Trocen, "Trocen (beta)");
-                            if self.machine_profile.controller_kind != prev_kind {
-                                self.sync_controller_backend();
-                            }
-                            ui.add_space(8.0);
-                            ui.horizontal(|ui| {
-                                if ui.button("← Back").clicked() { self.wizard.step = 1; }
-                                if ui.button("✅ Finish").clicked() { finish = true; }
-                            });
-                        }
-                    }
-                    ui.add_space(4.0);
-                    if ui.small_button("Skip wizard").clicked() { finish = true; }
-                });
-            if finish {
-                self.wizard.show = false;
+        {
+            let mut wctx = ui::wizard::WizardContext {
+                wizard: &mut self.wizard,
+                language: &mut self.language,
+                machine_profile: &mut self.machine_profile,
+            };
+            let wresult = ui::wizard::show_wizard(ctx, &mut wctx);
+            if wresult.controller_changed {
+                self.sync_controller_backend();
+            }
+            if wresult.finished {
                 self.settings.first_run_done = true;
-                // Save profile to store
                 if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
                     *p = self.machine_profile.clone();
                 }

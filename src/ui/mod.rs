@@ -30,3 +30,4 @@ pub mod offset;
 pub mod boolean_ops;
 pub mod vector_edit;
 pub mod preflight;
+pub mod wizard;
