@@ -74,7 +74,7 @@ Statuts:
 - [x] F65 — Tooltips contextuels & aide intégrée
 - [ ] F66 — Thèmes utilisateur importables (JSON)
 - [x] F67 — Journal d'événements machine (event log)
-- [ ] F68 — Système de favoris / épingles
+- [x] F68 — Système de favoris / épingles
 - [ ] F69 — Texte sur chemin (text on path)
 - [ ] F70 — Mode chambre noire (red-only UI pour lunettes laser)
 - [x] F71 — Auto-save & récupération après crash
@@ -91,7 +91,7 @@ Statuts:
 - [ ] F82 — Gravure cylindrique déroulée (unwrap rotary)
 - [ ] F83 — Mode découpe multi-matériaux (sandwich / Z-layers)
 - [x] F84 — Détection automatique d'images dupliquées / superposées
-- [ ] F85 — Générateur de motifs (patterns fill)
+- [x] F85 — Générateur de motifs (patterns fill)
 - [ ] F86 — Weld / Trim / Extend vecteurs
 - [ ] F87 — Gradient fill vectoriel
 - [ ] F88 — Contour multi-offset (relief en escalier)
@@ -112,7 +112,7 @@ Statuts:
 - [x] F103 — Géométrie de construction (lignes de référence non gravées)
 - [ ] F104 — Contrôle par gamepad / joystick (jog physique)
 - [ ] F105 — Intégration MQTT / IoT
-- [ ] F106 — Templates de jobs réutilisables
+- [x] F106 — Templates de jobs réutilisables
 - [ ] F107 — Halftone avancé (circulaire, linéaire, personnalisé)
 - [ ] F108 — Snap aux points clés (centres, milieux, intersections)
 - [ ] F109 — Traitement batch multi-fichiers
@@ -1298,3 +1298,6 @@ Statuts:
 - 2026-03-04: F52 implémentée (historique jobs persistant job_history.txt, stats_summary, save/load).
 - 2026-03-04: F65 implémentée (tooltips contextuels sur tous les paramètres de Cut Settings : speed, power, mode, fill, kerf, lead-in/out, overscan).
 - 2026-03-04: F103 implémentée (is_construction flag sur CutLayer, exclusion du GCode, checkbox dans Cut Settings).
+- 2026-03-04: F68 implémentée (is_favorite flag sur MaterialPreset, tri favoris en premier).
+- 2026-03-04: F85 implémentée (FillPattern enum : Horizontal/Vertical/Diagonal45/135/Crosshatch/Grid sur CutLayer).
+- 2026-03-04: F106 implémentée (JobTemplate save/load/list/delete dans templates/, layers JSON persistantes).

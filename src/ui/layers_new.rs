@@ -33,6 +33,20 @@ fn default_ramp_start_pct() -> f32 { 20.0 }
 fn default_exhaust_post_delay() -> f32 { 5.0 }
 fn default_pass_offset_mm() -> f32 { 0.0 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum FillPattern {
+    Horizontal,
+    Vertical,
+    Diagonal45,
+    Diagonal135,
+    Crosshatch,
+    Grid,
+}
+
+impl Default for FillPattern {
+    fn default() -> Self { FillPattern::Horizontal }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CutLayer {
     pub id: usize,          // 0-29
@@ -83,6 +97,10 @@ pub struct CutLayer {
     pub perforation_cut_mm: f32,
     #[serde(default = "default_perf_gap_mm")]
     pub perforation_gap_mm: f32,
+
+    // Fill pattern (F85)
+    #[serde(default)]
+    pub fill_pattern: FillPattern,
 
     // Construction geometry (F103)
     #[serde(default)]
@@ -194,6 +212,7 @@ impl CutLayer {
                 perforation_enabled: false,
                 perforation_cut_mm: 5.0,
                 perforation_gap_mm: 2.0,
+                fill_pattern: FillPattern::Horizontal,
                 is_construction: false,
                 pass_offset_mm: 0.0,
                 exhaust_enabled: false,

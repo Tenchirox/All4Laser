@@ -41,6 +41,59 @@ pub struct ProjectFile {
 
 fn default_camera_opacity() -> f32 { 0.5 }
 
+/// Job template (F106) — stores layer configurations for reuse
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct JobTemplate {
+    pub name: String,
+    pub layers: Vec<crate::ui::layers_new::CutLayer>,
+    pub description: String,
+}
+
+impl JobTemplate {
+    fn templates_dir() -> std::path::PathBuf {
+        std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("templates")
+    }
+
+    pub fn save(template: &JobTemplate) -> Result<(), String> {
+        let dir = Self::templates_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let filename = template.name.replace(' ', "_").to_lowercase() + ".json";
+        let path = dir.join(filename);
+        let json = serde_json::to_string_pretty(template).map_err(|e| e.to_string())?;
+        std::fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    pub fn list_templates() -> Vec<String> {
+        let dir = Self::templates_dir();
+        let mut names = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.path().file_stem() {
+                    names.push(name.to_string_lossy().to_string());
+                }
+            }
+        }
+        names
+    }
+
+    pub fn load(name: &str) -> Result<JobTemplate, String> {
+        let dir = Self::templates_dir();
+        let path = dir.join(format!("{name}.json"));
+        let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+
+    pub fn delete(name: &str) -> Result<(), String> {
+        let dir = Self::templates_dir();
+        let path = dir.join(format!("{name}.json"));
+        std::fs::remove_file(path).map_err(|e| e.to_string())
+    }
+}
+
 impl ProjectFile {
     pub fn save(path: &str, project: &ProjectFile) -> Result<(), String> {
         let json = serde_json::to_string_pretty(project).map_err(|e| e.to_string())?;

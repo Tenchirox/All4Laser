@@ -33,6 +33,8 @@ pub struct MaterialPreset {
     pub operation: MaterialOperation,
     #[serde(default = "default_recommended_passes")]
     pub recommended_passes: u32,
+    #[serde(default)]
+    pub is_favorite: bool,
 }
 
 impl Default for MaterialPreset {
@@ -47,6 +49,7 @@ impl Default for MaterialPreset {
             machine_profile: String::new(),
             operation: MaterialOperation::Cut,
             recommended_passes: 1,
+            is_favorite: false,
         }
     }
 }
