@@ -99,6 +99,54 @@ impl JobQueueState {
         });
     }
 
+    /// Job history statistics summary (F52)
+    pub fn stats_summary(&self) -> (usize, usize, usize) {
+        let total = self.history.len();
+        let completed = self.history.iter().filter(|h| h.status == "Completed").count();
+        let failed = total - completed;
+        (total, completed, failed)
+    }
+
+    /// Save job history to file (F52)
+    pub fn save_history(&self) {
+        let path = Self::history_path();
+        let entries: Vec<String> = self.history.iter().map(|h| {
+            format!("{}|{}|{}|{}", h.id, h.name, h.attempts, h.status)
+        }).collect();
+        let _ = std::fs::write(path, entries.join("\n"));
+    }
+
+    /// Load job history from file (F52)
+    pub fn load_history(&mut self) {
+        let path = Self::history_path();
+        if let Ok(content) = std::fs::read_to_string(path) {
+            for line in content.lines() {
+                let parts: Vec<&str> = line.splitn(4, '|').collect();
+                if parts.len() == 4 {
+                    self.history.push(JobHistoryEntry {
+                        id: parts[0].parse().unwrap_or(0),
+                        name: parts[1].to_string(),
+                        lines: Vec::new(),
+                        attempts: parts[2].parse().unwrap_or(1),
+                        status: parts[3].to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    fn history_path() -> std::path::PathBuf {
+        std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("job_history.txt")
+    }
+
+    fn _dummy_record_failure_end(&self) {
+        // marker to avoid duplicate match
+    }
+
     pub fn record_aborted(&mut self, job: QueuedJob) {
         self.history.push(JobHistoryEntry {
             id: job.id,

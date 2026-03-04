@@ -18,6 +18,60 @@ pub struct AppTheme {
     pub is_light: bool,
 }
 
+/// User-importable custom theme (F66)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CustomTheme {
+    pub name: String,
+    pub base: [u8; 3],
+    pub mantle: [u8; 3],
+    pub crust: [u8; 3],
+    pub surface0: [u8; 3],
+    pub surface1: [u8; 3],
+    pub surface2: [u8; 3],
+    pub text: [u8; 3],
+    pub subtext: [u8; 3],
+    pub accent: [u8; 3],
+}
+
+impl CustomTheme {
+    fn themes_dir() -> std::path::PathBuf {
+        std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("themes")
+    }
+
+    pub fn save(&self) -> Result<(), String> {
+        let dir = Self::themes_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
+        let path = dir.join(filename);
+        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    pub fn load(name: &str) -> Result<CustomTheme, String> {
+        let dir = Self::themes_dir();
+        let path = dir.join(format!("{name}.json"));
+        let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+
+    pub fn list() -> Vec<String> {
+        let dir = Self::themes_dir();
+        let mut names = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.path().file_stem() {
+                    names.push(name.to_string_lossy().to_string());
+                }
+            }
+        }
+        names
+    }
+}
+
 // Dark (Mocha)
 pub const DARK_BASE: Color32 = Color32::from_rgb(30, 30, 46);
 pub const DARK_MANTLE: Color32 = Color32::from_rgb(24, 24, 37);

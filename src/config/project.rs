@@ -33,9 +33,175 @@ pub struct ProjectFile {
     pub camera_live_streaming: bool,
     #[serde(default)]
     pub material_selected_preset: Option<String>,
+    #[serde(default)]
+    pub checkpoint_line: Option<usize>,
+    #[serde(default)]
+    pub project_notes: String,
 }
 
 fn default_camera_opacity() -> f32 { 0.5 }
+
+/// Job template (F106) — stores layer configurations for reuse
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct JobTemplate {
+    pub name: String,
+    pub layers: Vec<crate::ui::layers_new::CutLayer>,
+    pub description: String,
+}
+
+/// Post-processor configuration (F42)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PostProcessor {
+    pub name: String,
+    pub header: Vec<String>,
+    pub footer: Vec<String>,
+    pub laser_on: String,   // e.g. "M3" or "M4"
+    pub laser_off: String,  // e.g. "M5"
+    pub air_on: String,     // e.g. "M8"
+    pub air_off: String,    // e.g. "M9"
+    pub comment_style: CommentStyle,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum CommentStyle {
+    Semicolon,   // ; comment
+    Parentheses, // (comment)
+}
+
+impl Default for PostProcessor {
+    fn default() -> Self {
+        Self {
+            name: "GRBL Default".into(),
+            header: vec!["G90".into(), "G21".into(), "M5".into()],
+            footer: vec!["M5".into(), "G0 X0 Y0".into()],
+            laser_on: "M3".into(),
+            laser_off: "M5".into(),
+            air_on: "M8".into(),
+            air_off: "M9".into(),
+            comment_style: CommentStyle::Semicolon,
+        }
+    }
+}
+
+impl PostProcessor {
+    fn postprocessors_dir() -> std::path::PathBuf {
+        std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("postprocessors")
+    }
+
+    pub fn save(&self) -> Result<(), String> {
+        let dir = Self::postprocessors_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
+        let path = dir.join(filename);
+        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    pub fn load(name: &str) -> Result<PostProcessor, String> {
+        let dir = Self::postprocessors_dir();
+        let path = dir.join(format!("{name}.json"));
+        let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+
+    pub fn list() -> Vec<String> {
+        let dir = Self::postprocessors_dir();
+        let mut names = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.path().file_stem() {
+                    names.push(name.to_string_lossy().to_string());
+                }
+            }
+        }
+        names
+    }
+
+    pub fn builtin_presets() -> Vec<PostProcessor> {
+        vec![
+            PostProcessor::default(),
+            PostProcessor {
+                name: "Marlin".into(),
+                header: vec!["G90".into(), "G21".into(), "M5".into()],
+                footer: vec!["M5".into(), "G28 X Y".into()],
+                laser_on: "M3".into(),
+                laser_off: "M5".into(),
+                air_on: "M8".into(),
+                air_off: "M9".into(),
+                comment_style: CommentStyle::Semicolon,
+            },
+            PostProcessor {
+                name: "Smoothie".into(),
+                header: vec!["G90".into(), "G21".into(), "M5".into()],
+                footer: vec!["M5".into(), "G0 X0 Y0".into(), "M2".into()],
+                laser_on: "M3".into(),
+                laser_off: "M5".into(),
+                air_on: "M8".into(),
+                air_off: "M9".into(),
+                comment_style: CommentStyle::Semicolon,
+            },
+            PostProcessor {
+                name: "FluidNC".into(),
+                header: vec!["G90".into(), "G21".into(), "M5".into()],
+                footer: vec!["M5".into(), "G0 X0 Y0 F3000".into()],
+                laser_on: "M4".into(),
+                laser_off: "M5".into(),
+                air_on: "M7".into(),
+                air_off: "M9".into(),
+                comment_style: CommentStyle::Parentheses,
+            },
+        ]
+    }
+}
+
+impl JobTemplate {
+    fn templates_dir() -> std::path::PathBuf {
+        std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("templates")
+    }
+
+    pub fn save(template: &JobTemplate) -> Result<(), String> {
+        let dir = Self::templates_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let filename = template.name.replace(' ', "_").to_lowercase() + ".json";
+        let path = dir.join(filename);
+        let json = serde_json::to_string_pretty(template).map_err(|e| e.to_string())?;
+        std::fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    pub fn list_templates() -> Vec<String> {
+        let dir = Self::templates_dir();
+        let mut names = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.path().file_stem() {
+                    names.push(name.to_string_lossy().to_string());
+                }
+            }
+        }
+        names
+    }
+
+    pub fn load(name: &str) -> Result<JobTemplate, String> {
+        let dir = Self::templates_dir();
+        let path = dir.join(format!("{name}.json"));
+        let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+
+    pub fn delete(name: &str) -> Result<(), String> {
+        let dir = Self::templates_dir();
+        let path = dir.join(format!("{name}.json"));
+        std::fs::remove_file(path).map_err(|e| e.to_string())
+    }
+}
 
 impl ProjectFile {
     pub fn save(path: &str, project: &ProjectFile) -> Result<(), String> {
@@ -46,6 +212,39 @@ impl ProjectFile {
     pub fn load(path: &str) -> Result<ProjectFile, String> {
         let data = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&data).map_err(|e| e.to_string())
+    }
+
+    /// Path to the auto-save recovery file (F71)
+    pub fn recovery_path() -> std::path::PathBuf {
+        std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("autosave.a4l.recovery")
+    }
+
+    /// Save recovery snapshot (called periodically)
+    pub fn save_recovery(project: &ProjectFile) {
+        let path = Self::recovery_path();
+        if let Ok(json) = serde_json::to_string(project) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+
+    /// Try loading a recovery file (called on startup)
+    pub fn load_recovery() -> Option<ProjectFile> {
+        let path = Self::recovery_path();
+        if !path.exists() {
+            return None;
+        }
+        let data = std::fs::read_to_string(&path).ok()?;
+        serde_json::from_str(&data).ok()
+    }
+
+    /// Delete the recovery file (called after successful load or explicit save)
+    pub fn clear_recovery() {
+        let path = Self::recovery_path();
+        let _ = std::fs::remove_file(path);
     }
 }
 

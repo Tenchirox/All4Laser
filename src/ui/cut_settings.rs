@@ -9,6 +9,9 @@ pub struct CutSettingsState {
     pub temp_layer: Option<CutLayer>,
     pub kerf_test_nominal_mm: f32,
     pub kerf_test_measured_mm: f32,
+    // Parameter comparison snapshot (F91)
+    pub snapshot_layer: Option<CutLayer>,
+    pub show_comparison: bool,
 }
 
 impl Default for CutSettingsState {
@@ -19,6 +22,8 @@ impl Default for CutSettingsState {
             temp_layer: None,
             kerf_test_nominal_mm: 20.0,
             kerf_test_measured_mm: 19.8,
+            snapshot_layer: None,
+            show_comparison: false,
         }
     }
 }
@@ -95,23 +100,31 @@ pub fn show(
         .show(ctx, |ui| {
             if let Some(layer) = &mut state.temp_layer {
                 ui.horizontal(|ui| {
-                    // Color swatch
-                    let (rect, _) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), egui::Sense::hover());
-                    ui.painter().rect_filled(rect, 2.0, layer.color);
+                    // Color picker (F55)
+                    let rgba = layer.color.to_array();
+                    let mut color_f = [rgba[0] as f32 / 255.0, rgba[1] as f32 / 255.0, rgba[2] as f32 / 255.0];
+                    if ui.color_edit_button_rgb(&mut color_f).changed() {
+                        layer.color = egui::Color32::from_rgb(
+                            (color_f[0] * 255.0) as u8,
+                            (color_f[1] * 255.0) as u8,
+                            (color_f[2] * 255.0) as u8,
+                        );
+                    }
+                    let _ = rgba;
                     ui.label(RichText::new(format!("Layer {}", layer.name)).strong().size(18.0));
                 });
                 ui.separator();
 
                 egui::Grid::new("cut_settings_grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-                    ui.label("Speed (mm/min):");
+                    ui.label("Speed (mm/min):").on_hover_text("Travel speed of the laser head. Lower = deeper cut/darker engrave. Typical: 200-3000 for cut, 1000-10000 for engrave.");
                     ui.add(egui::DragValue::new(&mut layer.speed).speed(10.0).range(1.0..=20000.0));
                     ui.end_row();
 
-                    ui.label("Max Power (S):");
+                    ui.label("Max Power (S):").on_hover_text("Laser power (0-1000 S-value). Higher = more energy. Start low and increase. S1000 = 100% power.");
                     ui.add(egui::DragValue::new(&mut layer.power).speed(1.0).range(0.0..=1000.0));
                     ui.end_row();
 
-                    ui.label("Output Mode:");
+                    ui.label("Output Mode:").on_hover_text("Line = vector cut along paths. Fill = raster scan inside closed shapes. Fill+Line = both. Offset = concentric fill.");
                     egui::ComboBox::from_id_salt("mode_combo")
                         .selected_text(match layer.mode {
                             CutMode::Line => "Line (Cut)",
@@ -128,7 +141,7 @@ pub fn show(
                     ui.end_row();
 
                     if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
-                        ui.label("Fill Interval (mm):");
+                        ui.label("Fill Interval (mm):").on_hover_text("Distance between scan lines. Smaller = denser fill, slower job. 0.1mm typical for engraving.");
                         ui.add(
                             egui::DragValue::new(&mut layer.fill_interval_mm)
                                 .speed(0.01)
@@ -137,15 +150,15 @@ pub fn show(
                         );
                         ui.end_row();
 
-                        ui.label("Min Power (S):");
+                        ui.label("Min Power (S):").on_hover_text("Power used during acceleration/deceleration at line ends. Set to 0 for clean edges.");
                         ui.add(egui::DragValue::new(&mut layer.min_power).speed(1.0).range(0.0..=1000.0));
                         ui.end_row();
 
-                        ui.label("Bidirectional Scan:");
+                        ui.label("Bidirectional Scan:").on_hover_text("Scan in both directions (faster) vs one direction only (more consistent).");
                         ui.checkbox(&mut layer.fill_bidirectional, "");
                         ui.end_row();
 
-                        ui.label("Overscan (mm):");
+                        ui.label("Overscan (mm):").on_hover_text("Extra travel beyond the shape edges to allow deceleration. Prevents edge burn. 1-5mm typical.");
                         ui.add(
                             egui::DragValue::new(&mut layer.fill_overscan_mm)
                                 .speed(0.1)
@@ -168,7 +181,7 @@ pub fn show(
                     ui.add(egui::DragValue::new(&mut layer.output_order).speed(1.0));
                     ui.end_row();
 
-                    ui.label("Lead-In (mm):");
+                    ui.label("Lead-In (mm):").on_hover_text("Extra approach distance before cutting starts. Prevents burn marks at the cut entry point.");
                     ui.add(
                         egui::DragValue::new(&mut layer.lead_in_mm)
                             .speed(0.1)
@@ -177,7 +190,7 @@ pub fn show(
                     );
                     ui.end_row();
 
-                    ui.label("Lead-Out (mm):");
+                    ui.label("Lead-Out (mm):").on_hover_text("Extra exit distance after cutting ends. Ensures clean exit from the material.");
                     ui.add(
                         egui::DragValue::new(&mut layer.lead_out_mm)
                             .speed(0.1)
@@ -186,7 +199,7 @@ pub fn show(
                     );
                     ui.end_row();
 
-                    ui.label("Kerf Offset (mm):");
+                    ui.label("Kerf Offset (mm):").on_hover_text("Compensates for material removed by the laser beam width. Positive = outward offset.");
                     ui.add(
                         egui::DragValue::new(&mut layer.kerf_mm)
                             .speed(0.01)
@@ -218,9 +231,69 @@ pub fn show(
                     }
                 });
 
+                // Multi-pass offset (F24)
+                if layer.passes > 1 {
+                    ui.add_space(4.0);
+                    egui::Grid::new("pass_offset_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                        ui.label("Pass offset (mm):");
+                        ui.add(egui::DragValue::new(&mut layer.pass_offset_mm).speed(0.01).range(0.0..=2.0).suffix(" mm"));
+                        ui.end_row();
+                    });
+                }
+
+                // Power Ramping (F12)
+                ui.add_space(4.0);
+                ui.checkbox(&mut layer.ramp_enabled, "⚡ Power Ramping");
+                if layer.ramp_enabled {
+                    egui::Grid::new("ramp_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                        ui.label("Ramp length:");
+                        ui.add(egui::DragValue::new(&mut layer.ramp_length_mm).speed(0.5).range(0.5..=50.0).suffix(" mm"));
+                        ui.end_row();
+                        ui.label("Start/end power %:");
+                        ui.add(egui::DragValue::new(&mut layer.ramp_start_pct).speed(1.0).range(0.0..=99.0).suffix(" %"));
+                        ui.end_row();
+                    });
+                }
+
+                // Perforation (F33)
+                ui.add_space(4.0);
+                ui.checkbox(&mut layer.perforation_enabled, "✂ Perforation / Dashed Mode");
+                if layer.perforation_enabled {
+                    egui::Grid::new("perf_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                        ui.label("Cut length:");
+                        ui.add(egui::DragValue::new(&mut layer.perforation_cut_mm).speed(0.5).range(0.1..=100.0).suffix(" mm"));
+                        ui.end_row();
+                        ui.label("Gap length:");
+                        ui.add(egui::DragValue::new(&mut layer.perforation_gap_mm).speed(0.5).range(0.1..=100.0).suffix(" mm"));
+                        ui.end_row();
+                    });
+                }
+
+                // Corner power (F40)
+                ui.add_space(4.0);
+                ui.checkbox(&mut layer.corner_power_enabled, "🔥 Corner Power Reduction");
+                if layer.corner_power_enabled {
+                    egui::Grid::new("corner_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                        ui.label("Corner power %:");
+                        ui.add(egui::DragValue::new(&mut layer.corner_power_pct).speed(1.0).range(1.0..=100.0).suffix(" %"));
+                        ui.end_row();
+                        ui.label("Angle threshold:");
+                        ui.add(egui::DragValue::new(&mut layer.corner_angle_threshold).speed(1.0).range(5.0..=175.0).suffix("°"));
+                        ui.end_row();
+                    });
+                }
+
                 ui.add_space(8.0);
                 ui.checkbox(&mut layer.air_assist, "Air Assist (M8)");
+                ui.checkbox(&mut layer.exhaust_enabled, "🌬 Exhaust Fan (M7)");
+                if layer.exhaust_enabled {
+                    ui.horizontal(|ui| {
+                        ui.label("Post-delay:");
+                        ui.add(egui::DragValue::new(&mut layer.exhaust_post_delay_s).speed(0.5).range(0.0..=60.0).suffix(" s"));
+                    });
+                }
                 ui.checkbox(&mut layer.visible, "Output Enabled");
+                ui.checkbox(&mut layer.is_construction, "🔧 Construction Layer (no output)").on_hover_text("Construction layers are visible on canvas but excluded from GCode output.");
 
                 ui.add_space(8.0);
                 ui.group(|ui| {

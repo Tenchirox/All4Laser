@@ -24,6 +24,30 @@ fn default_output_order() -> i32 { 0 }
 fn default_lead_in_mm() -> f32 { 0.0 }
 fn default_lead_out_mm() -> f32 { 0.0 }
 fn default_kerf_mm() -> f32 { 0.0 }
+fn default_perf_cut_mm() -> f32 { 5.0 }
+fn default_perf_gap_mm() -> f32 { 2.0 }
+fn default_corner_power_pct() -> f32 { 100.0 }
+fn default_corner_angle_threshold() -> f32 { 90.0 }
+fn default_ramp_length_mm() -> f32 { 5.0 }
+fn default_ramp_start_pct() -> f32 { 20.0 }
+fn default_exhaust_post_delay() -> f32 { 5.0 }
+fn default_pass_offset_mm() -> f32 { 0.0 }
+fn default_contour_count() -> u32 { 3 }
+fn default_contour_step() -> f32 { 0.5 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum FillPattern {
+    Horizontal,
+    Vertical,
+    Diagonal45,
+    Diagonal135,
+    Crosshatch,
+    Grid,
+}
+
+impl Default for FillPattern {
+    fn default() -> Self { FillPattern::Horizontal }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CutLayer {
@@ -67,6 +91,56 @@ pub struct CutLayer {
     pub tab_enabled: bool,
     pub tab_spacing: f32,   // Distance between tabs in mm
     pub tab_size: f32,      // Size of the gap in mm
+
+    // Perforation / dashed mode (F33)
+    #[serde(default)]
+    pub perforation_enabled: bool,
+    #[serde(default = "default_perf_cut_mm")]
+    pub perforation_cut_mm: f32,
+    #[serde(default = "default_perf_gap_mm")]
+    pub perforation_gap_mm: f32,
+
+    // Fill pattern (F85)
+    #[serde(default)]
+    pub fill_pattern: FillPattern,
+
+    // Multi-offset contour (F88)
+    #[serde(default)]
+    pub contour_offset_enabled: bool,
+    #[serde(default = "default_contour_count")]
+    pub contour_offset_count: u32,
+    #[serde(default = "default_contour_step")]
+    pub contour_offset_step_mm: f32,
+
+    // Construction geometry (F103)
+    #[serde(default)]
+    pub is_construction: bool,
+
+    // Multi-pass offset (F24)
+    #[serde(default = "default_pass_offset_mm")]
+    pub pass_offset_mm: f32,
+
+    // Ventilation / exhaust (F77)
+    #[serde(default)]
+    pub exhaust_enabled: bool,
+    #[serde(default = "default_exhaust_post_delay")]
+    pub exhaust_post_delay_s: f32,
+
+    // Power ramping (F12)
+    #[serde(default)]
+    pub ramp_enabled: bool,
+    #[serde(default = "default_ramp_length_mm")]
+    pub ramp_length_mm: f32,
+    #[serde(default = "default_ramp_start_pct")]
+    pub ramp_start_pct: f32, // % power at start/end of ramp (e.g. 20 = 20%)
+
+    // Corner power reduction (F40)
+    #[serde(default)]
+    pub corner_power_enabled: bool,
+    #[serde(default = "default_corner_power_pct")]
+    pub corner_power_pct: f32,       // % of normal power at corners (e.g. 60 = 60%)
+    #[serde(default = "default_corner_angle_threshold")]
+    pub corner_angle_threshold: f32, // Angle below which power is reduced (degrees)
 }
 
 fn serialize_color<S>(color: &Color32, serializer: S) -> Result<S::Ok, S::Error>
@@ -145,6 +219,23 @@ impl CutLayer {
                 tab_enabled: false,
                 tab_spacing: 50.0,
                 tab_size: 0.5,
+                perforation_enabled: false,
+                perforation_cut_mm: 5.0,
+                perforation_gap_mm: 2.0,
+                fill_pattern: FillPattern::Horizontal,
+                contour_offset_enabled: false,
+                contour_offset_count: 3,
+                contour_offset_step_mm: 0.5,
+                is_construction: false,
+                pass_offset_mm: 0.0,
+                exhaust_enabled: false,
+                exhaust_post_delay_s: 5.0,
+                ramp_enabled: false,
+                ramp_length_mm: 5.0,
+                ramp_start_pct: 20.0,
+                corner_power_enabled: false,
+                corner_power_pct: 60.0,
+                corner_angle_threshold: 90.0,
             });
         }
         layers
