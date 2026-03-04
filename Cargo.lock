@@ -169,7 +169,6 @@ dependencies = [
  "geo",
  "image",
  "indexmap",
- "lazy_static",
  "log",
  "nokhwa",
  "qrcode",

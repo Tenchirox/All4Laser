@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use egui::{CentralPanel, SidePanel, TopBottomPanel, RichText};
 
@@ -261,22 +261,22 @@ struct NodeEditSnapshot {
 }
 
 fn undo_history_step(
-    undo_stack: &mut Vec<NodeEditSnapshot>,
-    redo_stack: &mut Vec<NodeEditSnapshot>,
+    undo_stack: &mut VecDeque<NodeEditSnapshot>,
+    redo_stack: &mut VecDeque<NodeEditSnapshot>,
     current: NodeEditSnapshot,
 ) -> Option<NodeEditSnapshot> {
-    let prev = undo_stack.pop()?;
-    redo_stack.push(current);
+    let prev = undo_stack.pop_back()?;
+    redo_stack.push_back(current);
     Some(prev)
 }
 
 fn redo_history_step(
-    undo_stack: &mut Vec<NodeEditSnapshot>,
-    redo_stack: &mut Vec<NodeEditSnapshot>,
+    undo_stack: &mut VecDeque<NodeEditSnapshot>,
+    redo_stack: &mut VecDeque<NodeEditSnapshot>,
     current: NodeEditSnapshot,
 ) -> Option<NodeEditSnapshot> {
-    let next = redo_stack.pop()?;
-    undo_stack.push(current);
+    let next = redo_stack.pop_back()?;
+    undo_stack.push_back(current);
     Some(next)
 }
 
@@ -341,7 +341,7 @@ pub struct All4LaserApp {
     needs_auto_fit: bool,
 
     // Console
-    console_log: Vec<String>,
+    console_log: VecDeque<String>,
     console_input: String,
 
     // Jog
@@ -361,8 +361,8 @@ pub struct All4LaserApp {
     drawing_state: crate::ui::drawing::DrawingState,
     clipboard_shapes: Vec<ShapeParams>,
     clipboard_paste_serial: u32,
-    node_undo_stack: Vec<NodeEditSnapshot>,
-    node_redo_stack: Vec<NodeEditSnapshot>,
+    node_undo_stack: VecDeque<NodeEditSnapshot>,
+    node_redo_stack: VecDeque<NodeEditSnapshot>,
     node_move_undo_armed: bool,
     shape_transform_undo_armed: bool,
     node_smooth_strength: f32,
@@ -490,7 +490,7 @@ impl All4LaserApp {
             is_dry_run: false,
             renderer: PreviewRenderer::default(),
             needs_auto_fit: false,
-            console_log: vec!["All4Laser ready.".to_string()],
+            console_log: VecDeque::from(vec!["All4Laser ready.".to_string()]),
             console_input: String::new(),
             jog_step: 1.0,
             jog_feed: 1000.0,
@@ -500,8 +500,8 @@ impl All4LaserApp {
             drawing_state: crate::ui::drawing::DrawingState::default(),
             clipboard_shapes: Vec::new(),
             clipboard_paste_serial: 0,
-            node_undo_stack: Vec::new(),
-            node_redo_stack: Vec::new(),
+            node_undo_stack: VecDeque::new(),
+            node_redo_stack: VecDeque::new(),
             node_move_undo_armed: true,
             shape_transform_undo_armed: true,
             node_smooth_strength: 0.7,
@@ -710,9 +710,9 @@ impl All4LaserApp {
 
     fn log(&mut self, msg: String) {
         let timestamp = chrono_lite();
-        self.console_log.push(format!("[{timestamp}] {msg}"));
+        self.console_log.push_back(format!("[{timestamp}] {msg}"));
         if self.console_log.len() > MAX_LOG_LINES {
-            self.console_log.remove(0);
+            self.console_log.pop_front();
         }
     }
 
@@ -741,57 +741,57 @@ impl All4LaserApp {
 
         for msg in msgs {
             match msg {
-                SerialMsg::Response(ControllerResponse::Grbl(response)) => match response {
-                    GrblResponse::Status(state) => {
-                        let old_status = self.grbl_state.status;
-                        // Store machine position in renderer for crosshair display
-                        self.renderer.machine_pos = egui::pos2(state.mpos.x, state.mpos.y);
-                        self.grbl_state = state;
+                SerialMsg::Parsed { raw, response } => {
+                    self.log(raw);
+                    match response {
+                        ControllerResponse::Grbl(response) => match response {
+                            GrblResponse::Status(state) => {
+                                let old_status = self.grbl_state.status;
+                                // Store machine position in renderer for crosshair display
+                                self.renderer.machine_pos = egui::pos2(state.mpos.x, state.mpos.y);
+                                self.grbl_state = state;
 
-                        if self.framing_active {
-                            if self.grbl_state.status == MacStatus::Run {
-                                self.framing_wait_idle = true;
-                            } else if self.grbl_state.status == MacStatus::Idle
-                                && old_status == MacStatus::Run
-                                && self.framing_wait_idle
-                            {
-                                self.framing_wait_idle = false;
-                                self.send_frame_sequence();
+                                if self.framing_active {
+                                    if self.grbl_state.status == MacStatus::Run {
+                                        self.framing_wait_idle = true;
+                                    } else if self.grbl_state.status == MacStatus::Idle
+                                        && old_status == MacStatus::Run
+                                        && self.framing_wait_idle
+                                    {
+                                        self.framing_wait_idle = false;
+                                        self.send_frame_sequence();
+                                    }
+                                }
                             }
-                        }
-                    }
-                    GrblResponse::Ok => {
-                        if self.running && self.program_index < self.program_lines.len() {
-                            self.send_next_program_line();
-                        } else if self.running && self.program_index >= self.program_lines.len() {
-                            self.handle_program_completed();
-                        }
-                    }
-                    GrblResponse::Error(code) => {
-                        self.log(format!("error:{code}"));
-                        if self.running {
-                            self.handle_program_failed(format!("Controller error:{code}"));
-                        }
-                    }
-                    GrblResponse::Alarm(code) => {
-                        self.log(format!("ALARM:{code}"));
-                        self.handle_program_failed(format!("ALARM:{code}"));
-                    }
-                    GrblResponse::GrblVersion(ver) => {
-                        self.log(format!("Grbl {ver}"));
-                    }
-                    GrblResponse::Setting(id, val) => {
-                        if let Some(state) = &mut self.settings_state {
-                            if state.is_open {
-                                state.settings.insert(id, val);
+                            GrblResponse::Ok => {
+                                if self.running && self.program_index < self.program_lines.len() {
+                                    self.send_next_program_line();
+                                } else if self.running && self.program_index >= self.program_lines.len() {
+                                    self.handle_program_completed();
+                                }
                             }
-                        }
+                            GrblResponse::Error(code) => {
+                                if self.running {
+                                    self.handle_program_failed(format!("Controller error:{code}"));
+                                }
+                            }
+                            GrblResponse::Alarm(code) => {
+                                self.handle_program_failed(format!("ALARM:{code}"));
+                            }
+                            GrblResponse::GrblVersion(ver) => {
+                                self.log(format!("Grbl {ver}"));
+                            }
+                            GrblResponse::Setting(id, val) => {
+                                if let Some(state) = &mut self.settings_state {
+                                    if state.is_open {
+                                        state.settings.insert(id, val);
+                                    }
+                                }
+                            }
+                            GrblResponse::Message(_) => {}
+                        },
+                        ControllerResponse::Message => {}
                     }
-                    GrblResponse::Message(_) => {}
-                },
-                SerialMsg::Response(ControllerResponse::Message) => {}
-                SerialMsg::RawLine(line) => {
-                    self.log(line);
                 }
                 SerialMsg::Connected(port) => {
                     self.grbl_state.status = MacStatus::Idle;
@@ -1160,9 +1160,9 @@ impl All4LaserApp {
     }
 
     fn push_node_undo_snapshot(&mut self) {
-        self.node_undo_stack.push(self.capture_node_snapshot());
+        self.node_undo_stack.push_back(self.capture_node_snapshot());
         if self.node_undo_stack.len() > MAX_NODE_HISTORY {
-            self.node_undo_stack.remove(0);
+            self.node_undo_stack.pop_front();
         }
         self.node_redo_stack.clear();
     }
@@ -1664,7 +1664,7 @@ impl All4LaserApp {
             self.log("Framing stopped.".into());
         } else {
             // Start framing
-            if self.loaded_file.as_ref().map(|f| f.bounds()).flatten().is_some() {
+            if self.loaded_file.as_ref().and_then(|f| f.bounds()).is_some() {
                 self.framing_active = true;
                 self.framing_wait_idle = false;
                 self.log("Continuous Framing Started...".into());
@@ -2017,22 +2017,23 @@ impl All4LaserApp {
         }
     }
 
-    /// Send GRBL real-time feed override to pct% (10-200)
-    fn send_feed_override(&mut self, pct: u8) {
-        if self.send_realtime(RealtimeCommand::FeedOverrideReset) {
+    fn send_override(
+        &mut self,
+        reset_cmd: RealtimeCommand,
+        plus10_cmd: RealtimeCommand,
+        minus10_cmd: RealtimeCommand,
+        plus1_cmd: RealtimeCommand,
+        minus1_cmd: RealtimeCommand,
+        pct: u8,
+    ) {
+        if self.send_realtime(reset_cmd) {
             let diff = pct as i32 - 100;
             let tens = diff / 10;
             let ones = diff % 10;
             let (ten_cmd, one_cmd) = if diff >= 0 {
-                (
-                    RealtimeCommand::FeedOverridePlus10,
-                    RealtimeCommand::FeedOverridePlus1,
-                )
+                (plus10_cmd, plus1_cmd)
             } else {
-                (
-                    RealtimeCommand::FeedOverrideMinus10,
-                    RealtimeCommand::FeedOverrideMinus1,
-                )
+                (minus10_cmd, minus1_cmd)
             };
             for _ in 0..tens.abs() {
                 self.send_realtime(ten_cmd);
@@ -2043,30 +2044,28 @@ impl All4LaserApp {
         }
     }
 
+    /// Send GRBL real-time feed override to pct% (10-200)
+    fn send_feed_override(&mut self, pct: u8) {
+        self.send_override(
+            RealtimeCommand::FeedOverrideReset,
+            RealtimeCommand::FeedOverridePlus10,
+            RealtimeCommand::FeedOverrideMinus10,
+            RealtimeCommand::FeedOverridePlus1,
+            RealtimeCommand::FeedOverrideMinus1,
+            pct,
+        );
+    }
+
     /// Send GRBL real-time spindle (laser power) override to pct% (10-200)
     fn send_spindle_override(&mut self, pct: u8) {
-        if self.send_realtime(RealtimeCommand::SpindleOverrideReset) {
-            let diff = pct as i32 - 100;
-            let tens = diff / 10;
-            let ones = diff % 10;
-            let (ten_cmd, one_cmd) = if diff >= 0 {
-                (
-                    RealtimeCommand::SpindleOverridePlus10,
-                    RealtimeCommand::SpindleOverridePlus1,
-                )
-            } else {
-                (
-                    RealtimeCommand::SpindleOverrideMinus10,
-                    RealtimeCommand::SpindleOverrideMinus1,
-                )
-            };
-            for _ in 0..tens.abs() {
-                self.send_realtime(ten_cmd);
-            }
-            for _ in 0..ones.abs() {
-                self.send_realtime(one_cmd);
-            }
-        }
+        self.send_override(
+            RealtimeCommand::SpindleOverrideReset,
+            RealtimeCommand::SpindleOverridePlus10,
+            RealtimeCommand::SpindleOverrideMinus10,
+            RealtimeCommand::SpindleOverridePlus1,
+            RealtimeCommand::SpindleOverrideMinus1,
+            pct,
+        );
     }
 
     fn jog(&mut self, dir: JogDirection) {
@@ -2504,15 +2503,10 @@ impl All4LaserApp {
             .default_open(true)
             .show(ui, |ui| {
                 ui.group(|ui| {
-                    let (h, m, s) = if let Some(file) = &self.loaded_file {
-                        let est_time_s = crate::gcode::estimation::estimate(&file.lines).estimated_seconds;
-                        let h = (est_time_s / 3600.0) as u32;
-                        let m = ((est_time_s % 3600.0) / 60.0) as u32;
-                        let s = (est_time_s % 60.0) as u32;
-                        (h, m, s)
-                    } else {
-                        (0, 0, 0)
-                    };
+                    let est_time_s = self.estimation.estimated_seconds;
+                    let h = (est_time_s / 3600.0) as u32;
+                    let m = ((est_time_s % 3600.0) / 60.0) as u32;
+                    let s = (est_time_s % 60.0) as u32;
                     ui.label(RichText::new(format!("⏱ Est. Time: {:02}:{:02}:{:02}", h, m, s)).strong().color(theme::GREEN));
 
                     ui.add_space(4.0);
@@ -2908,7 +2902,7 @@ impl All4LaserApp {
 
                 ui.add_space(6.0);
 
-                let console_action = ui::console::show(ui, &self.console_log, &mut self.console_input);
+                let console_action = ui::console::show(ui, self.console_log.make_contiguous(), &mut self.console_input);
                 if let Some(cmd) = console_action.send_command {
                     self.send_command(&cmd);
                 }
@@ -3062,9 +3056,7 @@ impl All4LaserApp {
                 }
 
                 if changed {
-                    let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
-                    let file = GCodeFile::from_lines("drawing", &lines);
-                    self.set_loaded_file(file, lines);
+                    self.regenerate_drawing_gcode();
                 }
             }
         } else if selection.len() > 1 {
@@ -3163,7 +3155,7 @@ impl All4LaserApp {
                     });
                 }
                 RightPanelTab::Console => {
-                     let console_action = ui::console::show(ui, &self.console_log, &mut self.console_input);
+                     let console_action = ui::console::show(ui, self.console_log.make_contiguous(), &mut self.console_input);
                      if let Some(cmd) = console_action.send_command { self.send_command(&cmd); }
 
                      ui.separator();
@@ -3362,8 +3354,7 @@ impl eframe::App for All4LaserApp {
 
         // === Tiling Window ===
         {
-            let source = self.program_lines.clone();
-            let tile_action = ui::tiling::show(ctx, &mut self.tiling, &source);
+            let tile_action = ui::tiling::show(ctx, &mut self.tiling, &self.program_lines);
             if let Some(lines) = tile_action.apply {
                 let file = GCodeFile::from_lines("tiled", &lines);
                 self.set_loaded_file(file, lines);
@@ -3436,9 +3427,7 @@ impl eframe::App for All4LaserApp {
             let ca_action = ui::circular_array::show(ctx, &mut self.circular_array_state);
             if ca_action.apply {
                 ui::circular_array::apply_array(&self.circular_array_state, &mut self.drawing_state, &selection);
-                let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
-                let file = GCodeFile::from_lines("drawing", &lines);
-                self.set_loaded_file(file, lines);
+                self.regenerate_drawing_gcode();
                 self.log("Circular array applied.".into());
             }
         }
@@ -3449,9 +3438,7 @@ impl eframe::App for All4LaserApp {
             let off_action = ui::offset::show(ctx, &mut self.offset_state);
             if off_action.apply {
                 ui::offset::apply_offset(&self.offset_state, &mut self.drawing_state, &selection);
-                let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
-                let file = GCodeFile::from_lines("drawing", &lines);
-                self.set_loaded_file(file, lines);
+                self.regenerate_drawing_gcode();
                 self.log("Offset applied.".into());
             }
         }
@@ -3462,9 +3449,7 @@ impl eframe::App for All4LaserApp {
             let bool_action = ui::boolean_ops::show(ctx, &mut self.boolean_ops_state);
             if bool_action.apply {
                 ui::boolean_ops::apply_boolean(&self.boolean_ops_state, &mut self.drawing_state, &selection);
-                let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
-                let file = GCodeFile::from_lines("drawing", &lines);
-                self.set_loaded_file(file, lines);
+                self.regenerate_drawing_gcode();
                 self.log("Boolean operation applied.".into());
             }
         }
@@ -3590,9 +3575,7 @@ impl eframe::App for All4LaserApp {
                             self.drawing_state.shapes.push(shape);
                         }
 
-                        let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
-                        let file = GCodeFile::from_lines("drawing", &lines);
-                        self.set_loaded_file(file, lines);
+                        self.regenerate_drawing_gcode();
                     }
                     ui::image_dialog::ImportType::Svg(data) => {
                         match imaging::svg::svg_to_paths(data, &state.svg_params) {
@@ -3605,9 +3588,7 @@ impl eframe::App for All4LaserApp {
                                     };
                                     self.drawing_state.shapes.push(shape);
                                 }
-                                let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
-                                let file = GCodeFile::from_lines("drawing", &lines);
-                                self.set_loaded_file(file, lines);
+                                self.regenerate_drawing_gcode();
                             }
                             Err(e) => self.log(format!("SVG Conversion failed: {e}")),
                         }
@@ -4029,9 +4010,7 @@ impl eframe::App for All4LaserApp {
                     }
 
                     // Trigger Live Update
-                    let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
-                    let file = GCodeFile::from_lines("drawing", &lines);
-                    self.set_loaded_file(file, lines);
+                    self.regenerate_drawing_gcode();
                 }
                 crate::preview::renderer::InteractiveAction::RotateSelection { shape_idx, delta_deg } => {
                     if self.shape_transform_undo_armed {
@@ -4055,9 +4034,7 @@ impl eframe::App for All4LaserApp {
                         shape.x += old_cx - new_cx;
                         shape.y += old_cy - new_cy;
                         
-                        let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
-                        let file = GCodeFile::from_lines("drawing", &lines);
-                        self.set_loaded_file(file, lines);
+                        self.regenerate_drawing_gcode();
                     }
                 }
                 crate::preview::renderer::InteractiveAction::MoveNode { shape_idx, node_idx, new_pos } => {
@@ -4195,8 +4172,8 @@ mod tests {
 
     #[test]
     fn node_undo_redo_history_restores_expected_snapshots() {
-        let mut undo = vec![snapshot(1.0, Some((0, 0)), vec![(0, 0)])];
-        let mut redo = Vec::new();
+        let mut undo = VecDeque::from(vec![snapshot(1.0, Some((0, 0)), vec![(0, 0)])]);
+        let mut redo = VecDeque::new();
         let current = snapshot(2.0, Some((0, 1)), vec![(0, 0), (0, 1)]);
 
         let prev = undo_history_step(&mut undo, &mut redo, current.clone()).expect("undo should produce previous state");
@@ -4207,6 +4184,43 @@ mod tests {
         let next = redo_history_step(&mut undo, &mut redo, prev.clone()).expect("redo should restore current state");
         assert_eq!(next.selected_node, Some((0, 1)));
         assert_eq!(next.selected_nodes.len(), 2);
+    }
+
+    #[test]
+    fn undo_on_empty_stack_returns_none() {
+        let mut undo: VecDeque<NodeEditSnapshot> = VecDeque::new();
+        let mut redo: VecDeque<NodeEditSnapshot> = VecDeque::new();
+        let current = snapshot(1.0, None, vec![]);
+        assert!(undo_history_step(&mut undo, &mut redo, current).is_none());
+    }
+
+    #[test]
+    fn redo_on_empty_stack_returns_none() {
+        let mut undo: VecDeque<NodeEditSnapshot> = VecDeque::new();
+        let mut redo: VecDeque<NodeEditSnapshot> = VecDeque::new();
+        let current = snapshot(1.0, None, vec![]);
+        assert!(redo_history_step(&mut undo, &mut redo, current).is_none());
+    }
+
+    #[test]
+    fn vecdeque_log_respects_max_capacity() {
+        let mut log: VecDeque<String> = VecDeque::new();
+        for i in 0..MAX_LOG_LINES + 50 {
+            log.push_back(format!("line {i}"));
+            if log.len() > MAX_LOG_LINES {
+                log.pop_front();
+            }
+        }
+        assert_eq!(log.len(), MAX_LOG_LINES);
+        assert!(log.front().unwrap().contains("50"));
+    }
+
+    #[test]
+    fn chrono_lite_returns_valid_timestamp() {
+        let ts = chrono_lite();
+        assert_eq!(ts.len(), 8); // HH:MM:SS
+        assert_eq!(ts.chars().nth(2), Some(':'));
+        assert_eq!(ts.chars().nth(5), Some(':'));
     }
 
     #[test]

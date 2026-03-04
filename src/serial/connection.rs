@@ -9,8 +9,7 @@ use crate::controller::{ControllerBackend, ControllerResponse};
 /// Messages from serial reader thread to the main app
 #[derive(Debug, Clone)]
 pub enum SerialMsg {
-    Response(ControllerResponse),
-    RawLine(String),
+    Parsed { raw: String, response: ControllerResponse },
     Connected(String),
     Disconnected(String),
     Error(String),
@@ -62,8 +61,7 @@ impl SerialConnection {
                             continue;
                         }
                         let response = parse_backend.parse_response(&trimmed);
-                        let _ = reader_tx.send(SerialMsg::RawLine(trimmed));
-                        let _ = reader_tx.send(SerialMsg::Response(response));
+                        let _ = reader_tx.send(SerialMsg::Parsed { raw: trimmed, response });
                     }
                     Err(e) => {
                         if e.kind() == std::io::ErrorKind::TimedOut {
