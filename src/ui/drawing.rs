@@ -220,6 +220,11 @@ pub fn align_shapes(shapes: &mut [ShapeParams], selection: &[usize], op: AlignOp
     }
 }
 
+/// Public wrapper for shape_world_bounds (F59)
+pub fn shape_world_bounds_pub(s: &ShapeParams) -> (f32, f32, f32, f32) {
+    shape_world_bounds(s)
+}
+
 /// Group selected shapes under a new group ID (F51)
 pub fn group_shapes(shapes: &mut [ShapeParams], selection: &[usize]) -> Option<u32> {
     if selection.len() < 2 { return None; }

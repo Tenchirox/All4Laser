@@ -78,6 +78,9 @@ pub struct AppSettings {
     pub cost_per_m2: f32,
     #[serde(default)]
     pub cost_currency: String,
+    // Custom shortcuts (F89)
+    #[serde(default = "default_shortcuts")]
+    pub custom_shortcuts: std::collections::HashMap<String, String>,
 }
 
 fn default_theme() -> UiTheme { UiTheme::Modern }
@@ -87,6 +90,20 @@ fn default_beginner_mode() -> bool { true }
 fn default_active_tab() -> RightPanelTab { RightPanelTab::Art }
 fn default_camera_opacity() -> f32 { 0.5 }
 fn default_cost_per_hour() -> f32 { 15.0 }
+fn default_shortcuts() -> std::collections::HashMap<String, String> {
+    let mut m = std::collections::HashMap::new();
+    m.insert("run".into(), "Ctrl+R".into());
+    m.insert("stop".into(), "Escape".into());
+    m.insert("save".into(), "Ctrl+S".into());
+    m.insert("open".into(), "Ctrl+O".into());
+    m.insert("undo".into(), "Ctrl+Z".into());
+    m.insert("redo".into(), "Ctrl+Y".into());
+    m.insert("delete".into(), "Delete".into());
+    m.insert("copy".into(), "Ctrl+C".into());
+    m.insert("paste".into(), "Ctrl+V".into());
+    m.insert("select_all".into(), "Ctrl+A".into());
+    m
+}
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -109,6 +126,7 @@ impl Default for AppSettings {
             cost_per_hour: default_cost_per_hour(),
             cost_per_m2: 0.0,
             cost_currency: "€".into(),
+            custom_shortcuts: default_shortcuts(),
         }
     }
 }

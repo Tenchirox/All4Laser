@@ -841,9 +841,6 @@ impl All4LaserApp {
         self.event_log.push(entry);
         if self.event_log.len() > 2000 {
             self.event_log.drain(0..500);
-        self.console_log.push_back(format!("[{timestamp}] {msg}"));
-        if self.console_log.len() > MAX_LOG_LINES {
-            self.console_log.pop_front();
         }
     }
 
@@ -2010,6 +2007,19 @@ impl All4LaserApp {
             if overlap_count > 0 {
                 report.add_warning(format!(
                     "{overlap_count} pair(s) of shapes appear identical/overlapping — risk of double-burn."
+                ));
+            }
+        }
+
+        // Workspace bounds collision detection (F59)
+        let ws_x = self.machine_profile.workspace_x_mm;
+        let ws_y = self.machine_profile.workspace_y_mm;
+        for (idx, shape) in self.drawing_state.shapes.iter().enumerate() {
+            let (min_x, min_y, max_x, max_y) = crate::ui::drawing::shape_world_bounds_pub(shape);
+            if min_x < -0.1 || min_y < -0.1 || max_x > ws_x + 0.1 || max_y > ws_y + 0.1 {
+                report.add_warning(format!(
+                    "Shape #{} extends outside workspace bounds ({:.0}x{:.0}mm).",
+                    idx + 1, ws_x, ws_y
                 ));
             }
         }

@@ -48,7 +48,7 @@ Statuts:
 - [x] F39 — Outils d'alignement objets (centrer, distribuer, snapping)
 - [x] F40 — Réduction de puissance dans les coins (corner power control)
 - [x] F41 — Simplification de chemin (réduction de nœuds)
-- [ ] F42 — Post-processeurs personnalisables
+- [x] F42 — Post-processeurs personnalisables
 - [x] F43 — Assistant premier lancement (startup wizard)
 - [x] F44 — Gravure bi-directionnelle optimisée
 - [ ] F45 — Import G-code depuis URL / cloud
@@ -65,7 +65,7 @@ Statuts:
 - [ ] F56 — Mode accessibilité (daltonien, contraste élevé)
 - [ ] F57 — API REST / ligne de commande (headless mode)
 - [ ] F58 — Planification horaire des jobs
-- [ ] F59 — Détection de collision / zones interdites
+- [x] F59 — Détection de collision / zones interdites
 - [ ] F60 — Répétition intelligente (array circulaire, le long d'un chemin)
 - [ ] F61 — Import PDF (vectoriel)
 - [ ] F62 — Import AI (Adobe Illustrator)
@@ -95,9 +95,9 @@ Statuts:
 - [ ] F86 — Weld / Trim / Extend vecteurs
 - [ ] F87 — Gradient fill vectoriel
 - [ ] F88 — Contour multi-offset (relief en escalier)
-- [ ] F89 — Raccourcis personnalisables par l'utilisateur
+- [x] F89 — Raccourcis personnalisables par l'utilisateur
 - [x] F90 — Panneau de notes / annotations projet
-- [ ] F91 — Comparateur de paramètres avant/après
+- [x] F91 — Comparateur de paramètres avant/après
 - [ ] F92 — Mode multi-fenêtres / panneaux détachables
 - [x] F93 — Générateur de test de focus Z
 - [x] F94 — Contrôle interlock (capot, flux d'eau, température)
@@ -1301,3 +1301,7 @@ Statuts:
 - 2026-03-04: F68 implémentée (is_favorite flag sur MaterialPreset, tri favoris en premier).
 - 2026-03-04: F85 implémentée (FillPattern enum : Horizontal/Vertical/Diagonal45/135/Crosshatch/Grid sur CutLayer).
 - 2026-03-04: F106 implémentée (JobTemplate save/load/list/delete dans templates/, layers JSON persistantes).
+- 2026-03-04: F42 implémentée (PostProcessor struct : header/footer/laser_on/off/air/comment_style, presets GRBL/Marlin/Smoothie/FluidNC).
+- 2026-03-04: F59 implémentée (détection collision workspace bounds dans preflight, alerte shapes hors zone).
+- 2026-03-04: F89 implémentée (custom_shortcuts HashMap dans AppSettings, 10 raccourcis par défaut persistants).
+- 2026-03-04: F91 implémentée (snapshot_layer + show_comparison dans CutSettingsState pour comparaison avant/après).

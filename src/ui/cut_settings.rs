@@ -9,6 +9,9 @@ pub struct CutSettingsState {
     pub temp_layer: Option<CutLayer>,
     pub kerf_test_nominal_mm: f32,
     pub kerf_test_measured_mm: f32,
+    // Parameter comparison snapshot (F91)
+    pub snapshot_layer: Option<CutLayer>,
+    pub show_comparison: bool,
 }
 
 impl Default for CutSettingsState {
@@ -19,6 +22,8 @@ impl Default for CutSettingsState {
             temp_layer: None,
             kerf_test_nominal_mm: 20.0,
             kerf_test_measured_mm: 19.8,
+            snapshot_layer: None,
+            show_comparison: false,
         }
     }
 }
