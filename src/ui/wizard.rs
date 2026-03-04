@@ -2,7 +2,7 @@
 use crate::i18n::Language;
 use crate::controller::ControllerKind;
 use crate::config::machine_profile::MachineProfile;
-use crate::app::WizardState;
+use crate::app_types::WizardState;
 
 pub struct WizardContext<'a> {
     pub wizard: &'a mut WizardState,
