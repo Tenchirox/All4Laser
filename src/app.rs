@@ -841,6 +841,9 @@ impl All4LaserApp {
         self.event_log.push(entry);
         if self.event_log.len() > 2000 {
             self.event_log.drain(0..500);
+        self.console_log.push_back(format!("[{timestamp}] {msg}"));
+        if self.console_log.len() > MAX_LOG_LINES {
+            self.console_log.pop_front();
         }
     }
 
