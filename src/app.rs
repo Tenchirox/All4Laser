@@ -2820,118 +2820,7 @@ impl All4LaserApp {
         ui.add_space(6.0);
 
         if !self.beginner_mode {
-            egui::CollapsingHeader::new(
-                RichText::new(format!("🛠 {}", crate::i18n::tr("Advanced Tools")))
-                    .color(theme::LAVENDER)
-                    .strong(),
-            )
-                .default_open(false)
-                .show(ui, |ui| {
-                ui.add_space(6.0);
-
-                let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
-                if let Some(mac) = macros_action.execute_macro {
-                    self.execute_macro_script(&mac.label, &mac.gcode);
-                }
-
-                ui.add_space(6.0);
-
-                let console_action = ui::console::show(ui, self.console_log.make_contiguous(), &mut self.console_input);
-                if let Some(cmd) = console_action.send_command {
-                    self.send_command(&cmd);
-                }
-
-                ui.add_space(6.0);
-
-                let mat_context = self.materials_ui_context();
-                let mat_action = ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
-                self.apply_material_action(mat_action);
-
-                ui.add_space(6.0);
-
-                // Alignment tools (F39)
-                ui.group(|ui| {
-                    ui.label(RichText::new("📐 Align / Distribute").color(theme::LAVENDER).strong());
-                    let sel: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
-                    let has_sel = sel.len() >= 2;
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(has_sel, egui::Button::new("⬅").small()).on_hover_text("Align Left").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::Left);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_sel, egui::Button::new("➡").small()).on_hover_text("Align Right").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::Right);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_sel, egui::Button::new("⬆").small()).on_hover_text("Align Top").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::Top);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_sel, egui::Button::new("⬇").small()).on_hover_text("Align Bottom").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::Bottom);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_sel, egui::Button::new("⬌").small()).on_hover_text("Center Horizontal").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::CenterH);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_sel, egui::Button::new("⬍").small()).on_hover_text("Center Vertical").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::CenterV);
-                            self.regenerate_drawing_gcode();
-                        }
-                    });
-                    let has_3 = sel.len() >= 3;
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(has_3, egui::Button::new("⇔ Distribute H").small()).clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::DistributeH);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_3, egui::Button::new("⇕ Distribute V").small()).clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::DistributeV);
-                            self.regenerate_drawing_gcode();
-                        }
-                    });
-                });
-
-                ui.add_space(6.0);
-
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
-                    });
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("⇊ Run Z-Probe").on_hover_text("Search for surface using G38.2 and set Z0").clicked() {
-                            self.send_command("G38.2 Z-50 F100");
-                            self.send_command("G4 P0.5");
-                            self.send_command("G92 Z0");
-                            self.send_command("G0 Z5 F500");
-                            self.log("Probing complete. Z set to 5mm above surface.".into());
-                        }
-                        if ui.button("🎯 Focus Point").on_hover_text("Move to Z focusing position (e.g. 20mm)").clicked() {
-                            self.send_command("G0 Z20 F1000");
-                        }
-                    });
-                    // Z Focus Test (F93)
-                    ui.add_space(4.0);
-                    if ui.button("🔍 Generate Z Focus Test").on_hover_text("Generate lines at different Z heights to find focus").clicked() {
-                        let lines = ui::power_speed_test::generate_z_focus_test(
-                            0.0, 10.0, 10, 40.0, 1000.0, 500.0, 5.0, 5.0,
-                        );
-                        let file = crate::gcode::file::GCodeFile::from_lines("z_focus_test", &lines);
-                        self.set_loaded_file(file, lines);
-                        self.log("Z focus test pattern loaded.".into());
-                    }
-                });
-                });
+            self.ui_advanced_tools(ui, connected);
         } else {
             ui.label(
                 RichText::new(format!(
@@ -2942,6 +2831,111 @@ impl All4LaserApp {
                 .color(theme::SUBTEXT),
             );
         }
+    }
+
+    fn ui_advanced_tools(&mut self, ui: &mut egui::Ui, connected: bool) {
+        egui::CollapsingHeader::new(
+            RichText::new(format!("🛠 {}", crate::i18n::tr("Advanced Tools")))
+                .color(theme::LAVENDER)
+                .strong(),
+        )
+            .default_open(false)
+            .show(ui, |ui| {
+            ui.add_space(6.0);
+
+            let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
+            if let Some(mac) = macros_action.execute_macro {
+                self.execute_macro_script(&mac.label, &mac.gcode);
+            }
+
+            ui.add_space(6.0);
+
+            let console_action = ui::console::show(ui, self.console_log.make_contiguous(), &mut self.console_input);
+            if let Some(cmd) = console_action.send_command {
+                self.send_command(&cmd);
+            }
+
+            ui.add_space(6.0);
+
+            let mat_context = self.materials_ui_context();
+            let mat_action = ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
+            self.apply_material_action(mat_action);
+
+            ui.add_space(6.0);
+
+            self.ui_alignment_tools(ui);
+
+            ui.add_space(6.0);
+
+            self.ui_z_probe_tools(ui);
+            });
+    }
+
+    fn ui_alignment_tools(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label(RichText::new("📐 Align / Distribute").color(theme::LAVENDER).strong());
+            let sel: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
+            let has_sel = sel.len() >= 2;
+            ui.horizontal(|ui| {
+                for (label, hint, op) in [
+                    ("⬅", "Align Left", crate::ui::drawing::AlignOp::Left),
+                    ("➡", "Align Right", crate::ui::drawing::AlignOp::Right),
+                    ("⬆", "Align Top", crate::ui::drawing::AlignOp::Top),
+                    ("⬇", "Align Bottom", crate::ui::drawing::AlignOp::Bottom),
+                    ("⬌", "Center Horizontal", crate::ui::drawing::AlignOp::CenterH),
+                    ("⬍", "Center Vertical", crate::ui::drawing::AlignOp::CenterV),
+                ] {
+                    if ui.add_enabled(has_sel, egui::Button::new(label).small()).on_hover_text(hint).clicked() {
+                        self.push_node_undo_snapshot();
+                        crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, op);
+                        self.regenerate_drawing_gcode();
+                    }
+                }
+            });
+            let has_3 = sel.len() >= 3;
+            ui.horizontal(|ui| {
+                if ui.add_enabled(has_3, egui::Button::new("⇔ Distribute H").small()).clicked() {
+                    self.push_node_undo_snapshot();
+                    crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::DistributeH);
+                    self.regenerate_drawing_gcode();
+                }
+                if ui.add_enabled(has_3, egui::Button::new("⇕ Distribute V").small()).clicked() {
+                    self.push_node_undo_snapshot();
+                    crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::DistributeV);
+                    self.regenerate_drawing_gcode();
+                }
+            });
+        });
+    }
+
+    fn ui_z_probe_tools(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
+            });
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if ui.button("⇊ Run Z-Probe").on_hover_text("Search for surface using G38.2 and set Z0").clicked() {
+                    self.send_command("G38.2 Z-50 F100");
+                    self.send_command("G4 P0.5");
+                    self.send_command("G92 Z0");
+                    self.send_command("G0 Z5 F500");
+                    self.log("Probing complete. Z set to 5mm above surface.".into());
+                }
+                if ui.button("🎯 Focus Point").on_hover_text("Move to Z focusing position (e.g. 20mm)").clicked() {
+                    self.send_command("G0 Z20 F1000");
+                }
+            });
+            ui.add_space(4.0);
+            if ui.button("🔍 Generate Z Focus Test").on_hover_text("Generate lines at different Z heights to find focus").clicked() {
+                let lines = ui::power_speed_test::generate_z_focus_test(
+                    0.0, 10.0, 10, 40.0, 1000.0, 500.0, 5.0, 5.0,
+                );
+                let file = crate::gcode::file::GCodeFile::from_lines("z_focus_test", &lines);
+                self.set_loaded_file(file, lines);
+                self.log("Z focus test pattern loaded.".into());
+            }
+        });
     }
 
     fn ui_right_content(&mut self, ui: &mut egui::Ui) {
