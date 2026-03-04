@@ -449,9 +449,7 @@ pub struct All4LaserApp {
     materials_state: ui::materials::MaterialsState,
 
     // Test Fire
-    test_fire_open: bool,
-    test_fire_power: f32,
-    test_fire_ms: f32,
+    test_fire: TestFireState,
 
     // Feed / Spindle RT override (0-100%, 100 = no change)
     feed_override_pct: f32,
@@ -473,12 +471,7 @@ pub struct All4LaserApp {
 
     // Camera
     camera_state: ui::camera::CameraState,
-    camera_stream: Option<crate::camera_stream::CameraStream>,
-    camera_last_frame_rgba: Vec<u8>,
-    camera_last_frame_width: usize,
-    camera_last_frame_height: usize,
-    camera_calibration_picks: Vec<egui::Pos2>,
-    camera_point_align_picks: Vec<egui::Pos2>,
+    camera_live: CameraLiveState,
     circular_array_state: ui::circular_array::CircularArrayState,
     offset_state: ui::offset::OffsetState,
     boolean_ops_state: ui::boolean_ops::BooleanOpsState,
@@ -579,9 +572,7 @@ impl All4LaserApp {
             job_queue_state: ui::job_queue::JobQueueState::default(),
             active_queue_job: None,
             materials_state: ui::materials::MaterialsState::default(),
-            test_fire_open: false,
-            test_fire_power: 10.0,
-            test_fire_ms: 1000.0,
+            test_fire: TestFireState::default(),
             ui_theme: theme::UiTheme::Modern,
             ui_layout: theme::UiLayout::Modern,
             light_mode: false,
@@ -594,12 +585,7 @@ impl All4LaserApp {
             spindle_override_pct: 100.0,
             estimation: crate::gcode::estimation::EstimationResult::default(),
             camera_state: ui::camera::CameraState::default(),
-            camera_stream: None,
-            camera_last_frame_rgba: Vec::new(),
-            camera_last_frame_width: 0,
-            camera_last_frame_height: 0,
-            camera_calibration_picks: Vec::new(),
-            camera_point_align_picks: Vec::new(),
+            camera_live: CameraLiveState::default(),
             circular_array_state: ui::circular_array::CircularArrayState::default(),
             offset_state: ui::offset::OffsetState::default(),
             boolean_ops_state: ui::boolean_ops::BooleanOpsState::default(),
@@ -778,7 +764,7 @@ impl All4LaserApp {
             self.jog_feed = s;
         }
         if let Some(p) = mat_action.apply_power {
-            self.test_fire_power = p / 10.0;
+            self.test_fire.power = p / 10.0;
         }
     }
 
@@ -1397,7 +1383,7 @@ impl All4LaserApp {
         let device_index = self.camera_state.device_index.max(0) as u32;
         match crate::camera_stream::CameraStream::start(device_index) {
             Ok(stream) => {
-                self.camera_stream = Some(stream);
+                self.camera_live.stream = Some(stream);
                 self.camera_state.live_streaming = true;
                 self.camera_state.snapshot_path = None;
                 self.camera_state.texture = None;
@@ -1412,7 +1398,7 @@ impl All4LaserApp {
     }
 
     fn stop_live_camera(&mut self) {
-        if let Some(mut stream) = self.camera_stream.take() {
+        if let Some(mut stream) = self.camera_live.stream.take() {
             stream.stop();
         }
         self.camera_state.live_streaming = false;
@@ -1423,9 +1409,9 @@ impl All4LaserApp {
         ctx: &egui::Context,
         frame: crate::camera_stream::CameraFrame,
     ) {
-        self.camera_last_frame_width = frame.width;
-        self.camera_last_frame_height = frame.height;
-        self.camera_last_frame_rgba = frame.rgba.clone();
+        self.camera_live.last_frame_width = frame.width;
+        self.camera_live.last_frame_height = frame.height;
+        self.camera_live.last_frame_rgba = frame.rgba.clone();
         let color_image = egui::ColorImage::from_rgba_unmultiplied([frame.width, frame.height], &frame.rgba);
         if let Some(texture) = self.camera_state.texture.as_mut() {
             texture.set(color_image, Default::default());
@@ -1442,7 +1428,7 @@ impl All4LaserApp {
         let mut latest_frame = None;
         let mut latest_error = None;
 
-        if let Some(stream) = self.camera_stream.as_ref() {
+        if let Some(stream) = self.camera_live.stream.as_ref() {
             latest_frame = stream.try_recv_latest_frame();
             latest_error = stream.try_recv_error();
         }
@@ -1464,18 +1450,18 @@ impl All4LaserApp {
             self.show_error("Start live camera (or load image) before calibration wizard.".into());
             return;
         }
-        self.camera_point_align_picks.clear();
+        self.camera_live.point_align_picks.clear();
         self.camera_state.point_align_active = false;
         self.camera_state.point_align_pick_count = 0;
 
-        self.camera_calibration_picks.clear();
+        self.camera_live.calibration_picks.clear();
         self.camera_state.calibration_wizard_active = true;
         self.camera_state.calibration_pick_count = 0;
         self.log("Calibration wizard started: pick origin, +X, +Y on camera overlay.".into());
     }
 
     fn stop_camera_calibration_wizard(&mut self) {
-        self.camera_calibration_picks.clear();
+        self.camera_live.calibration_picks.clear();
         self.camera_state.calibration_wizard_active = false;
         self.camera_state.calibration_pick_count = 0;
     }
@@ -1489,32 +1475,32 @@ impl All4LaserApp {
             self.show_error("Load a job before 2-point align.".into());
             return;
         }
-        self.camera_calibration_picks.clear();
+        self.camera_live.calibration_picks.clear();
         self.camera_state.calibration_wizard_active = false;
         self.camera_state.calibration_pick_count = 0;
 
-        self.camera_point_align_picks.clear();
+        self.camera_live.point_align_picks.clear();
         self.camera_state.point_align_active = true;
         self.camera_state.point_align_pick_count = 0;
         self.log("2-point align started: pick bottom-left then bottom-right target on camera overlay.".into());
     }
 
     fn stop_camera_point_align(&mut self) {
-        self.camera_point_align_picks.clear();
+        self.camera_live.point_align_picks.clear();
         self.camera_state.point_align_active = false;
         self.camera_state.point_align_pick_count = 0;
     }
 
     fn apply_calibration_from_picks(&mut self) -> bool {
-        if self.camera_calibration_picks.len() < 3 {
+        if self.camera_live.calibration_picks.len() < 3 {
             return false;
         }
 
         let wsx = self.renderer.workspace_size.x.max(1.0);
         let wsy = self.renderer.workspace_size.y.max(1.0);
-        let p0 = self.camera_calibration_picks[0];
-        let px = self.camera_calibration_picks[1];
-        let py = self.camera_calibration_picks[2];
+        let p0 = self.camera_live.calibration_picks[0];
+        let px = self.camera_live.calibration_picks[1];
+        let py = self.camera_live.calibration_picks[2];
 
         let vx = px - p0;
         let vy = py - p0;
@@ -1556,7 +1542,7 @@ impl All4LaserApp {
     }
 
     fn apply_point_align_from_picks(&mut self) -> bool {
-        if self.camera_point_align_picks.len() < 2 {
+        if self.camera_live.point_align_picks.len() < 2 {
             return false;
         }
         let Some(file) = self.loaded_file.as_ref() else {
@@ -1578,8 +1564,8 @@ impl All4LaserApp {
             return false;
         }
 
-        let dst0 = self.camera_point_align_picks[0];
-        let dst1 = self.camera_point_align_picks[1];
+        let dst0 = self.camera_live.point_align_picks[0];
+        let dst1 = self.camera_live.point_align_picks[1];
 
         let src_angle = (src1.y - src0.y).atan2(src1.x - src0.x);
         let dst_angle = (dst1.y - dst0.y).atan2(dst1.x - dst0.x);
@@ -1608,9 +1594,9 @@ impl All4LaserApp {
 
     fn handle_camera_pick_point(&mut self, point: egui::Pos2) {
         if self.camera_state.calibration_wizard_active {
-            self.camera_calibration_picks.push(point);
-            self.camera_state.calibration_pick_count = self.camera_calibration_picks.len();
-            if self.camera_calibration_picks.len() >= 3 {
+            self.camera_live.calibration_picks.push(point);
+            self.camera_state.calibration_pick_count = self.camera_live.calibration_picks.len();
+            if self.camera_live.calibration_picks.len() >= 3 {
                 let applied = self.apply_calibration_from_picks();
                 self.stop_camera_calibration_wizard();
                 if applied {
@@ -1621,9 +1607,9 @@ impl All4LaserApp {
         }
 
         if self.camera_state.point_align_active {
-            self.camera_point_align_picks.push(point);
-            self.camera_state.point_align_pick_count = self.camera_point_align_picks.len();
-            if self.camera_point_align_picks.len() >= 2 {
+            self.camera_live.point_align_picks.push(point);
+            self.camera_state.point_align_pick_count = self.camera_live.point_align_picks.len();
+            if self.camera_live.point_align_picks.len() >= 2 {
                 self.apply_point_align_from_picks();
                 self.stop_camera_point_align();
             }
@@ -1668,13 +1654,13 @@ impl All4LaserApp {
         let mut height = 0usize;
         let mut source = "none";
 
-        if !self.camera_last_frame_rgba.is_empty()
-            && self.camera_last_frame_width > 0
-            && self.camera_last_frame_height > 0
+        if !self.camera_live.last_frame_rgba.is_empty()
+            && self.camera_live.last_frame_width > 0
+            && self.camera_live.last_frame_height > 0
         {
-            rgba = self.camera_last_frame_rgba.clone();
-            width = self.camera_last_frame_width;
-            height = self.camera_last_frame_height;
+            rgba = self.camera_live.last_frame_rgba.clone();
+            width = self.camera_live.last_frame_width;
+            height = self.camera_live.last_frame_height;
             source = "live";
         } else if let Some(path) = self.camera_state.snapshot_path.as_deref() {
             match image::open(path) {
@@ -1739,9 +1725,9 @@ impl All4LaserApp {
             return;
         };
 
-        self.camera_point_align_picks.clear();
-        self.camera_point_align_picks.push(cross);
-        self.camera_point_align_picks.push(circle);
+        self.camera_live.point_align_picks.clear();
+        self.camera_live.point_align_picks.push(cross);
+        self.camera_live.point_align_picks.push(circle);
         if self.apply_point_align_from_picks() {
             self.stop_camera_point_align();
             self.sync_settings();
@@ -2854,9 +2840,9 @@ impl All4LaserApp {
                     self.stop_live_camera();
                     self.camera_state.texture = None;
                     self.camera_state.snapshot_path = None;
-                    self.camera_last_frame_rgba.clear();
-                    self.camera_last_frame_width = 0;
-                    self.camera_last_frame_height = 0;
+                    self.camera_live.last_frame_rgba.clear();
+                    self.camera_live.last_frame_width = 0;
+                    self.camera_live.last_frame_height = 0;
                     self.camera_state.detected_cross_world = None;
                     self.camera_state.detected_circle_world = None;
                     self.camera_state.detection_status = "No marker detection run yet.".to_string();
@@ -3896,7 +3882,7 @@ impl eframe::App for All4LaserApp {
         }
 
         // === Test Fire Window ===
-        if self.test_fire_open {
+        if self.test_fire.is_open {
             let connected = self.is_connected();
             let mut close_tf = false;
             egui::Window::new("🔥 Test Fire")
@@ -3905,18 +3891,18 @@ impl eframe::App for All4LaserApp {
                 .show(ctx, |ui| {
                     egui::Grid::new("tf_grid").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
                         ui.label("Power (S):");
-                        ui.add(egui::DragValue::new(&mut self.test_fire_power).range(1.0..=1000.0).speed(5.0));
+                        ui.add(egui::DragValue::new(&mut self.test_fire.power).range(1.0..=1000.0).speed(5.0));
                         ui.end_row();
                         ui.label("Duration (ms):");
-                        ui.add(egui::DragValue::new(&mut self.test_fire_ms).range(10.0..=5000.0).speed(10.0));
+                        ui.add(egui::DragValue::new(&mut self.test_fire.duration_ms).range(10.0..=5000.0).speed(10.0));
                         ui.end_row();
                     });
                     ui.horizontal(|ui| {
                         if ui.add_enabled(connected, egui::Button::new(
                             egui::RichText::new("🔥 Fire").color(theme::RED).strong()
                         )).clicked() {
-                            let pow = self.test_fire_power;
-                            let secs = self.test_fire_ms / 1000.0;
+                            let pow = self.test_fire.power;
+                            let secs = self.test_fire.duration_ms / 1000.0;
                             self.send_command(&format!("M3 S{:.0}", pow));
                             self.send_command(&format!("G4 P{:.3}", secs));
                             self.send_command("M5");
@@ -3924,7 +3910,7 @@ impl eframe::App for All4LaserApp {
                         if ui.button("Close").clicked() { close_tf = true; }
                     });
                 });
-            if close_tf { self.test_fire_open = false; }
+            if close_tf { self.test_fire.is_open = false; }
         }
 
         // === Feed/Spindle Override Window ===
@@ -4210,7 +4196,7 @@ impl eframe::App for All4LaserApp {
                 self.job_queue_state.is_open = true;
             }
             if actions.open_test_fire {
-                self.test_fire_open = true;
+                self.test_fire.is_open = true;
             }
             if actions.open_project {
                 if let Some(path) = rfd::FileDialog::new()
