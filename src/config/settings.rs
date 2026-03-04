@@ -90,6 +90,13 @@ pub struct AppSettings {
     // Demo/presentation mode (F98)
     #[serde(default)]
     pub demo_mode: bool,
+    // Network connection (F10)
+    #[serde(default)]
+    pub network_enabled: bool,
+    #[serde(default)]
+    pub network_host: String,
+    #[serde(default = "default_network_port")]
+    pub network_port: u16,
     // Accessibility (F56)
     #[serde(default)]
     pub colorblind_mode: ColorblindMode,
@@ -117,6 +124,7 @@ fn default_active_tab() -> RightPanelTab { RightPanelTab::Art }
 fn default_camera_opacity() -> f32 { 0.5 }
 fn default_cost_per_hour() -> f32 { 15.0 }
 fn default_max_undo() -> usize { 50 }
+fn default_network_port() -> u16 { 23 }
 pub fn lightburn_shortcuts() -> std::collections::HashMap<String, String> {
     let mut m = std::collections::HashMap::new();
     m.insert("run".into(), "Ctrl+Shift+R".into());
@@ -178,6 +186,9 @@ impl Default for AppSettings {
             darkroom_mode: false,
             max_undo_steps: default_max_undo(),
             demo_mode: false,
+            network_enabled: false,
+            network_host: String::new(),
+            network_port: default_network_port(),
             colorblind_mode: ColorblindMode::None,
             high_contrast: false,
         }

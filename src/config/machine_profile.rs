@@ -39,6 +39,16 @@ pub struct MachineProfile {
     #[serde(default)]
     pub total_jobs_completed: u32,
 
+    // Auto-focus Z probe (F19)
+    #[serde(default)]
+    pub autofocus_enabled: bool,
+    #[serde(default = "default_probe_feed")]
+    pub probe_feed_rate: f32,
+    #[serde(default = "default_probe_max_depth")]
+    pub probe_max_depth_mm: f32,
+    #[serde(default = "default_focus_offset")]
+    pub focus_offset_mm: f32,
+
     // Axis calibration (F112)
     #[serde(default = "default_steps_per_mm")]
     pub steps_per_mm_x: f32,
@@ -69,6 +79,9 @@ fn default_tube_life() -> f64 { 2000.0 }
 fn default_lens_clean_interval() -> u32 { 20 }
 fn default_belt_check_interval() -> u32 { 100 }
 fn default_steps_per_mm() -> f32 { 80.0 }
+fn default_probe_feed() -> f32 { 100.0 }
+fn default_probe_max_depth() -> f32 { 50.0 }
+fn default_focus_offset() -> f32 { 0.0 }
 
 impl Default for MachineProfile {
     fn default() -> Self {
@@ -94,6 +107,10 @@ impl Default for MachineProfile {
             maintenance_jobs_since_belt_check: 0,
             belt_check_interval_jobs: default_belt_check_interval(),
             total_jobs_completed: 0,
+            autofocus_enabled: false,
+            probe_feed_rate: default_probe_feed(),
+            probe_max_depth_mm: default_probe_max_depth(),
+            focus_offset_mm: default_focus_offset(),
             steps_per_mm_x: default_steps_per_mm(),
             steps_per_mm_y: default_steps_per_mm(),
             squareness_correction_deg: 0.0,

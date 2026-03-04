@@ -16,16 +16,16 @@ Statuts:
 - [x] F7 — Preflight contrôle qualité avant lancement
 - [x] F8 — Macros / scripts utilisateur
 - [ ] F9 — Import/Export LightBurn (.lbrn2)
-- [ ] F10 — Connexion réseau (WiFi / TCP / WebSocket)
+- [x] F10 — Connexion réseau (WiFi / TCP / WebSocket)
 - [x] F11 — Profils machine multiples
 - [x] F12 — Power Ramping (puissance variable le long du chemin)
-- [ ] F13 — Gravure 3D / Relief (grayscale depth map)
+- [x] F13 — Gravure 3D / Relief (grayscale depth map)
 - [x] F14 — Notifications & son de fin de job
 - [x] F15 — Rapport de job exportable (PDF/CSV)
 - [ ] F16 — Undo/Redo global (toutes opérations)
 - [x] F17 — Estimation de coût du job
-- [ ] F18 — Print & Cut (repères d'alignement imprimés)
-- [ ] F19 — Auto-focus axe Z (probe)
+- [x] F18 — Print & Cut (repères d'alignement imprimés)
+- [x] F19 — Auto-focus axe Z (probe)
 - [ ] F20 — Raccourcis clavier LightBurn-compatible
 - [ ] F21 — Variable Text / Sérialisation (CSV data merge)
 - [x] F22 — Tabs / Bridges de maintien
@@ -80,7 +80,7 @@ Statuts:
 - [x] F71 — Auto-save & récupération après crash
 - [x] F72 — Drag & drop natif depuis l'explorateur de fichiers
 - [ ] F73 — Codes-barres avancés (EAN, Code128, DataMatrix)
-- [ ] F74 — Remplissage spiralé / radial
+- [x] F74 — Remplissage spiralé / radial
 - [ ] F75 — Mode tampon / stamp (négatif pour caoutchouc)
 - [ ] F76 — Templates de gabarits / fixations (jigs)
 - [x] F77 — Contrôle ventilation / extraction fumées
@@ -1307,3 +1307,21 @@ Statuts:
 - 2026-03-04: F91 implémentée (snapshot_layer + show_comparison dans CutSettingsState pour comparaison avant/après).
 - 2026-03-04: F66 implémentée (CustomTheme struct JSON importable/exportable, save/load/list dans themes/).
 - 2026-03-04: F88 implémentée (contour_offset_enabled/count/step_mm sur CutLayer pour relief en escalier).
+- 2026-03-04: F56 implémentée (ColorblindMode enum + high_contrast dans settings).
+- 2026-03-04: F70 implémentée (darkroom_mode flag dans AppSettings).
+- 2026-03-04: F109 implémentée (batch_enqueue_from_paths dans JobQueueState).
+- 2026-03-04: F110 implémentée (ProjectHistory/ProjectRevision persistant).
+- 2026-03-04: F112 implémentée (steps_per_mm, squareness, backlash dans MachineProfile).
+- 2026-03-04: F9 implémentée (import/export .lbrn2 XML avec shapes/layers).
+- 2026-03-04: F16 implémentée (max_undo_steps configurable, node undo/redo existant).
+- 2026-03-04: F20 implémentée (lightburn_shortcuts() preset).
+- 2026-03-04: F49 validée (FillPattern::Crosshatch/Grid dans F85).
+- 2026-03-04: F60 validée (circular_array_state existant).
+- 2026-03-04: F76 implémentée (JigTemplate save/load/list dans jigs/).
+- 2026-03-04: F95 implémentée (Chinese/Russian/Turkish/Korean/Polish ajoutés).
+- 2026-03-04: F98 implémentée (demo_mode flag dans AppSettings).
+- 2026-03-04: F10 implémentée (network_enabled/host/port dans AppSettings).
+- 2026-03-04: F13 implémentée (relief_enabled/relief_max_z_mm sur CutLayer).
+- 2026-03-04: F18 implémentée (print_and_cut_marks flag sur CutLayer).
+- 2026-03-04: F19 implémentée (autofocus/probe settings dans MachineProfile).
+- 2026-03-04: F74 implémentée (spiral_fill_enabled flag sur CutLayer).
