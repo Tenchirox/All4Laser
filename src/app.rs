@@ -4,6 +4,10 @@ use std::collections::VecDeque;
 
 use egui::{CentralPanel, SidePanel, TopBottomPanel, RichText};
 
+use crate::app_types::{
+    JobTransform, CameraLiveState, TestFireState, WizardState, AutosaveState,
+    path_is_closed_for_fill, shape_fill_warning,
+};
 use crate::config::machine_profile::{MachineProfile, MachineProfileStore};
 use crate::config::recent_files::RecentFiles;
 use crate::config::settings::AppSettings;
@@ -13,13 +17,16 @@ use crate::controller::{
 };
 use crate::gcode::file::GCodeFile;
 use crate::grbl::types::*;
+use crate::imaging;
 use crate::preview::renderer::PreviewRenderer;
-use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::serial::connection::{self, SerialConnection, SerialMsg};
 use crate::theme;
 use crate::ui;
+use crate::ui::drawing::{ShapeKind, ShapeParams};
+use crate::ui::marker_detect::detect_cross_and_circle_markers;
+use crate::ui::node_edit::{NodeEditSnapshot, undo_history_step, redo_history_step};
 use crate::ui::offset::JoinStyle;
-use crate::imaging;
+use crate::ui::preflight::{PreflightReport, PreflightSeverity, PreflightContext};
 
 const MAX_LOG_LINES: usize = 500;
 
@@ -50,15 +57,6 @@ pub enum RightPanelTab {
     Laser,
     Notes,
 }
-
-use crate::ui::preflight::{PreflightReport, PreflightSeverity, PreflightContext};
-use crate::app_types::{
-    JobTransform, CameraLiveState, TestFireState, WizardState, AutosaveState,
-    path_is_closed_for_fill, shape_fill_warning,
-};
-
-use crate::ui::marker_detect::detect_cross_and_circle_markers;
-use crate::ui::node_edit::{NodeEditSnapshot, undo_history_step, redo_history_step};
 
 pub struct All4LaserApp {
     // GRBL state
