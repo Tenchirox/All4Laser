@@ -15,18 +15,18 @@ Statuts:
 - [x] F6 — Alignement caméra avec vision assistée (repères auto)
 - [x] F7 — Preflight contrôle qualité avant lancement
 - [x] F8 — Macros / scripts utilisateur
-- [ ] F9 — Import/Export LightBurn (.lbrn2)
+- [x] F9 — Import/Export LightBurn (.lbrn2)
 - [x] F10 — Connexion réseau (WiFi / TCP / WebSocket)
 - [x] F11 — Profils machine multiples
 - [x] F12 — Power Ramping (puissance variable le long du chemin)
 - [x] F13 — Gravure 3D / Relief (grayscale depth map)
 - [x] F14 — Notifications & son de fin de job
 - [x] F15 — Rapport de job exportable (PDF/CSV)
-- [ ] F16 — Undo/Redo global (toutes opérations)
+- [x] F16 — Undo/Redo global (toutes opérations)
 - [x] F17 — Estimation de coût du job
 - [x] F18 — Print & Cut (repères d'alignement imprimés)
 - [x] F19 — Auto-focus axe Z (probe)
-- [ ] F20 — Raccourcis clavier LightBurn-compatible
+- [x] F20 — Raccourcis clavier LightBurn-compatible
 - [x] F21 — Variable Text / Sérialisation (CSV data merge)
 - [x] F22 — Tabs / Bridges de maintien
 - [x] F23 — Lead-in / Lead-out (amorce de coupe)
@@ -35,16 +35,16 @@ Statuts:
 - [x] F26 — Simulation temporelle animée (dry run visuel)
 - [x] F27 — Suivi de maintenance machine
 - [x] F28 — Watch Folder / Dossier surveillé (auto-queue)
-- [ ] F29 — Live progress overlay caméra
-- [ ] F30 — Communauté presets matériaux en ligne
+- [x] F29 — Live progress overlay caméra
+- [x] F30 — Communauté presets matériaux en ligne
 - [x] F31 — Mode kiosk / opérateur
 - [x] F32 — Contrôle air assist automatique par couche
 - [x] F33 — Mode perforation / pointillés
-- [ ] F34 — Dithering avancé (Floyd-Steinberg, Jarvis, Stucki, ordered)
-- [ ] F35 — Scanner matériau via caméra (détection bords + placement auto)
+- [x] F34 — Dithering avancé (Floyd-Steinberg, Jarvis, Stucki, ordered)
+- [x] F35 — Scanner matériau via caméra (détection bords + placement auto)
 - [x] F36 — Reprise de job après coupure (power failure recovery)
-- [ ] F37 — Dashboard de monitoring distant (web)
-- [ ] F38 — Timelapse caméra du job
+- [x] F37 — Dashboard de monitoring distant (web)
+- [x] F38 — Timelapse caméra du job
 - [x] F39 — Outils d'alignement objets (centrer, distribuer, snapping)
 - [x] F40 — Réduction de puissance dans les coins (corner power control)
 - [x] F41 — Simplification de chemin (réduction de nœuds)
@@ -52,85 +52,85 @@ Statuts:
 - [x] F43 — Assistant premier lancement (startup wizard)
 - [x] F44 — Gravure bi-directionnelle optimisée
 - [x] F45 — Import G-code depuis URL / cloud
-- [ ] F46 — Mode multi-têtes / dual laser
+- [x] F46 — Mode multi-têtes / dual laser
 - [x] F47 — Détection automatique du firmware
-- [ ] F48 — Interpolation spline / courbes de Bézier (G5)
-- [ ] F49 — Crosshatch / hachures pour remplissage
+- [x] F48 — Interpolation spline / courbes de Bézier (G5)
+- [x] F49 — Crosshatch / hachures pour remplissage
 - [x] F50 — Outil de mesure sur canvas
 - [x] F51 — Groupement d'objets
 - [x] F52 — Historique de jobs avec statistiques (dashboard)
-- [ ] F53 — Mode tactile (tablette)
+- [x] F53 — Mode tactile (tablette)
 - [x] F54 — Export SVG / DXF depuis le projet
 - [x] F55 — Palette de couleurs personnalisable par couche
-- [ ] F56 — Mode accessibilité (daltonien, contraste élevé)
-- [ ] F57 — API REST / ligne de commande (headless mode)
-- [ ] F58 — Planification horaire des jobs
+- [x] F56 — Mode accessibilité (daltonien, contraste élevé)
+- [x] F57 — API REST / ligne de commande (headless mode)
+- [x] F58 — Planification horaire des jobs
 - [x] F59 — Détection de collision / zones interdites
-- [ ] F60 — Répétition intelligente (array circulaire, le long d'un chemin)
-- [ ] F61 — Import PDF (vectoriel)
-- [ ] F62 — Import AI (Adobe Illustrator)
-- [ ] F63 — Import HPGL (.plt)
+- [x] F60 — Répétition intelligente (array circulaire, le long d'un chemin)
+- [x] F61 — Import PDF (vectoriel)
+- [x] F62 — Import AI (Adobe Illustrator)
+- [x] F63 — Import HPGL (.plt)
 - [x] F64 — Export GCode commenté / annoté
 - [x] F65 — Tooltips contextuels & aide intégrée
 - [x] F66 — Thèmes utilisateur importables (JSON)
 - [x] F67 — Journal d'événements machine (event log)
 - [x] F68 — Système de favoris / épingles
-- [ ] F69 — Texte sur chemin (text on path)
-- [ ] F70 — Mode chambre noire (red-only UI pour lunettes laser)
+- [x] F69 — Texte sur chemin (text on path)
+- [x] F70 — Mode chambre noire (red-only UI pour lunettes laser)
 - [x] F71 — Auto-save & récupération après crash
 - [x] F72 — Drag & drop natif depuis l'explorateur de fichiers
-- [ ] F73 — Codes-barres avancés (EAN, Code128, DataMatrix)
+- [x] F73 — Codes-barres avancés (EAN, Code128, DataMatrix)
 - [x] F74 — Remplissage spiralé / radial
-- [ ] F75 — Mode tampon / stamp (négatif pour caoutchouc)
-- [ ] F76 — Templates de gabarits / fixations (jigs)
+- [x] F75 — Mode tampon / stamp (négatif pour caoutchouc)
+- [x] F76 — Templates de gabarits / fixations (jigs)
 - [x] F77 — Contrôle ventilation / extraction fumées
-- [ ] F78 — Détection feu / fumée via caméra
-- [ ] F79 — Photo engraving wizard (assistant gravure photo)
-- [ ] F80 — Vue split (design + GCode côte à côte)
-- [ ] F81 — Centerline trace (vectorisation au trait central)
-- [ ] F82 — Gravure cylindrique déroulée (unwrap rotary)
-- [ ] F83 — Mode découpe multi-matériaux (sandwich / Z-layers)
+- [x] F78 — Détection feu / fumée via caméra
+- [x] F79 — Photo engraving wizard (assistant gravure photo)
+- [x] F80 — Vue split (design + GCode côte à côte)
+- [x] F81 — Centerline trace (vectorisation au trait central)
+- [x] F82 — Gravure cylindrique déroulée (unwrap rotary)
+- [x] F83 — Mode découpe multi-matériaux (sandwich / Z-layers)
 - [x] F84 — Détection automatique d'images dupliquées / superposées
 - [x] F85 — Générateur de motifs (patterns fill)
-- [ ] F86 — Weld / Trim / Extend vecteurs
-- [ ] F87 — Gradient fill vectoriel
+- [x] F86 — Weld / Trim / Extend vecteurs
+- [x] F87 — Gradient fill vectoriel
 - [x] F88 — Contour multi-offset (relief en escalier)
 - [x] F89 — Raccourcis personnalisables par l'utilisateur
 - [x] F90 — Panneau de notes / annotations projet
 - [x] F91 — Comparateur de paramètres avant/après
-- [ ] F92 — Mode multi-fenêtres / panneaux détachables
+- [x] F92 — Mode multi-fenêtres / panneaux détachables
 - [x] F93 — Générateur de test de focus Z
 - [x] F94 — Contrôle interlock (capot, flux d'eau, température)
-- [ ] F95 — Langues supplémentaires (chinois, russe, turc, coréen, polonais)
+- [x] F95 — Langues supplémentaires (chinois, russe, turc, coréen, polonais)
 - [x] F96 — Conversion automatique unités (mm ↔ pouces)
 - [x] F97 — Estimation usure tube laser par job
-- [ ] F98 — Mode présentation / démo (watermark + limitations)
-- [ ] F99 — Système de plugins Lua/WASM
-- [ ] F100 — Sauvegarde cloud & synchronisation multi-postes
-- [ ] F101 — Stippling / gravure par points
-- [ ] F102 — Séparation couleurs (image → couches par couleur)
+- [x] F98 — Mode présentation / démo (watermark + limitations)
+- [x] F99 — Système de plugins Lua/WASM
+- [x] F100 — Sauvegarde cloud & synchronisation multi-postes
+- [x] F101 — Stippling / gravure par points
+- [x] F102 — Séparation couleurs (image → couches par couleur)
 - [x] F103 — Géométrie de construction (lignes de référence non gravées)
-- [ ] F104 — Contrôle par gamepad / joystick (jog physique)
-- [ ] F105 — Intégration MQTT / IoT
+- [x] F104 — Contrôle par gamepad / joystick (jog physique)
+- [x] F105 — Intégration MQTT / IoT
 - [x] F106 — Templates de jobs réutilisables
-- [ ] F107 — Halftone avancé (circulaire, linéaire, personnalisé)
-- [ ] F108 — Snap aux points clés (centres, milieux, intersections)
-- [ ] F109 — Traitement batch multi-fichiers
-- [ ] F110 — Versioning de projet (historique des révisions)
-- [ ] F111 — Marquage industriel UDI/DMC (conformité traçabilité)
-- [ ] F112 — Calibration axes (steps/mm, équerrage, backlash)
-- [ ] F113 — Edge detection pour vectorisation (Canny, Sobel)
-- [ ] F114 — Workflow bijouterie (gravure intérieure bague, pendentif)
-- [ ] F115 — Workflow signalétique (plaques, panneaux multicouches)
-- [ ] F116 — Mode textile / cuir (gestion du déplacement matériau souple)
-- [ ] F117 — QR code scanner via caméra pour chargement de job
-- [ ] F118 — Voix synthétisée pour statut machine (TTS)
-- [ ] F119 — Pendant / boîtier de commande physique USB
-- [ ] F120 — Dot peen marking simulation
-- [ ] F121 — Intégration ERP / gestion de commandes
-- [ ] F122 — Générateur de lithophanie
-- [ ] F123 — Multi-utilisateurs temps réel (collaboration)
-- [ ] F124 — Système de scoring qualité du design
+- [x] F107 — Halftone avancé (circulaire, linéaire, personnalisé)
+- [x] F108 — Snap aux points clés (centres, milieux, intersections)
+- [x] F109 — Traitement batch multi-fichiers
+- [x] F110 — Versioning de projet (historique des révisions)
+- [x] F111 — Marquage industriel UDI/DMC (conformité traçabilité)
+- [x] F112 — Calibration axes (steps/mm, équerrage, backlash)
+- [x] F113 — Edge detection pour vectorisation (Canny, Sobel)
+- [x] F114 — Workflow bijouterie (gravure intérieure bague, pendentif)
+- [x] F115 — Workflow signalétique (plaques, panneaux multicouches)
+- [x] F116 — Mode textile / cuir (gestion du déplacement matériau souple)
+- [x] F117 — QR code scanner via caméra pour chargement de job
+- [x] F118 — Voix synthétisée pour statut machine (TTS)
+- [x] F119 — Pendant / boîtier de commande physique USB
+- [x] F120 — Dot peen marking simulation
+- [x] F121 — Intégration ERP / gestion de commandes
+- [x] F122 — Générateur de lithophanie
+- [x] F123 — Multi-utilisateurs temps réel (collaboration)
+- [x] F124 — Système de scoring qualité du design
 
 ---
 

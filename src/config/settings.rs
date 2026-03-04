@@ -98,6 +98,42 @@ pub struct AppSettings {
     // Kiosk / operator mode (F31)
     #[serde(default)]
     pub kiosk_mode: bool,
+    // Live progress overlay (F29)
+    #[serde(default)]
+    pub live_overlay_enabled: bool,
+    // Community presets (F30)
+    #[serde(default)]
+    pub community_presets_url: String,
+    // Dithering mode (F34)
+    #[serde(default)]
+    pub dithering_algorithm: DitherAlgorithm,
+    // Monitoring dashboard (F37)
+    #[serde(default)]
+    pub dashboard_enabled: bool,
+    #[serde(default = "default_dashboard_port")]
+    pub dashboard_port: u16,
+    // Timelapse (F38)
+    #[serde(default)]
+    pub timelapse_enabled: bool,
+    #[serde(default = "default_timelapse_interval")]
+    pub timelapse_interval_s: f32,
+    // Multi-heads (F46)
+    #[serde(default)]
+    pub multi_head_count: u8,
+    // Spline G5 (F48)
+    #[serde(default)]
+    pub spline_g5_enabled: bool,
+    // Touch mode (F53)
+    #[serde(default)]
+    pub touch_mode: bool,
+    // API REST (F57)
+    #[serde(default)]
+    pub api_enabled: bool,
+    #[serde(default = "default_api_port")]
+    pub api_port: u16,
+    // Job scheduling (F58)
+    #[serde(default)]
+    pub scheduled_jobs: Vec<String>,
     // Network connection (F10)
     #[serde(default)]
     pub network_enabled: bool,
@@ -124,6 +160,19 @@ impl Default for ColorblindMode {
     fn default() -> Self { ColorblindMode::None }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum DitherAlgorithm {
+    FloydSteinberg,
+    Jarvis,
+    Stucki,
+    Ordered,
+    Atkinson,
+}
+
+impl Default for DitherAlgorithm {
+    fn default() -> Self { DitherAlgorithm::FloydSteinberg }
+}
+
 fn default_theme() -> UiTheme { UiTheme::Modern }
 fn default_layout() -> UiLayout { UiLayout::Modern }
 fn default_light_mode() -> bool { true }
@@ -133,6 +182,9 @@ fn default_camera_opacity() -> f32 { 0.5 }
 fn default_cost_per_hour() -> f32 { 15.0 }
 fn default_max_undo() -> usize { 50 }
 fn default_network_port() -> u16 { 23 }
+fn default_dashboard_port() -> u16 { 8080 }
+fn default_timelapse_interval() -> f32 { 5.0 }
+fn default_api_port() -> u16 { 8081 }
 pub fn lightburn_shortcuts() -> std::collections::HashMap<String, String> {
     let mut m = std::collections::HashMap::new();
     m.insert("run".into(), "Ctrl+Shift+R".into());
@@ -197,6 +249,19 @@ impl Default for AppSettings {
             watch_folder_path: None,
             watch_folder_enabled: false,
             kiosk_mode: false,
+            live_overlay_enabled: false,
+            community_presets_url: String::new(),
+            dithering_algorithm: DitherAlgorithm::FloydSteinberg,
+            dashboard_enabled: false,
+            dashboard_port: default_dashboard_port(),
+            timelapse_enabled: false,
+            timelapse_interval_s: default_timelapse_interval(),
+            multi_head_count: 1,
+            spline_g5_enabled: false,
+            touch_mode: false,
+            api_enabled: false,
+            api_port: default_api_port(),
+            scheduled_jobs: Vec::new(),
             network_enabled: false,
             network_host: String::new(),
             network_port: default_network_port(),
