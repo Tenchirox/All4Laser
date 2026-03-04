@@ -111,15 +111,15 @@ pub fn show(
                 ui.separator();
 
                 egui::Grid::new("cut_settings_grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-                    ui.label("Speed (mm/min):");
+                    ui.label("Speed (mm/min):").on_hover_text("Travel speed of the laser head. Lower = deeper cut/darker engrave. Typical: 200-3000 for cut, 1000-10000 for engrave.");
                     ui.add(egui::DragValue::new(&mut layer.speed).speed(10.0).range(1.0..=20000.0));
                     ui.end_row();
 
-                    ui.label("Max Power (S):");
+                    ui.label("Max Power (S):").on_hover_text("Laser power (0-1000 S-value). Higher = more energy. Start low and increase. S1000 = 100% power.");
                     ui.add(egui::DragValue::new(&mut layer.power).speed(1.0).range(0.0..=1000.0));
                     ui.end_row();
 
-                    ui.label("Output Mode:");
+                    ui.label("Output Mode:").on_hover_text("Line = vector cut along paths. Fill = raster scan inside closed shapes. Fill+Line = both. Offset = concentric fill.");
                     egui::ComboBox::from_id_salt("mode_combo")
                         .selected_text(match layer.mode {
                             CutMode::Line => "Line (Cut)",
@@ -136,7 +136,7 @@ pub fn show(
                     ui.end_row();
 
                     if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
-                        ui.label("Fill Interval (mm):");
+                        ui.label("Fill Interval (mm):").on_hover_text("Distance between scan lines. Smaller = denser fill, slower job. 0.1mm typical for engraving.");
                         ui.add(
                             egui::DragValue::new(&mut layer.fill_interval_mm)
                                 .speed(0.01)
@@ -145,15 +145,15 @@ pub fn show(
                         );
                         ui.end_row();
 
-                        ui.label("Min Power (S):");
+                        ui.label("Min Power (S):").on_hover_text("Power used during acceleration/deceleration at line ends. Set to 0 for clean edges.");
                         ui.add(egui::DragValue::new(&mut layer.min_power).speed(1.0).range(0.0..=1000.0));
                         ui.end_row();
 
-                        ui.label("Bidirectional Scan:");
+                        ui.label("Bidirectional Scan:").on_hover_text("Scan in both directions (faster) vs one direction only (more consistent).");
                         ui.checkbox(&mut layer.fill_bidirectional, "");
                         ui.end_row();
 
-                        ui.label("Overscan (mm):");
+                        ui.label("Overscan (mm):").on_hover_text("Extra travel beyond the shape edges to allow deceleration. Prevents edge burn. 1-5mm typical.");
                         ui.add(
                             egui::DragValue::new(&mut layer.fill_overscan_mm)
                                 .speed(0.1)
@@ -176,7 +176,7 @@ pub fn show(
                     ui.add(egui::DragValue::new(&mut layer.output_order).speed(1.0));
                     ui.end_row();
 
-                    ui.label("Lead-In (mm):");
+                    ui.label("Lead-In (mm):").on_hover_text("Extra approach distance before cutting starts. Prevents burn marks at the cut entry point.");
                     ui.add(
                         egui::DragValue::new(&mut layer.lead_in_mm)
                             .speed(0.1)
@@ -185,7 +185,7 @@ pub fn show(
                     );
                     ui.end_row();
 
-                    ui.label("Lead-Out (mm):");
+                    ui.label("Lead-Out (mm):").on_hover_text("Extra exit distance after cutting ends. Ensures clean exit from the material.");
                     ui.add(
                         egui::DragValue::new(&mut layer.lead_out_mm)
                             .speed(0.1)
@@ -194,7 +194,7 @@ pub fn show(
                     );
                     ui.end_row();
 
-                    ui.label("Kerf Offset (mm):");
+                    ui.label("Kerf Offset (mm):").on_hover_text("Compensates for material removed by the laser beam width. Positive = outward offset.");
                     ui.add(
                         egui::DragValue::new(&mut layer.kerf_mm)
                             .speed(0.01)
@@ -288,6 +288,7 @@ pub fn show(
                     });
                 }
                 ui.checkbox(&mut layer.visible, "Output Enabled");
+                ui.checkbox(&mut layer.is_construction, "🔧 Construction Layer (no output)").on_hover_text("Construction layers are visible on canvas but excluded from GCode output.");
 
                 ui.add_space(8.0);
                 ui.group(|ui| {

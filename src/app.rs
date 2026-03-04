@@ -3032,6 +3032,24 @@ impl All4LaserApp {
                     self.boolean_ops_state.is_open = true;
                 }
 
+                // Group / Ungroup (F51)
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(selection.len() >= 2, egui::Button::new("📦 Group")).clicked() {
+                        self.push_node_undo_snapshot();
+                        if let Some(gid) = crate::ui::drawing::group_shapes(&mut self.drawing_state.shapes, &selection) {
+                            self.log(format!("Grouped {} shapes (group #{gid}).", selection.len()));
+                        }
+                    }
+                    let has_group = selection.iter().any(|&i| {
+                        self.drawing_state.shapes.get(i).and_then(|s| s.group_id).is_some()
+                    });
+                    if ui.add_enabled(has_group, egui::Button::new("📤 Ungroup")).clicked() {
+                        self.push_node_undo_snapshot();
+                        let n = crate::ui::drawing::ungroup_shapes(&mut self.drawing_state.shapes, &selection);
+                        self.log(format!("Ungrouped {n} shapes."));
+                    }
+                });
+
                 ui.add_space(6.0);
                 let node_edit_text = if self.renderer.node_edit_mode { "✅ Node Editing" } else { "🖱 Node Editing" };
                 if ui.selectable_label(self.renderer.node_edit_mode, RichText::new(node_edit_text).color(theme::PEACH).strong()).clicked() {

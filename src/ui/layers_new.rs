@@ -84,6 +84,10 @@ pub struct CutLayer {
     #[serde(default = "default_perf_gap_mm")]
     pub perforation_gap_mm: f32,
 
+    // Construction geometry (F103)
+    #[serde(default)]
+    pub is_construction: bool,
+
     // Multi-pass offset (F24)
     #[serde(default = "default_pass_offset_mm")]
     pub pass_offset_mm: f32,
@@ -190,6 +194,7 @@ impl CutLayer {
                 perforation_enabled: false,
                 perforation_cut_mm: 5.0,
                 perforation_gap_mm: 2.0,
+                is_construction: false,
                 pass_offset_mm: 0.0,
                 exhaust_enabled: false,
                 exhaust_post_delay_s: 5.0,

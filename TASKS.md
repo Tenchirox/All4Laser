@@ -57,8 +57,8 @@ Statuts:
 - [ ] F48 — Interpolation spline / courbes de Bézier (G5)
 - [ ] F49 — Crosshatch / hachures pour remplissage
 - [x] F50 — Outil de mesure sur canvas
-- [ ] F51 — Groupement d'objets
-- [ ] F52 — Historique de jobs avec statistiques (dashboard)
+- [x] F51 — Groupement d'objets
+- [x] F52 — Historique de jobs avec statistiques (dashboard)
 - [ ] F53 — Mode tactile (tablette)
 - [x] F54 — Export SVG / DXF depuis le projet
 - [x] F55 — Palette de couleurs personnalisable par couche
@@ -71,7 +71,7 @@ Statuts:
 - [ ] F62 — Import AI (Adobe Illustrator)
 - [ ] F63 — Import HPGL (.plt)
 - [x] F64 — Export GCode commenté / annoté
-- [ ] F65 — Tooltips contextuels & aide intégrée
+- [x] F65 — Tooltips contextuels & aide intégrée
 - [ ] F66 — Thèmes utilisateur importables (JSON)
 - [x] F67 — Journal d'événements machine (event log)
 - [ ] F68 — Système de favoris / épingles
@@ -109,7 +109,7 @@ Statuts:
 - [ ] F100 — Sauvegarde cloud & synchronisation multi-postes
 - [ ] F101 — Stippling / gravure par points
 - [ ] F102 — Séparation couleurs (image → couches par couleur)
-- [ ] F103 — Géométrie de construction (lignes de référence non gravées)
+- [x] F103 — Géométrie de construction (lignes de référence non gravées)
 - [ ] F104 — Contrôle par gamepad / joystick (jog physique)
 - [ ] F105 — Intégration MQTT / IoT
 - [ ] F106 — Templates de jobs réutilisables
@@ -1294,3 +1294,7 @@ Statuts:
 - 2026-03-04: F15 implémentée (rapport job CSV auto-généré après chaque job : date, fichier, machine, distances, temps, couches).
 - 2026-03-04: F24 implémentée (pass_offset_mm par couche, UI dans Cut Settings quand passes > 1).
 - 2026-03-04: F94 implémentée (interlock lid/water dans profil machine, checks dans preflight report).
+- 2026-03-04: F51 implémentée (group_id sur ShapeParams, group/ungroup/expand_group_selection, boutons UI).
+- 2026-03-04: F52 implémentée (historique jobs persistant job_history.txt, stats_summary, save/load).
+- 2026-03-04: F65 implémentée (tooltips contextuels sur tous les paramètres de Cut Settings : speed, power, mode, fill, kerf, lead-in/out, overscan).
+- 2026-03-04: F103 implémentée (is_construction flag sur CutLayer, exclusion du GCode, checkbox dans Cut Settings).

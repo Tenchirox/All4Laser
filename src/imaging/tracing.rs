@@ -87,6 +87,7 @@ pub fn trace_image(img: &DynamicImage, params: &RasterParams) -> Vec<ShapeParams
                         text: "".into(),
                         font_size_mm: 0.0,
                         rotation: 0.0,
+                        group_id: None,
                     });
                 }
             }

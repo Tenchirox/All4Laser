@@ -48,6 +48,7 @@ pub struct ShapeParams {
     pub text: String,
     pub font_size_mm: f32,
     pub rotation: f32, // Degrees
+    pub group_id: Option<u32>, // Group ID for grouping (F51)
 }
 impl ShapeParams {
     pub fn world_pos(&self, lx: f32, ly: f32) -> (f32, f32) {
@@ -94,6 +95,7 @@ impl Default for ShapeParams {
             text: "Hello".into(),
             font_size_mm: 10.0,
             rotation: 0.0,
+            group_id: None,
         }
     }
 }
@@ -216,6 +218,52 @@ pub fn align_shapes(shapes: &mut [ShapeParams], selection: &[usize], op: AlignOp
             }
         }
     }
+}
+
+/// Group selected shapes under a new group ID (F51)
+pub fn group_shapes(shapes: &mut [ShapeParams], selection: &[usize]) -> Option<u32> {
+    if selection.len() < 2 { return None; }
+    // Generate a unique group ID based on current max
+    let max_id = shapes.iter()
+        .filter_map(|s| s.group_id)
+        .max()
+        .unwrap_or(0);
+    let new_id = max_id + 1;
+    for &idx in selection {
+        if let Some(s) = shapes.get_mut(idx) {
+            s.group_id = Some(new_id);
+        }
+    }
+    Some(new_id)
+}
+
+/// Ungroup shapes that share the same group ID (F51)
+pub fn ungroup_shapes(shapes: &mut [ShapeParams], selection: &[usize]) -> usize {
+    let mut ungrouped = 0;
+    // Collect group IDs from selection
+    let group_ids: Vec<u32> = selection.iter()
+        .filter_map(|&idx| shapes.get(idx).and_then(|s| s.group_id))
+        .collect();
+    for s in shapes.iter_mut() {
+        if let Some(gid) = s.group_id {
+            if group_ids.contains(&gid) {
+                s.group_id = None;
+                ungrouped += 1;
+            }
+        }
+    }
+    ungrouped
+}
+
+/// Get all shape indices that share a group with the given shape (F51)
+pub fn expand_group_selection(shapes: &[ShapeParams], idx: usize) -> Vec<usize> {
+    let Some(gid) = shapes.get(idx).and_then(|s| s.group_id) else {
+        return vec![idx];
+    };
+    shapes.iter().enumerate()
+        .filter(|(_, s)| s.group_id == Some(gid))
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// Export shapes to SVG string (F54)
@@ -435,7 +483,7 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
 
     for layer_idx in ordered_layers {
         let layer = layers.get(layer_idx).unwrap_or(&default_layer);
-        if !layer.visible {
+        if !layer.visible || layer.is_construction {
             continue;
         }
 
