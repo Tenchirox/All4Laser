@@ -46,6 +46,10 @@ pub struct PreviewRenderer {
     selection_box_additive: bool,
     pub image_textures: std::collections::HashMap<usize, egui::TextureHandle>, // shape_idx -> texture
     pub initial_fit_done: bool,
+    // Measurement tool (F50)
+    pub measure_mode: bool,
+    pub measure_start: Option<(f32, f32)>, // world coords mm
+    pub measure_end: Option<(f32, f32)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +86,9 @@ impl Default for PreviewRenderer {
             selection_box_additive: false,
             image_textures: std::collections::HashMap::new(),
             initial_fit_done: false,
+            measure_mode: false,
+            measure_start: None,
+            measure_end: None,
         }
     }
 }
@@ -895,6 +902,49 @@ impl PreviewRenderer {
             rect.center().x - center_x * self.zoom,
             rect.center().y + center_y * self.zoom,
         );
+    }
+
+    /// Convert screen coordinates to world coordinates (mm)
+    pub fn screen_to_world(&self, screen: Pos2, rect: Rect) -> (f32, f32) {
+        let wx = (screen.x - self.pan.x) / self.zoom;
+        let wy = -(screen.y - self.pan.y) / self.zoom;
+        (wx, wy)
+    }
+
+    /// Draw measurement overlay (F50)
+    pub fn draw_measurement(&self, painter: &Painter, rect: Rect) {
+        if !self.measure_mode { return; }
+        if let (Some(start), Some(end)) = (self.measure_start, self.measure_end) {
+            let p1 = self.world_to_screen(start.0, start.1, rect);
+            let p2 = self.world_to_screen(end.0, end.1, rect);
+            let dx = end.0 - start.0;
+            let dy = end.1 - start.1;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            painter.line_segment([p1, p2], Stroke::new(2.0, Color32::from_rgb(0, 200, 255)));
+            painter.circle_filled(p1, 4.0, Color32::from_rgb(0, 200, 255));
+            painter.circle_filled(p2, 4.0, Color32::from_rgb(0, 200, 255));
+
+            let mid = Pos2::new((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0 - 12.0);
+            let label = format!("{dist:.2} mm");
+            painter.text(
+                mid,
+                egui::Align2::CENTER_BOTTOM,
+                label,
+                egui::FontId::proportional(13.0),
+                Color32::from_rgb(0, 200, 255),
+            );
+
+            // Show dx/dy
+            let detail = format!("dx={dx:.2} dy={dy:.2}");
+            painter.text(
+                Pos2::new(mid.x, mid.y + 14.0),
+                egui::Align2::CENTER_TOP,
+                detail,
+                egui::FontId::proportional(10.0),
+                Color32::from_rgb(0, 180, 220),
+            );
+        }
     }
 
     pub fn zoom_in(&mut self) {

@@ -56,7 +56,7 @@ Statuts:
 - [x] F47 — Détection automatique du firmware
 - [ ] F48 — Interpolation spline / courbes de Bézier (G5)
 - [ ] F49 — Crosshatch / hachures pour remplissage
-- [ ] F50 — Outil de mesure sur canvas
+- [x] F50 — Outil de mesure sur canvas
 - [ ] F51 — Groupement d'objets
 - [ ] F52 — Historique de jobs avec statistiques (dashboard)
 - [ ] F53 — Mode tactile (tablette)
@@ -1283,3 +1283,11 @@ Statuts:
 - 2026-03-04: F54 implémentée (export SVG : conversion shapes → SVG avec couleurs couches, viewBox en mm).
 - 2026-03-04: F84 implémentée (détection shapes identiques/superposées dans preflight, alerte double-burn).
 - 2026-03-04: F97 implémentée (tube_hours_total persisté dans profil, record_job_burn_time après chaque job, alerte >80%).
+- 2026-03-04: F17 implémentée (cost_per_hour/cost_per_m2/cost_currency dans settings, affichage coût dans status bar).
+- 2026-03-04: F27 implémentée (compteurs maintenance lens_clean/belt_check, alertes après N jobs, reset methods).
+- 2026-03-04: F44 validée (fill_bidirectional + fill_overscan_mm déjà implémentés dans fill.rs).
+- 2026-03-04: F50 implémentée (outil de mesure sur canvas : measure_mode, screen_to_world, overlay distance/dx/dy).
+- 2026-03-04: F67 implémentée (event_log persistant dans event_log.txt, chargé au démarrage, sauvé avec settings).
+- 2026-03-04: F77 implémentée (exhaust fan M7/M9 par couche, post-delay G4, UI dans Cut Settings).
+- 2026-03-04: F90 implémentée (onglet Notes dans right panel, project_notes persisté dans ProjectFile).
+- 2026-03-04: F93 implémentée (générateur Z focus test : lignes à différentes hauteurs Z).

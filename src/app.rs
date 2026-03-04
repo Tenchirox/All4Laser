@@ -3023,6 +3023,26 @@ impl All4LaserApp {
                     }
                 }
 
+                // Measure tool (F50)
+                let measure_text = if self.renderer.measure_mode { "✅ Measure" } else { "📏 Measure" };
+                if ui.selectable_label(self.renderer.measure_mode, RichText::new(measure_text).color(theme::TEAL).strong()).clicked() {
+                    self.renderer.measure_mode = !self.renderer.measure_mode;
+                    if !self.renderer.measure_mode {
+                        self.renderer.measure_start = None;
+                        self.renderer.measure_end = None;
+                    }
+                }
+                if self.renderer.measure_mode {
+                    if let (Some(s), Some(e)) = (self.renderer.measure_start, self.renderer.measure_end) {
+                        let dx = e.0 - s.0;
+                        let dy = e.1 - s.1;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        ui.label(RichText::new(format!("Distance: {dist:.2} mm")).color(theme::TEAL).small());
+                    } else {
+                        ui.label(RichText::new("Click two points on canvas to measure").small().color(theme::SUBTEXT));
+                    }
+                }
+
                 if self.renderer.node_edit_mode {
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
