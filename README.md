@@ -55,7 +55,7 @@ For camera live preview on Windows:
 ### Installation
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/your-username/All4Laser.git
+    git clone https://github.com/Tenchirox/All4Laser.git
     cd All4Laser
     ```
 2.  Build and run:
