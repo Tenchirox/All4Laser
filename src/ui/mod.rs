@@ -32,3 +32,4 @@ pub mod vector_edit;
 pub mod preflight;
 pub mod wizard;
 pub mod marker_detect;
+pub mod node_edit;

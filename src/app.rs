@@ -137,34 +137,7 @@ impl Default for AutosaveState {
 }
 
 use crate::ui::marker_detect::detect_cross_and_circle_markers;
-
-#[derive(Clone)]
-struct NodeEditSnapshot {
-    shapes: Vec<ShapeParams>,
-    selected_shape_idx: Vec<usize>,
-    selected_node: Option<(usize, usize)>,
-    selected_nodes: Vec<(usize, usize)>,
-}
-
-fn undo_history_step(
-    undo_stack: &mut VecDeque<NodeEditSnapshot>,
-    redo_stack: &mut VecDeque<NodeEditSnapshot>,
-    current: NodeEditSnapshot,
-) -> Option<NodeEditSnapshot> {
-    let prev = undo_stack.pop_back()?;
-    redo_stack.push_back(current);
-    Some(prev)
-}
-
-fn redo_history_step(
-    undo_stack: &mut VecDeque<NodeEditSnapshot>,
-    redo_stack: &mut VecDeque<NodeEditSnapshot>,
-    current: NodeEditSnapshot,
-) -> Option<NodeEditSnapshot> {
-    let next = redo_stack.pop_back()?;
-    undo_stack.push_back(current);
-    Some(next)
-}
+use crate::ui::node_edit::{NodeEditSnapshot, undo_history_step, redo_history_step};
 
 fn path_is_closed_for_fill(points: &[(f32, f32)]) -> bool {
     if points.len() < 3 {
