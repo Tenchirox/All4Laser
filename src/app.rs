@@ -2328,6 +2328,79 @@ impl All4LaserApp {
         }
     }
 
+    fn handle_camera_ui_actions(&mut self, ui: &mut egui::Ui) {
+        let prev_cam_enabled = self.camera_state.enabled;
+        let prev_cam_opacity = self.camera_state.opacity;
+        let prev_cam_calib = self.camera_state.calibration.clone();
+        let prev_cam_device_index = self.camera_state.device_index;
+        let prev_cam_live_streaming = self.camera_state.live_streaming;
+        let camera_action = ui::camera::show(ui, &mut self.camera_state);
+        if camera_action.load_snapshot {
+            self.load_camera_snapshot(ui.ctx());
+            self.sync_settings();
+        }
+        if camera_action.start_live_stream {
+            self.start_live_camera();
+            self.sync_settings();
+        }
+        if camera_action.stop_live_stream {
+            self.stop_live_camera();
+            self.sync_settings();
+            self.log("Live camera stopped.".into());
+        }
+        if camera_action.start_calibration_wizard {
+            self.start_camera_calibration_wizard();
+        }
+        if camera_action.stop_calibration_wizard {
+            self.stop_camera_calibration_wizard();
+        }
+        if camera_action.start_point_align {
+            self.start_camera_point_align();
+        }
+        if camera_action.stop_point_align {
+            self.stop_camera_point_align();
+        }
+        if camera_action.auto_detect_markers {
+            self.auto_detect_camera_markers();
+        }
+        if camera_action.apply_detected_align {
+            self.apply_detected_marker_align();
+        }
+        if self.camera_state.live_streaming
+            && self.camera_state.device_index != prev_cam_device_index
+        {
+            self.start_live_camera();
+            self.sync_settings();
+        }
+        if camera_action.clear_snapshot {
+            self.stop_live_camera();
+            self.camera_state.texture = None;
+            self.camera_state.snapshot_path = None;
+            self.camera_live.last_frame_rgba.clear();
+            self.camera_live.last_frame_width = 0;
+            self.camera_live.last_frame_height = 0;
+            self.camera_state.detected_cross_world = None;
+            self.camera_state.detected_circle_world = None;
+            self.camera_state.detection_status = "No marker detection run yet.".to_string();
+            self.sync_settings();
+            self.log("Camera image cleared.".into());
+        }
+        if camera_action.align_job_to_camera {
+            self.align_job_to_camera();
+        }
+        if self.camera_state.enabled != prev_cam_enabled
+            || (self.camera_state.opacity - prev_cam_opacity).abs() > f32::EPSILON
+            || self.camera_state.calibration.offset_x != prev_cam_calib.offset_x
+            || self.camera_state.calibration.offset_y != prev_cam_calib.offset_y
+            || self.camera_state.calibration.scale != prev_cam_calib.scale
+            || self.camera_state.calibration.rotation != prev_cam_calib.rotation
+            || self.camera_state.device_index != prev_cam_device_index
+            || self.camera_state.live_streaming != prev_cam_live_streaming
+        {
+            self.sync_settings();
+        }
+    }
+
     fn ui_left_content(&mut self, ui: &mut egui::Ui, connected: bool) {
         let caps = self.controller_capabilities();
         let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
@@ -2497,76 +2570,7 @@ impl All4LaserApp {
                 self.ui_shape_properties(ui, &selection);
 
                 ui.add_space(6.0);
-                let prev_cam_enabled = self.camera_state.enabled;
-                let prev_cam_opacity = self.camera_state.opacity;
-                let prev_cam_calib = self.camera_state.calibration.clone();
-                let prev_cam_device_index = self.camera_state.device_index;
-                let prev_cam_live_streaming = self.camera_state.live_streaming;
-                let camera_action = ui::camera::show(ui, &mut self.camera_state);
-                if camera_action.load_snapshot {
-                    self.load_camera_snapshot(ui.ctx());
-                    self.sync_settings();
-                }
-                if camera_action.start_live_stream {
-                    self.start_live_camera();
-                    self.sync_settings();
-                }
-                if camera_action.stop_live_stream {
-                    self.stop_live_camera();
-                    self.sync_settings();
-                    self.log("Live camera stopped.".into());
-                }
-                if camera_action.start_calibration_wizard {
-                    self.start_camera_calibration_wizard();
-                }
-                if camera_action.stop_calibration_wizard {
-                    self.stop_camera_calibration_wizard();
-                }
-                if camera_action.start_point_align {
-                    self.start_camera_point_align();
-                }
-                if camera_action.stop_point_align {
-                    self.stop_camera_point_align();
-                }
-                if camera_action.auto_detect_markers {
-                    self.auto_detect_camera_markers();
-                }
-                if camera_action.apply_detected_align {
-                    self.apply_detected_marker_align();
-                }
-                if self.camera_state.live_streaming
-                    && self.camera_state.device_index != prev_cam_device_index
-                {
-                    self.start_live_camera();
-                    self.sync_settings();
-                }
-                if camera_action.clear_snapshot {
-                    self.stop_live_camera();
-                    self.camera_state.texture = None;
-                    self.camera_state.snapshot_path = None;
-                    self.camera_live.last_frame_rgba.clear();
-                    self.camera_live.last_frame_width = 0;
-                    self.camera_live.last_frame_height = 0;
-                    self.camera_state.detected_cross_world = None;
-                    self.camera_state.detected_circle_world = None;
-                    self.camera_state.detection_status = "No marker detection run yet.".to_string();
-                    self.sync_settings();
-                    self.log("Camera image cleared.".into());
-                }
-                if camera_action.align_job_to_camera {
-                    self.align_job_to_camera();
-                }
-                if self.camera_state.enabled != prev_cam_enabled
-                    || (self.camera_state.opacity - prev_cam_opacity).abs() > f32::EPSILON
-                    || self.camera_state.calibration.offset_x != prev_cam_calib.offset_x
-                    || self.camera_state.calibration.offset_y != prev_cam_calib.offset_y
-                    || self.camera_state.calibration.scale != prev_cam_calib.scale
-                    || self.camera_state.calibration.rotation != prev_cam_calib.rotation
-                    || self.camera_state.device_index != prev_cam_device_index
-                    || self.camera_state.live_streaming != prev_cam_live_streaming
-                {
-                    self.sync_settings();
-                }
+                self.handle_camera_ui_actions(ui);
 
                 ui.add_space(6.0);
                 let gen_action = ui::generators::show(ui, &mut self.generator_state);
