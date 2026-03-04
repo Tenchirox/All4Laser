@@ -54,6 +54,88 @@ pub enum RightPanelTab {
 
 use crate::ui::preflight::{PreflightReport, PreflightSeverity, PreflightContext};
 
+/// Grouped job transform state
+#[derive(Clone, Debug)]
+pub struct JobTransform {
+    pub offset_x: f32,
+    pub offset_y: f32,
+    pub rotation: f32,
+    pub center: Option<egui::Pos2>,
+}
+
+impl Default for JobTransform {
+    fn default() -> Self {
+        Self { offset_x: 0.0, offset_y: 0.0, rotation: 0.0, center: None }
+    }
+}
+
+/// Grouped camera live frame data
+pub struct CameraLiveState {
+    pub stream: Option<crate::camera_stream::CameraStream>,
+    pub last_frame_rgba: Vec<u8>,
+    pub last_frame_width: usize,
+    pub last_frame_height: usize,
+    pub calibration_picks: Vec<egui::Pos2>,
+    pub point_align_picks: Vec<egui::Pos2>,
+}
+
+impl Default for CameraLiveState {
+    fn default() -> Self {
+        Self {
+            stream: None,
+            last_frame_rgba: Vec::new(),
+            last_frame_width: 0,
+            last_frame_height: 0,
+            calibration_picks: Vec::new(),
+            point_align_picks: Vec::new(),
+        }
+    }
+}
+
+/// Grouped test fire state
+pub struct TestFireState {
+    pub is_open: bool,
+    pub power: f32,
+    pub duration_ms: f32,
+}
+
+impl Default for TestFireState {
+    fn default() -> Self {
+        Self { is_open: false, power: 10.0, duration_ms: 1000.0 }
+    }
+}
+
+/// Grouped wizard state (F43)
+pub struct WizardState {
+    pub show: bool,
+    pub step: u8,
+}
+
+impl Default for WizardState {
+    fn default() -> Self {
+        Self { show: false, step: 0 }
+    }
+}
+
+/// Grouped auto-save state (F71)
+pub struct AutosaveState {
+    pub last_save: Instant,
+    pub interval_secs: u64,
+    pub show_recovery_prompt: bool,
+    pub pending_recovery: Option<crate::config::project::ProjectFile>,
+}
+
+impl Default for AutosaveState {
+    fn default() -> Self {
+        Self {
+            last_save: Instant::now(),
+            interval_secs: 60,
+            show_recovery_prompt: false,
+            pending_recovery: None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct MarkerComponent {
     center_x: f32,
@@ -341,7 +423,7 @@ pub struct All4LaserApp {
     // Job Transform
     job_offset_x: f32,
     job_offset_y: f32,
-    job_rotation: f32, // degrees
+    job_rotation: f32,
     job_center: Option<egui::Pos2>,
 
     // Air Assist
