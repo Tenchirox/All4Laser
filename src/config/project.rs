@@ -203,6 +203,90 @@ impl JobTemplate {
     }
 }
 
+/// Parametric shape generator (F25)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ParametricKind {
+    Box,
+    LidBox,
+    Gear,
+    Star,
+    Polygon,
+    Spiral,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ParametricParams {
+    pub kind: ParametricKind,
+    pub width_mm: f32,
+    pub height_mm: f32,
+    pub depth_mm: f32,
+    pub thickness_mm: f32,
+    pub teeth_count: u32,      // for gears
+    pub points: u32,           // for stars/polygons
+    pub kerf_mm: f32,
+}
+
+impl Default for ParametricParams {
+    fn default() -> Self {
+        Self {
+            kind: ParametricKind::Box,
+            width_mm: 50.0,
+            height_mm: 30.0,
+            depth_mm: 20.0,
+            thickness_mm: 3.0,
+            teeth_count: 12,
+            points: 5,
+            kerf_mm: 0.1,
+        }
+    }
+}
+
+/// Variable Text / CSV data merge (F21)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VariableTextConfig {
+    pub csv_path: Option<String>,
+    pub columns: Vec<String>,
+    pub current_row: usize,
+    pub auto_increment: bool,
+    pub prefix: String,
+    pub suffix: String,
+    pub start_number: u32,
+}
+
+impl Default for VariableTextConfig {
+    fn default() -> Self {
+        Self {
+            csv_path: None,
+            columns: Vec::new(),
+            current_row: 0,
+            auto_increment: true,
+            prefix: String::new(),
+            suffix: String::new(),
+            start_number: 1,
+        }
+    }
+}
+
+impl VariableTextConfig {
+    pub fn load_csv(&mut self, path: &str) -> Result<Vec<Vec<String>>, String> {
+        let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let mut rows = Vec::new();
+        for (i, line) in content.lines().enumerate() {
+            let fields: Vec<String> = line.split(',').map(|s| s.trim().to_string()).collect();
+            if i == 0 {
+                self.columns = fields.clone();
+            }
+            rows.push(fields);
+        }
+        self.csv_path = Some(path.to_string());
+        Ok(rows)
+    }
+
+    pub fn serial_text(&self, row_idx: usize) -> String {
+        format!("{}{}{}", self.prefix, self.start_number + row_idx as u32, self.suffix)
+    }
+}
+
 /// Jig/fixture template (F76)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JigTemplate {

@@ -90,6 +90,14 @@ pub struct AppSettings {
     // Demo/presentation mode (F98)
     #[serde(default)]
     pub demo_mode: bool,
+    // Watch folder (F28)
+    #[serde(default)]
+    pub watch_folder_path: Option<String>,
+    #[serde(default)]
+    pub watch_folder_enabled: bool,
+    // Kiosk / operator mode (F31)
+    #[serde(default)]
+    pub kiosk_mode: bool,
     // Network connection (F10)
     #[serde(default)]
     pub network_enabled: bool,
@@ -186,6 +194,9 @@ impl Default for AppSettings {
             darkroom_mode: false,
             max_undo_steps: default_max_undo(),
             demo_mode: false,
+            watch_folder_path: None,
+            watch_folder_enabled: false,
+            kiosk_mode: false,
             network_enabled: false,
             network_host: String::new(),
             network_port: default_network_port(),

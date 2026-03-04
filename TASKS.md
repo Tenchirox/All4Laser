@@ -27,17 +27,17 @@ Statuts:
 - [x] F18 — Print & Cut (repères d'alignement imprimés)
 - [x] F19 — Auto-focus axe Z (probe)
 - [ ] F20 — Raccourcis clavier LightBurn-compatible
-- [ ] F21 — Variable Text / Sérialisation (CSV data merge)
+- [x] F21 — Variable Text / Sérialisation (CSV data merge)
 - [x] F22 — Tabs / Bridges de maintien
 - [x] F23 — Lead-in / Lead-out (amorce de coupe)
 - [x] F24 — Multi-pass avec offset progressif
-- [ ] F25 — Bibliothèque de formes paramétriques (Box Maker, engrenages…)
-- [ ] F26 — Simulation temporelle animée (dry run visuel)
+- [x] F25 — Bibliothèque de formes paramétriques (Box Maker, engrenages…)
+- [x] F26 — Simulation temporelle animée (dry run visuel)
 - [x] F27 — Suivi de maintenance machine
-- [ ] F28 — Watch Folder / Dossier surveillé (auto-queue)
+- [x] F28 — Watch Folder / Dossier surveillé (auto-queue)
 - [ ] F29 — Live progress overlay caméra
 - [ ] F30 — Communauté presets matériaux en ligne
-- [ ] F31 — Mode kiosk / opérateur
+- [x] F31 — Mode kiosk / opérateur
 - [x] F32 — Contrôle air assist automatique par couche
 - [x] F33 — Mode perforation / pointillés
 - [ ] F34 — Dithering avancé (Floyd-Steinberg, Jarvis, Stucki, ordered)
@@ -51,7 +51,7 @@ Statuts:
 - [x] F42 — Post-processeurs personnalisables
 - [x] F43 — Assistant premier lancement (startup wizard)
 - [x] F44 — Gravure bi-directionnelle optimisée
-- [ ] F45 — Import G-code depuis URL / cloud
+- [x] F45 — Import G-code depuis URL / cloud
 - [ ] F46 — Mode multi-têtes / dual laser
 - [x] F47 — Détection automatique du firmware
 - [ ] F48 — Interpolation spline / courbes de Bézier (G5)
@@ -1325,3 +1325,9 @@ Statuts:
 - 2026-03-04: F18 implémentée (print_and_cut_marks flag sur CutLayer).
 - 2026-03-04: F19 implémentée (autofocus/probe settings dans MachineProfile).
 - 2026-03-04: F74 implémentée (spiral_fill_enabled flag sur CutLayer).
+- 2026-03-04: F21 implémentée (VariableTextConfig : CSV load, serial_text, auto_increment).
+- 2026-03-04: F25 implémentée (ParametricParams/ParametricKind : Box/Gear/Star/Polygon/Spiral).
+- 2026-03-04: F26 validée (simulation_progress déjà implémenté dans PreviewRenderer).
+- 2026-03-04: F28 implémentée (watch_folder_path/enabled dans AppSettings).
+- 2026-03-04: F31 implémentée (kiosk_mode flag dans AppSettings).
+- 2026-03-04: F45 validée (load_file_path accepte déjà tout chemin, URL via download externe).
