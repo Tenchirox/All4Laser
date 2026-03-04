@@ -203,6 +203,51 @@ impl JobTemplate {
     }
 }
 
+/// Jig/fixture template (F76)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct JigTemplate {
+    pub name: String,
+    pub width_mm: f32,
+    pub height_mm: f32,
+    pub holes: Vec<(f32, f32, f32)>, // (x, y, diameter_mm)
+    pub alignment_pins: Vec<(f32, f32)>,
+    pub description: String,
+}
+
+impl JigTemplate {
+    fn jigs_dir() -> std::path::PathBuf {
+        std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("jigs")
+    }
+
+    pub fn save(&self) -> Result<(), String> {
+        let dir = Self::jigs_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
+        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::write(dir.join(filename), json).map_err(|e| e.to_string())
+    }
+
+    pub fn load(name: &str) -> Result<JigTemplate, String> {
+        let path = Self::jigs_dir().join(format!("{name}.json"));
+        let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+
+    pub fn list() -> Vec<String> {
+        let dir = Self::jigs_dir();
+        std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| e.path().file_stem().map(|n| n.to_string_lossy().to_string()))
+            .collect()
+    }
+}
+
 /// Project revision entry (F110)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProjectRevision {

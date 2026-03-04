@@ -84,6 +84,12 @@ pub struct AppSettings {
     // Darkroom mode (F70)
     #[serde(default)]
     pub darkroom_mode: bool,
+    // Global undo (F16)
+    #[serde(default = "default_max_undo")]
+    pub max_undo_steps: usize,
+    // Demo/presentation mode (F98)
+    #[serde(default)]
+    pub demo_mode: bool,
     // Accessibility (F56)
     #[serde(default)]
     pub colorblind_mode: ColorblindMode,
@@ -110,6 +116,28 @@ fn default_beginner_mode() -> bool { true }
 fn default_active_tab() -> RightPanelTab { RightPanelTab::Art }
 fn default_camera_opacity() -> f32 { 0.5 }
 fn default_cost_per_hour() -> f32 { 15.0 }
+fn default_max_undo() -> usize { 50 }
+pub fn lightburn_shortcuts() -> std::collections::HashMap<String, String> {
+    let mut m = std::collections::HashMap::new();
+    m.insert("run".into(), "Ctrl+Shift+R".into());
+    m.insert("stop".into(), "Ctrl+.".into());
+    m.insert("pause".into(), "Ctrl+P".into());
+    m.insert("save".into(), "Ctrl+S".into());
+    m.insert("open".into(), "Ctrl+O".into());
+    m.insert("undo".into(), "Ctrl+Z".into());
+    m.insert("redo".into(), "Ctrl+Shift+Z".into());
+    m.insert("delete".into(), "Delete".into());
+    m.insert("copy".into(), "Ctrl+C".into());
+    m.insert("paste".into(), "Ctrl+V".into());
+    m.insert("select_all".into(), "Ctrl+A".into());
+    m.insert("group".into(), "Ctrl+G".into());
+    m.insert("ungroup".into(), "Ctrl+U".into());
+    m.insert("frame".into(), "Alt+F".into());
+    m.insert("zoom_fit".into(), "Ctrl+Shift+A".into());
+    m.insert("node_edit".into(), "N".into());
+    m
+}
+
 fn default_shortcuts() -> std::collections::HashMap<String, String> {
     let mut m = std::collections::HashMap::new();
     m.insert("run".into(), "Ctrl+R".into());
@@ -148,6 +176,8 @@ impl Default for AppSettings {
             cost_currency: "€".into(),
             custom_shortcuts: default_shortcuts(),
             darkroom_mode: false,
+            max_undo_steps: default_max_undo(),
+            demo_mode: false,
             colorblind_mode: ColorblindMode::None,
             high_contrast: false,
         }

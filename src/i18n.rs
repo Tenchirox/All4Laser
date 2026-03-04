@@ -11,6 +11,11 @@ pub enum Language {
     Arabic,
     Spanish,
     Portuguese,
+    Chinese,
+    Russian,
+    Turkish,
+    Korean,
+    Polish,
 }
 
 impl Default for Language {
@@ -30,6 +35,11 @@ impl Language {
             Language::Arabic => "العربية",
             Language::Spanish => "Español",
             Language::Portuguese => "Português",
+            Language::Chinese => "中文",
+            Language::Russian => "Русский",
+            Language::Turkish => "Türkçe",
+            Language::Korean => "한국어",
+            Language::Polish => "Polski",
         }
     }
 }
