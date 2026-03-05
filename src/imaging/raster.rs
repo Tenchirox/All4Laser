@@ -215,20 +215,29 @@ pub fn image_to_gcode(img: &image::DynamicImage, params: &RasterParams) -> Vec<S
 /// Floyd-Steinberg dithering on a grayscale image
 fn floyd_steinberg_dither(img: &GrayImage) -> GrayImage {
     let (w, h) = img.dimensions();
-    let mut buf: Vec<Vec<f32>> = (0..h)
-        .map(|y| (0..w).map(|x| img.get_pixel(x, y)[0] as f32).collect())
-        .collect();
+    let wu = w as usize;
+    let hu = h as usize;
+
+    let mut buf: Vec<f32> = vec![0.0; wu * hu];
+    for y in 0..h {
+        let offset = (y as usize) * wu;
+        for x in 0..w {
+            buf[offset + (x as usize)] = img.get_pixel(x, y)[0] as f32;
+        }
+    }
 
     for y in 0..h {
+        let y_offset = (y as usize) * wu;
         for x in 0..w {
-            let old = buf[y as usize][x as usize];
+            let idx = y_offset + (x as usize);
+            let old = buf[idx];
             let new_val = if old > 127.0 { 255.0 } else { 0.0 };
-            buf[y as usize][x as usize] = new_val;
+            buf[idx] = new_val;
             let error = old - new_val;
 
-            let spread = |buf: &mut Vec<Vec<f32>>, px: u32, py: u32, factor: f32| {
+            let spread = |buf: &mut [f32], px: u32, py: u32, factor: f32| {
                 if px < w && py < h {
-                    buf[py as usize][px as usize] += error * factor;
+                    buf[(py as usize) * wu + (px as usize)] += error * factor;
                 }
             };
 
@@ -241,8 +250,9 @@ fn floyd_steinberg_dither(img: &GrayImage) -> GrayImage {
 
     let mut output = GrayImage::new(w, h);
     for y in 0..h {
+        let offset = (y as usize) * wu;
         for x in 0..w {
-            let v = buf[y as usize][x as usize].clamp(0.0, 255.0) as u8;
+            let v = buf[offset + (x as usize)].clamp(0.0, 255.0) as u8;
             output.put_pixel(x, y, Luma([v]));
         }
     }
@@ -252,26 +262,35 @@ fn floyd_steinberg_dither(img: &GrayImage) -> GrayImage {
 /// Atkinson dithering (preserves more detail, higher contrast)
 fn atkinson_dither(img: &GrayImage) -> GrayImage {
     let (w, h) = img.dimensions();
-    let mut buf: Vec<Vec<f32>> = (0..h)
-        .map(|y| (0..w).map(|x| img.get_pixel(x, y)[0] as f32).collect())
-        .collect();
+    let wu = w as usize;
+    let hu = h as usize;
+
+    let mut buf: Vec<f32> = vec![0.0; wu * hu];
+    for y in 0..h {
+        let offset = (y as usize) * wu;
+        for x in 0..w {
+            buf[offset + (x as usize)] = img.get_pixel(x, y)[0] as f32;
+        }
+    }
 
     for y in 0..h {
+        let y_offset = (y as usize) * wu;
         for x in 0..w {
-            let old = buf[y as usize][x as usize];
+            let idx = y_offset + (x as usize);
+            let old = buf[idx];
             let new_val = if old > 127.0 { 255.0 } else { 0.0 };
-            buf[y as usize][x as usize] = new_val;
+            buf[idx] = new_val;
             let error = (old - new_val) / 8.0; // Atkinson spreads 1/8 to each neighbor
 
-            let spread = |buf: &mut Vec<Vec<f32>>, px: u32, py: u32| {
+            let spread = |buf: &mut [f32], px: u32, py: u32| {
                 if px < w && py < h {
-                    buf[py as usize][px as usize] += error;
+                    buf[(py as usize) * wu + (px as usize)] += error;
                 }
             };
 
             spread(&mut buf, x + 1, y);
             spread(&mut buf, x + 2, y);
-            spread(&mut buf, x - 1, y + 1);
+            if x > 0 { spread(&mut buf, x - 1, y + 1); }
             spread(&mut buf, x, y + 1);
             spread(&mut buf, x + 1, y + 1);
             spread(&mut buf, x, y + 2);
@@ -280,8 +299,9 @@ fn atkinson_dither(img: &GrayImage) -> GrayImage {
 
     let mut output = GrayImage::new(w, h);
     for y in 0..h {
+        let offset = (y as usize) * wu;
         for x in 0..w {
-            let v = buf[y as usize][x as usize].clamp(0.0, 255.0) as u8;
+            let v = buf[offset + (x as usize)].clamp(0.0, 255.0) as u8;
             output.put_pixel(x, y, Luma([v]));
         }
     }
