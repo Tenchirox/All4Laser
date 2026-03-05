@@ -102,7 +102,11 @@ impl JobQueueState {
     /// Job history statistics summary (F52)
     pub fn stats_summary(&self) -> (usize, usize, usize) {
         let total = self.history.len();
-        let completed = self.history.iter().filter(|h| h.status == "Completed").count();
+        let completed = self
+            .history
+            .iter()
+            .filter(|h| h.status == "Completed")
+            .count();
         let failed = total - completed;
         (total, completed, failed)
     }
@@ -110,9 +114,11 @@ impl JobQueueState {
     /// Save job history to file (F52)
     pub fn save_history(&self) {
         let path = Self::history_path();
-        let entries: Vec<String> = self.history.iter().map(|h| {
-            format!("{}|{}|{}|{}", h.id, h.name, h.attempts, h.status)
-        }).collect();
+        let entries: Vec<String> = self
+            .history
+            .iter()
+            .map(|h| format!("{}|{}|{}|{}", h.id, h.name, h.attempts, h.status))
+            .collect();
         let _ = std::fs::write(path, entries.join("\n"));
     }
 
@@ -148,7 +154,8 @@ impl JobQueueState {
         let mut ids = Vec::new();
         for path in paths {
             if let Ok(content) = std::fs::read_to_string(path) {
-                let name = path.file_name()
+                let name = path
+                    .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| "batch_file".into());
                 let lines: Vec<String> = content.lines().map(String::from).collect();
@@ -157,6 +164,10 @@ impl JobQueueState {
             }
         }
         ids
+    }
+
+    fn _dummy_record_failure_end(&self) {
+        // marker to avoid duplicate match
     }
 
     pub fn record_aborted(&mut self, job: QueuedJob) {
@@ -218,13 +229,19 @@ pub fn show(
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(has_loaded_program, egui::Button::new("➕ Queue Current Job"))
+                    .add_enabled(
+                        has_loaded_program,
+                        egui::Button::new("➕ Queue Current Job"),
+                    )
                     .clicked()
                 {
                     action.enqueue_current = true;
                 }
                 if ui
-                    .add_enabled(!running && !state.queue.is_empty(), egui::Button::new("▶ Start Next"))
+                    .add_enabled(
+                        !running && !state.queue.is_empty(),
+                        egui::Button::new("▶ Start Next"),
+                    )
                     .clicked()
                 {
                     action.start_next = true;
@@ -254,54 +271,64 @@ pub fn show(
             });
 
             if let Some(name) = active_job_name {
-                ui.label(RichText::new(format!("Running: {name}")).color(theme::GREEN).strong());
+                ui.label(
+                    RichText::new(format!("Running: {name}"))
+                        .color(theme::GREEN)
+                        .strong(),
+                );
             }
 
             ui.add_space(8.0);
             ui.label(RichText::new("Pending Queue").strong());
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                if state.queue.is_empty() {
-                    ui.label(RichText::new("No queued jobs.").small().color(theme::SUBTEXT));
-                } else {
-                    let mut move_up_idx = None;
-                    let mut move_down_idx = None;
-                    let mut remove_idx = None;
+            egui::ScrollArea::vertical()
+                .max_height(180.0)
+                .show(ui, |ui| {
+                    if state.queue.is_empty() {
+                        ui.label(
+                            RichText::new("No queued jobs.")
+                                .small()
+                                .color(theme::SUBTEXT),
+                        );
+                    } else {
+                        let mut move_up_idx = None;
+                        let mut move_down_idx = None;
+                        let mut remove_idx = None;
 
-                    for (idx, job) in state.queue.iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(format!(
-                                    "#{} {} ({} lines, try {})",
-                                    job.id,
-                                    job.name,
-                                    job.lines.len(),
-                                    job.attempts
-                                ))
-                                .small(),
-                            );
-                            if ui.button("↑").clicked() {
-                                move_up_idx = Some(idx);
-                            }
-                            if ui.button("↓").clicked() {
-                                move_down_idx = Some(idx);
-                            }
-                            if ui.button("✕").clicked() {
-                                remove_idx = Some(idx);
-                            }
-                        });
-                    }
+                        for (idx, job) in state.queue.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "#{} {} ({} lines, try {})",
+                                        job.id,
+                                        job.name,
+                                        job.lines.len(),
+                                        job.attempts
+                                    ))
+                                    .small(),
+                                );
+                                if ui.button("↑").clicked() {
+                                    move_up_idx = Some(idx);
+                                }
+                                if ui.button("↓").clicked() {
+                                    move_down_idx = Some(idx);
+                                }
+                                if ui.button("✕").clicked() {
+                                    remove_idx = Some(idx);
+                                }
+                            });
+                        }
 
-                    if let Some(idx) = move_up_idx {
-                        state.move_up(idx);
+                        if let Some(idx) = move_up_idx {
+                            state.move_up(idx);
+                        }
+                        if let Some(idx) = move_down_idx {
+                            state.move_down(idx);
+                        }
+                        if let Some(idx) = remove_idx {
+                            state.remove(idx);
+                        }
                     }
-                    if let Some(idx) = move_down_idx {
-                        state.move_down(idx);
-                    }
-                    if let Some(idx) = remove_idx {
-                        state.remove(idx);
-                    }
-                }
-            });
+                });
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
@@ -311,29 +338,35 @@ pub fn show(
                 }
             });
 
-            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
-                if state.history.is_empty() {
-                    ui.label(RichText::new("No history yet.").small().color(theme::SUBTEXT));
-                } else {
-                    for entry in state.history.iter().rev() {
-                        let color = if entry.status == "Completed" {
-                            theme::GREEN
-                        } else if entry.status == "Aborted" {
-                            theme::PEACH
-                        } else {
-                            theme::RED
-                        };
+            egui::ScrollArea::vertical()
+                .max_height(180.0)
+                .show(ui, |ui| {
+                    if state.history.is_empty() {
                         ui.label(
-                            RichText::new(format!(
-                                "#{} {} — {} (try {})",
-                                entry.id, entry.name, entry.status, entry.attempts
-                            ))
-                            .small()
-                            .color(color),
+                            RichText::new("No history yet.")
+                                .small()
+                                .color(theme::SUBTEXT),
                         );
+                    } else {
+                        for entry in state.history.iter().rev() {
+                            let color = if entry.status == "Completed" {
+                                theme::GREEN
+                            } else if entry.status == "Aborted" {
+                                theme::PEACH
+                            } else {
+                                theme::RED
+                            };
+                            ui.label(
+                                RichText::new(format!(
+                                    "#{} {} — {} (try {})",
+                                    entry.id, entry.name, entry.status, entry.attempts
+                                ))
+                                .small()
+                                .color(color),
+                            );
+                        }
                     }
-                }
-            });
+                });
         });
 
     if close_clicked {
@@ -373,7 +406,9 @@ mod tests {
         assert_eq!(job.id, job_id);
 
         q.record_failure(job, "ALARM:2".into());
-        let retry_id = q.retry_last_failed().expect("retry should enqueue failed job");
+        let retry_id = q
+            .retry_last_failed()
+            .expect("retry should enqueue failed job");
 
         assert!(retry_id > job_id);
         assert_eq!(q.queue.len(), 1);
