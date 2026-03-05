@@ -1,5 +1,5 @@
-use std::time::Duration;
 use crate::gcode::types::{GCodeLine, ModalState};
+use std::time::Duration;
 
 #[derive(Debug, Clone, Default)]
 pub struct EstimationResult {
@@ -33,9 +33,13 @@ pub fn generate_job_report_csv(
     csv += &format!("Estimated Time (s),{:.1}\n", result.estimated_seconds);
     csv += "\nLayer,Speed,Power,Passes,Mode\n";
     for layer in layers {
-        if !layer.visible { continue; }
-        csv += &format!("{},{:.0},{:.0},{},{:?}\n",
-            layer.name, layer.speed, layer.power, layer.passes, layer.mode);
+        if !layer.visible {
+            continue;
+        }
+        csv += &format!(
+            "{},{:.0},{:.0},{},{:?}\n",
+            layer.name, layer.speed, layer.power, layer.passes, layer.mode
+        );
     }
     csv
 }
@@ -58,14 +62,26 @@ pub fn estimate(lines: &[GCodeLine]) -> EstimationResult {
             if matches!(g, 0 | 1 | 2 | 3) {
                 state.current_g = g;
             }
-            if g == 90 { state.absolute = true; }
-            if g == 91 { state.absolute = false; }
+            if g == 90 {
+                state.absolute = true;
+            }
+            if g == 91 {
+                state.absolute = false;
+            }
         }
-        if let Some(f) = line.f { state.f = f; }
-        if let Some(s) = line.s { state.s = s; }
+        if let Some(f) = line.f {
+            state.f = f;
+        }
+        if let Some(s) = line.s {
+            state.s = s;
+        }
         if let Some(m) = line.m_code {
-            if matches!(m, 3 | 4) { state.laser_on = true; }
-            if m == 5 { state.laser_on = false; }
+            if matches!(m, 3 | 4) {
+                state.laser_on = true;
+            }
+            if m == 5 {
+                state.laser_on = false;
+            }
         }
 
         // Calculate move
@@ -73,7 +89,7 @@ pub fn estimate(lines: &[GCodeLine]) -> EstimationResult {
         if has_xyz && matches!(state.current_g, 0 | 1 | 2 | 3) {
             let nx = line.x.unwrap_or(state.x);
             let ny = line.y.unwrap_or(state.y);
-            
+
             let dist = if state.absolute {
                 ((nx - state.x).powi(2) + (ny - state.y).powi(2)).sqrt()
             } else {

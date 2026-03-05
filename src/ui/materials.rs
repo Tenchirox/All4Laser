@@ -1,10 +1,14 @@
-use egui::{Ui, RichText};
-use serde::{Deserialize, Serialize};
 use crate::theme;
 use crate::ui::layers_new::CutMode;
+use egui::{RichText, Ui};
+use serde::{Deserialize, Serialize};
 
-fn default_machine_profile() -> String { String::new() }
-fn default_recommended_passes() -> u32 { 1 }
+fn default_machine_profile() -> String {
+    String::new()
+}
+fn default_recommended_passes() -> u32 {
+    1
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MaterialOperation {
@@ -190,7 +194,10 @@ fn recommendation_score(preset: &MaterialPreset, context: &MaterialsUiContext) -
     score
 }
 
-pub fn recommended_preset_index(state: &MaterialsState, context: &MaterialsUiContext) -> Option<usize> {
+pub fn recommended_preset_index(
+    state: &MaterialsState,
+    context: &MaterialsUiContext,
+) -> Option<usize> {
     state
         .presets
         .iter()
@@ -306,19 +313,31 @@ pub fn show_with_context(
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("📦 Material Presets").color(theme::LAVENDER).strong());
+            ui.label(
+                RichText::new("📦 Material Presets")
+                    .color(theme::LAVENDER)
+                    .strong(),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("📤 Export").clicked() {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).save_file() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("JSON", &["json"])
+                        .save_file()
+                    {
                         if let Ok(json) = serde_json::to_string_pretty(&state.presets) {
                             let _ = std::fs::write(path, json);
                         }
                     }
                 }
                 if ui.button("📥 Import").clicked() {
-                    if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("JSON", &["json"])
+                        .pick_file()
+                    {
                         if let Ok(data) = std::fs::read_to_string(path) {
-                            if let Ok(new_presets) = serde_json::from_str::<Vec<MaterialPreset>>(&data) {
+                            if let Ok(new_presets) =
+                                serde_json::from_str::<Vec<MaterialPreset>>(&data)
+                            {
                                 state.presets.extend(new_presets);
                                 state.save();
                             }
@@ -330,11 +349,16 @@ pub fn show_with_context(
         ui.add_space(4.0);
 
         if let Some(layer) = &context.active_layer {
-            ui.label(RichText::new(format!(
-                "Layer: {} | {} mm/min | S{} | {} pass(es)",
-                layer.name, layer.speed.round(), layer.power.round(), layer.passes
-            ))
-            .small());
+            ui.label(
+                RichText::new(format!(
+                    "Layer: {} | {} mm/min | S{} | {} pass(es)",
+                    layer.name,
+                    layer.speed.round(),
+                    layer.power.round(),
+                    layer.passes
+                ))
+                .small(),
+            );
         }
 
         if let Some(idx) = recommendation_idx {
@@ -359,7 +383,11 @@ pub fn show_with_context(
         }
 
         // Dropdown for presets
-        let current_name = state.presets.get(state.selected).map(|p| p.name.clone()).unwrap_or_default();
+        let current_name = state
+            .presets
+            .get(state.selected)
+            .map(|p| p.name.clone())
+            .unwrap_or_default();
         egui::ComboBox::from_id_salt("material_combo")
             .selected_text(&current_name)
             .width(180.0)
@@ -396,13 +424,17 @@ pub fn show_with_context(
             ui.add_space(4.0);
 
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("✔ Apply").color(theme::GREEN)).clicked() {
+                if ui
+                    .button(RichText::new("✔ Apply").color(theme::GREEN))
+                    .clicked()
+                {
                     action.apply_speed = Some(preset.speed);
                     action.apply_power = Some(preset.power);
                     action.apply_cut_speed = Some(preset.cut_speed);
                     action.apply_cut_power = Some(preset.cut_power);
                 }
-                if context.active_layer.is_some() && ui.button("🎯 Apply to Active Layer").clicked() {
+                if context.active_layer.is_some() && ui.button("🎯 Apply to Active Layer").clicked()
+                {
                     action.apply_to_active_layer = Some(preset.as_layer_update());
                     action.apply_speed = Some(preset.speed);
                     action.apply_power = Some(preset.power);
@@ -437,21 +469,30 @@ pub fn show_with_context(
 
             // Temporarily pull values out to allow independent UI borrows
             let mut ep = state.edit_preset.clone();
-            
+
             ui.horizontal(|ui| {
-                ui.label("Name:"); ui.text_edit_singleline(&mut ep.name);
+                ui.label("Name:");
+                ui.text_edit_singleline(&mut ep.name);
             });
             ui.horizontal(|ui| {
                 ui.label("Thickness (mm):");
-                ui.add(egui::DragValue::new(&mut ep.thickness_mm).speed(0.5).suffix(" mm"));
+                ui.add(
+                    egui::DragValue::new(&mut ep.thickness_mm)
+                        .speed(0.5)
+                        .suffix(" mm"),
+                );
             });
             ui.horizontal(|ui| {
-                ui.label("Engrave Speed:"); ui.add(egui::DragValue::new(&mut ep.speed).speed(10.0));
-                ui.label("Power:"); ui.add(egui::DragValue::new(&mut ep.power).speed(5.0));
+                ui.label("Engrave Speed:");
+                ui.add(egui::DragValue::new(&mut ep.speed).speed(10.0));
+                ui.label("Power:");
+                ui.add(egui::DragValue::new(&mut ep.power).speed(5.0));
             });
             ui.horizontal(|ui| {
-                ui.label("Cut Speed:"); ui.add(egui::DragValue::new(&mut ep.cut_speed).speed(10.0));
-                ui.label("Power:"); ui.add(egui::DragValue::new(&mut ep.cut_power).speed(5.0));
+                ui.label("Cut Speed:");
+                ui.add(egui::DragValue::new(&mut ep.cut_speed).speed(10.0));
+                ui.label("Power:");
+                ui.add(egui::DragValue::new(&mut ep.cut_power).speed(5.0));
             });
             ui.horizontal(|ui| {
                 ui.label("Recommended Passes:");
@@ -470,13 +511,20 @@ pub fn show_with_context(
                         MaterialOperation::Hybrid => "Hybrid",
                     })
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut ep.operation, MaterialOperation::Engrave, "Engrave");
+                        ui.selectable_value(
+                            &mut ep.operation,
+                            MaterialOperation::Engrave,
+                            "Engrave",
+                        );
                         ui.selectable_value(&mut ep.operation, MaterialOperation::Cut, "Cut");
                         ui.selectable_value(&mut ep.operation, MaterialOperation::Hybrid, "Hybrid");
                     });
             });
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("💾 Save").color(theme::GREEN)).clicked() {
+                if ui
+                    .button(RichText::new("💾 Save").color(theme::GREEN))
+                    .clicked()
+                {
                     save_clicked = true;
                 }
                 if ui.button("Cancel").clicked() {

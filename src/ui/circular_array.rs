@@ -1,7 +1,7 @@
-/// Circular Array: Repeat selected shapes in a circular pattern
-use egui::RichText;
 use crate::theme;
 use crate::ui::drawing::DrawingState;
+/// Circular Array: Repeat selected shapes in a circular pattern
+use egui::RichText;
 
 #[derive(Clone, Debug)]
 pub struct CircularArrayState {
@@ -41,31 +41,54 @@ pub fn show(ctx: &egui::Context, state: &mut CircularArrayState) -> CircularArra
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
-            egui::Grid::new("circular_array_grid").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                ui.label("Count:");
-                ui.add(egui::DragValue::new(&mut state.count).range(2..=100));
-                ui.end_row();
+            egui::Grid::new("circular_array_grid")
+                .num_columns(2)
+                .spacing([12.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label("Count:");
+                    ui.add(egui::DragValue::new(&mut state.count).range(2..=100));
+                    ui.end_row();
 
-                ui.label("Center X (mm):");
-                ui.add(egui::DragValue::new(&mut state.center_x).speed(1.0).suffix(" mm"));
-                ui.end_row();
+                    ui.label("Center X (mm):");
+                    ui.add(
+                        egui::DragValue::new(&mut state.center_x)
+                            .speed(1.0)
+                            .suffix(" mm"),
+                    );
+                    ui.end_row();
 
-                ui.label("Center Y (mm):");
-                ui.add(egui::DragValue::new(&mut state.center_y).speed(1.0).suffix(" mm"));
-                ui.end_row();
+                    ui.label("Center Y (mm):");
+                    ui.add(
+                        egui::DragValue::new(&mut state.center_y)
+                            .speed(1.0)
+                            .suffix(" mm"),
+                    );
+                    ui.end_row();
 
-                ui.label("Total Angle (°):");
-                ui.add(egui::DragValue::new(&mut state.total_angle).speed(1.0).range(-360.0..=360.0).suffix("°"));
-                ui.end_row();
+                    ui.label("Total Angle (°):");
+                    ui.add(
+                        egui::DragValue::new(&mut state.total_angle)
+                            .speed(1.0)
+                            .range(-360.0..=360.0)
+                            .suffix("°"),
+                    );
+                    ui.end_row();
 
-                ui.label("Rotate copies:");
-                ui.checkbox(&mut state.rotate_copies, "");
-                ui.end_row();
-            });
+                    ui.label("Rotate copies:");
+                    ui.checkbox(&mut state.rotate_copies, "");
+                    ui.end_row();
+                });
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("🌀 Create Array").color(theme::GREEN).strong()).clicked() {
+                if ui
+                    .button(
+                        RichText::new("🌀 Create Array")
+                            .color(theme::GREEN)
+                            .strong(),
+                    )
+                    .clicked()
+                {
                     action.apply = true;
                 }
                 if ui.button("Close").clicked() {
@@ -77,7 +100,11 @@ pub fn show(ctx: &egui::Context, state: &mut CircularArrayState) -> CircularArra
     action
 }
 
-pub fn apply_array(state: &CircularArrayState, drawing: &mut DrawingState, selected_indices: &[usize]) {
+pub fn apply_array(
+    state: &CircularArrayState,
+    drawing: &mut DrawingState,
+    selected_indices: &[usize],
+) {
     if selected_indices.is_empty() || state.count < 2 {
         return;
     }
@@ -87,7 +114,7 @@ pub fn apply_array(state: &CircularArrayState, drawing: &mut DrawingState, selec
 
     for &idx in selected_indices {
         if let Some(base_shape) = drawing.shapes.get(idx) {
-            // We skip the first copy (the original itself is at step 0 usually, 
+            // We skip the first copy (the original itself is at step 0 usually,
             // but LightBurn adds N *total* copies including the original).
             // Let's create N-1 copies.
             for i in 1..state.count {
@@ -112,7 +139,7 @@ pub fn apply_array(state: &CircularArrayState, drawing: &mut DrawingState, selec
                     // Keep rotation in -360.0 to 360.0 range
                     new_shape.rotation %= 360.0;
                 }
-                
+
                 new_shapes.push(new_shape);
             }
         }

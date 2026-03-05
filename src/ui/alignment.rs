@@ -1,6 +1,6 @@
-use egui::{Ui, RichText};
-use crate::ui::drawing::{DrawingState, ShapeParams, ShapeKind};
 use crate::theme;
+use crate::ui::drawing::{DrawingState, ShapeKind, ShapeParams};
+use egui::{RichText, Ui};
 
 pub enum AlignCmd {
     Left,
@@ -13,7 +13,12 @@ pub enum AlignCmd {
     DistributeVertical,
 }
 
-pub fn show(ui: &mut Ui, state: &mut DrawingState, selection: &[usize], workspace_size: egui::Vec2) {
+pub fn show(
+    ui: &mut Ui,
+    state: &mut DrawingState,
+    selection: &[usize],
+    workspace_size: egui::Vec2,
+) {
     if selection.is_empty() {
         ui.add_enabled(false, egui::Button::new("Align: (Select objects)"));
         return;
@@ -46,8 +51,15 @@ pub fn show(ui: &mut Ui, state: &mut DrawingState, selection: &[usize], workspac
     });
 }
 
-fn apply_align(state: &mut DrawingState, selection: &[usize], cmd: AlignCmd, workspace_size: egui::Vec2) {
-    if selection.is_empty() { return; }
+fn apply_align(
+    state: &mut DrawingState,
+    selection: &[usize],
+    cmd: AlignCmd,
+    workspace_size: egui::Vec2,
+) {
+    if selection.is_empty() {
+        return;
+    }
 
     // 1. Calculate selection bounds or "Anchor" (Last selected? Or total bounds?)
     // LightBurn aligns to the *last selected* object if it's "Align to Selection".
@@ -68,7 +80,7 @@ fn apply_align(state: &mut DrawingState, selection: &[usize], cmd: AlignCmd, wor
             (0.0, 0.0, workspace_size.x, workspace_size.y)
         }
     } else {
-         (0.0, 0.0, workspace_size.x, workspace_size.y)
+        (0.0, 0.0, workspace_size.x, workspace_size.y)
     };
 
     let (tx, ty, tw, th) = target_bounds;
@@ -76,7 +88,11 @@ fn apply_align(state: &mut DrawingState, selection: &[usize], cmd: AlignCmd, wor
     let t_mid_y = ty + th / 2.0;
 
     // Do not move the target shape if we are aligning to selection
-    let skip_anchor_idx = if align_to_page { None } else { last_selected_idx_opt };
+    let skip_anchor_idx = if align_to_page {
+        None
+    } else {
+        last_selected_idx_opt
+    };
 
     for &idx in selection {
         if Some(idx) == skip_anchor_idx {
@@ -127,19 +143,30 @@ fn apply_align(state: &mut DrawingState, selection: &[usize], cmd: AlignCmd, wor
 fn get_shape_rect(s: &ShapeParams) -> (f32, f32, f32, f32) {
     match &s.shape {
         ShapeKind::Rectangle => (s.x, s.y, s.width, s.height),
-        ShapeKind::Circle => (s.x - s.radius, s.y - s.radius, s.radius * 2.0, s.radius * 2.0),
+        ShapeKind::Circle => (
+            s.x - s.radius,
+            s.y - s.radius,
+            s.radius * 2.0,
+            s.radius * 2.0,
+        ),
         ShapeKind::TextLine => {
-             let char_w = s.font_size_mm * 0.6;
-             let w = s.text.len() as f32 * char_w;
-             (s.x, s.y, w, s.font_size_mm)
-        },
+            let char_w = s.font_size_mm * 0.6;
+            let w = s.text.len() as f32 * char_w;
+            (s.x, s.y, w, s.font_size_mm)
+        }
         ShapeKind::Path(pts) => {
-            let mut min_x = f32::MAX; let mut max_x = f32::MIN;
-            let mut min_y = f32::MAX; let mut max_y = f32::MIN;
-            if pts.is_empty() { return (s.x, s.y, 0.0, 0.0); }
+            let mut min_x = f32::MAX;
+            let mut max_x = f32::MIN;
+            let mut min_y = f32::MAX;
+            let mut max_y = f32::MIN;
+            if pts.is_empty() {
+                return (s.x, s.y, 0.0, 0.0);
+            }
             for p in pts {
-                min_x = min_x.min(p.0); max_x = max_x.max(p.0);
-                min_y = min_y.min(p.1); max_y = max_y.max(p.1);
+                min_x = min_x.min(p.0);
+                max_x = max_x.max(p.0);
+                min_y = min_y.min(p.1);
+                max_y = max_y.max(p.1);
             }
             (s.x + min_x, s.y + min_y, max_x - min_x, max_y - min_y)
         }

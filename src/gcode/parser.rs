@@ -17,9 +17,13 @@ pub fn parse_line(raw: &str) -> GCodeLine {
         raw: raw.to_string(),
         g_code: None,
         m_code: None,
-        x: None, y: None, z: None,
-        f: None, s: None,
-        i: None, j: None,
+        x: None,
+        y: None,
+        z: None,
+        f: None,
+        s: None,
+        i: None,
+        j: None,
     };
 
     let mut chars = code.chars().peekable();

@@ -149,7 +149,11 @@ pub fn show(
                 if ui
                     .add_enabled(
                         total_shapes > 0,
-                        egui::Button::new(RichText::new("🧩 Apply Nesting").color(theme::GREEN).strong()),
+                        egui::Button::new(
+                            RichText::new("🧩 Apply Nesting")
+                                .color(theme::GREEN)
+                                .strong(),
+                        ),
                     )
                     .clicked()
                 {
@@ -351,7 +355,9 @@ fn shape_world_bounds(shape: &ShapeParams) -> Option<(f32, f32, f32, f32)> {
             if pts.is_empty() {
                 return None;
             }
-            pts.iter().map(|(lx, ly)| transform(shape, *lx, *ly)).collect()
+            pts.iter()
+                .map(|(lx, ly)| transform(shape, *lx, *ly))
+                .collect()
         }
         ShapeKind::RasterImage { params, .. } => vec![
             transform(shape, 0.0, 0.0),
@@ -434,7 +440,11 @@ mod tests {
     fn nesting_respects_workspace_limits_and_skips_overflow() {
         let mut drawing = DrawingState {
             current: ShapeParams::default(),
-            shapes: vec![rect(40.0, 20.0, 0.0, 0.0), rect(40.0, 20.0, 0.0, 0.0), rect(40.0, 20.0, 0.0, 0.0)],
+            shapes: vec![
+                rect(40.0, 20.0, 0.0, 0.0),
+                rect(40.0, 20.0, 0.0, 0.0),
+                rect(40.0, 20.0, 0.0, 0.0),
+            ],
         };
 
         let result = apply_nesting(
