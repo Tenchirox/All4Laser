@@ -61,37 +61,20 @@ impl GCodeLine {
 
     pub fn to_gcode(&self) -> String {
         let mut s = String::new();
-        if let Some(g) = self.g_code {
-            s.push_str(&format!("G{} ", g));
-        }
-        if let Some(m) = self.m_code {
-            s.push_str(&format!("M{} ", m));
-        }
-        if let Some(x) = self.x {
-            s.push_str(&format!("X{:.3} ", x));
-        }
-        if let Some(y) = self.y {
-            s.push_str(&format!("Y{:.3} ", y));
-        }
-        if let Some(z) = self.z {
-            s.push_str(&format!("Z{:.3} ", z));
-        }
-        if let Some(i) = self.i {
-            s.push_str(&format!("I{:.3} ", i));
-        }
-        if let Some(j) = self.j {
-            s.push_str(&format!("J{:.3} ", j));
-        }
-        if let Some(f) = self.f {
-            s.push_str(&format!("F{:.0} ", f));
-        }
-        if let Some(s_val) = self.s {
-            s.push_str(&format!("S{:.0} ", s_val));
-        }
+        if let Some(g) = self.g_code { s.push_str(&format!("G{} ", g)); }
+        if let Some(m) = self.m_code { s.push_str(&format!("M{} ", m)); }
+        if let Some(x) = self.x { s.push_str(&format!("X{:.3} ", x)); }
+        if let Some(y) = self.y { s.push_str(&format!("Y{:.3} ", y)); }
+        if let Some(z) = self.z { s.push_str(&format!("Z{:.3} ", z)); }
+        if let Some(i) = self.i { s.push_str(&format!("I{:.3} ", i)); }
+        if let Some(j) = self.j { s.push_str(&format!("J{:.3} ", j)); }
+        if let Some(f) = self.f { s.push_str(&format!("F{:.0} ", f)); }
+        if let Some(s_val) = self.s { s.push_str(&format!("S{:.0} ", s_val)); }
         if s.is_empty() {
             self.raw.clone()
         } else {
-            s.trim().to_string()
+            s.pop(); // Remove the trailing space without re-allocating
+            s
         }
     }
 }
