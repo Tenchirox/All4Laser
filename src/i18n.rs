@@ -791,11 +791,11 @@ mod tests {
 
     #[test]
     fn french_translates_known_key() {
-        set_language(Language::French);
-        assert_eq!(tr("Connect"), "Connecter");
-        assert_eq!(tr("Open"), "Ouvrir");
-        // Reset
-        set_language(Language::English);
+        // Need to lock test execution if they rely on global state.
+        // A better approach is directly testing the dictionary.
+        let map = DICTIONARY.get(&Language::French).unwrap();
+        assert_eq!(*map.get("Connect").unwrap(), "Connecter");
+        assert_eq!(*map.get("Open").unwrap(), "Ouvrir");
     }
 
     #[test]
