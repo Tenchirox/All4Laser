@@ -121,6 +121,8 @@ pub enum InteractiveAction {
         new_pos: Pos2,
     },
     CameraPickPoint(Pos2),
+    GroupSelection,
+    UngroupSelection,
 }
 
 impl PreviewRenderer {
@@ -1136,11 +1138,15 @@ impl PreviewRenderer {
             let wy = -(hover.y - self.pan.y) / self.zoom;
             let is_multi = ui.input(|i| i.modifiers.ctrl || i.modifiers.shift);
 
-            if response.clicked() && self.dragging_rotation.is_none() && camera_pick_active {
+            if response.clicked_by(egui::PointerButton::Primary) && self.dragging_rotation.is_none() && camera_pick_active {
                 if self.is_point_in_camera_overlay(wx, wy, camera_state) {
                     return InteractiveAction::CameraPickPoint(Pos2::new(wx, wy));
                 }
                 return InteractiveAction::None;
+            }
+
+            if response.clicked_by(egui::PointerButton::Secondary) {
+                // Right click actions could be handled here or returned as a new InteractiveAction type later
             }
 
             // 1. Detect Hover
@@ -1152,7 +1158,7 @@ impl PreviewRenderer {
             }
 
             // 2. Click/Drag Selection Logic
-            if response.drag_started() {
+            if response.drag_started_by(egui::PointerButton::Primary) {
                 if self.node_edit_mode {
                     if let Some((shape_idx, node_idx)) = self.selected_node {
                         if let Some(shape) = shapes.get(shape_idx) {
@@ -1211,7 +1217,7 @@ impl PreviewRenderer {
                 }
             }
 
-            if response.clicked() && self.dragging_rotation.is_none() {
+            if response.clicked_by(egui::PointerButton::Primary) && self.dragging_rotation.is_none() {
                 if let Some(idx) = self.hover_shape_idx {
                     let mut add_node_action: Option<InteractiveAction> = None;
                     if self.node_edit_mode {
@@ -1306,7 +1312,19 @@ impl PreviewRenderer {
             }
         }
 
-        if response.dragged() {
+        // Context menu
+        response.context_menu(|ui| {
+            if ui.button("Group").clicked() {
+                action = InteractiveAction::GroupSelection;
+                ui.close_menu();
+            }
+            if ui.button("Ungroup").clicked() {
+                action = InteractiveAction::UngroupSelection;
+                ui.close_menu();
+            }
+        });
+
+        if response.dragged_by(egui::PointerButton::Primary) {
             if self.selection_box_start.is_some() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     let ex = (pos.x - self.pan.x) / self.zoom;
@@ -1387,11 +1405,11 @@ impl PreviewRenderer {
                 action = InteractiveAction::DragSelection {
                     delta: Vec2::new(delta.x / self.zoom, -delta.y / self.zoom),
                 };
-            } else {
-                self.pan += response.drag_delta();
             }
+        } else if response.dragged_by(egui::PointerButton::Middle) {
+            self.pan += response.drag_delta();
         } else {
-            if response.drag_stopped() {
+            if response.drag_stopped_by(egui::PointerButton::Primary) {
                 if let (Some(start), Some(end)) = (
                     self.selection_box_start.take(),
                     self.selection_box_end.take(),
