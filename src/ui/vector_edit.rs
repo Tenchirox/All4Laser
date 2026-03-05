@@ -428,7 +428,10 @@ pub fn smooth_path(
                 let p_cur = prev[i];
                 let p_next = prev[(i + 1) % n];
                 let avg = ((p_prev.0 + p_next.0) * 0.5, (p_prev.1 + p_next.1) * 0.5);
-                core[i] = (p_cur.0 * (1.0 - k) + avg.0 * k, p_cur.1 * (1.0 - k) + avg.1 * k);
+                core[i] = (
+                    p_cur.0 * (1.0 - k) + avg.0 * k,
+                    p_cur.1 * (1.0 - k) + avg.1 * k,
+                );
             }
         } else {
             for i in 1..(prev.len() - 1) {
@@ -436,7 +439,10 @@ pub fn smooth_path(
                 let p_cur = prev[i];
                 let p_next = prev[i + 1];
                 let avg = ((p_prev.0 + p_next.0) * 0.5, (p_prev.1 + p_next.1) * 0.5);
-                core[i] = (p_cur.0 * (1.0 - k) + avg.0 * k, p_cur.1 * (1.0 - k) + avg.1 * k);
+                core[i] = (
+                    p_cur.0 * (1.0 - k) + avg.0 * k,
+                    p_cur.1 * (1.0 - k) + avg.1 * k,
+                );
             }
         }
     }
@@ -448,7 +454,10 @@ pub fn smooth_path(
     Ok(())
 }
 
-pub fn join_selected_paths(drawing: &mut DrawingState, selection: &[usize]) -> Result<usize, String> {
+pub fn join_selected_paths(
+    drawing: &mut DrawingState,
+    selection: &[usize],
+) -> Result<usize, String> {
     if selection.len() < 2 {
         return Err("Select at least 2 paths to join".into());
     }
@@ -540,7 +549,12 @@ mod tests {
     fn simplify_path_reduces_collinear_points() {
         let mut drawing = DrawingState {
             current: ShapeParams::default(),
-            shapes: vec![path_shape(vec![(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0)])],
+            shapes: vec![path_shape(vec![
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (2.0, 0.0),
+                (3.0, 0.0),
+            ])],
         };
 
         let removed = simplify_path(&mut drawing, 0, 0.01).unwrap();
@@ -570,7 +584,13 @@ mod tests {
     fn delete_nodes_multi_keeps_path_valid() {
         let mut drawing = DrawingState {
             current: ShapeParams::default(),
-            shapes: vec![path_shape(vec![(0.0, 0.0), (1.0, 0.5), (2.0, 1.0), (3.0, 0.5), (4.0, 0.0)])],
+            shapes: vec![path_shape(vec![
+                (0.0, 0.0),
+                (1.0, 0.5),
+                (2.0, 1.0),
+                (3.0, 0.5),
+                (4.0, 0.0),
+            ])],
         };
 
         delete_nodes(&mut drawing, 0, &[1, 3]).unwrap();

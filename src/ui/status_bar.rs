@@ -1,8 +1,8 @@
-use egui::{Ui, RichText};
 use crate::config::settings::DisplayUnit;
 use crate::controller::ControllerCapabilities;
 use crate::grbl::types::{GrblState, MacStatus};
 use crate::theme;
+use egui::{RichText, Ui};
 use std::time::Duration;
 
 pub struct StatusBarAction {
@@ -18,9 +18,12 @@ pub struct StatusBarAction {
 impl Default for StatusBarAction {
     fn default() -> Self {
         Self {
-            feed_up: false, feed_down: false,
-            rapid_up: false, rapid_down: false,
-            spindle_up: false, spindle_down: false,
+            feed_up: false,
+            feed_down: false,
+            rapid_up: false,
+            rapid_down: false,
+            spindle_up: false,
+            spindle_down: false,
             toggle_unit: false,
         }
     }
@@ -51,7 +54,12 @@ pub fn show(
 
         // Override controls
         ui.label(RichText::new("Feed:").color(theme::SUBTEXT).size(11.0));
-        ui.label(RichText::new(format!("{}%", state.override_feed)).color(theme::TEXT).monospace().size(11.0));
+        ui.label(
+            RichText::new(format!("{}%", state.override_feed))
+                .color(theme::TEXT)
+                .monospace()
+                .size(11.0),
+        );
         if ui
             .add_enabled(caps.supports_feed_override, egui::Button::new("▲").small())
             .on_hover_text("Increase feed override (+10%)")
@@ -70,7 +78,12 @@ pub fn show(
         ui.separator();
 
         ui.label(RichText::new("Rapid:").color(theme::SUBTEXT).size(11.0));
-        ui.label(RichText::new(format!("{}%", state.override_rapid)).color(theme::TEXT).monospace().size(11.0));
+        ui.label(
+            RichText::new(format!("{}%", state.override_rapid))
+                .color(theme::TEXT)
+                .monospace()
+                .size(11.0),
+        );
         if ui
             .add_enabled(caps.supports_rapid_override, egui::Button::new("▲").small())
             .on_hover_text("Set rapid override to 100%")
@@ -89,16 +102,27 @@ pub fn show(
         ui.separator();
 
         ui.label(RichText::new("Spindle:").color(theme::SUBTEXT).size(11.0));
-        ui.label(RichText::new(format!("{}%", state.override_spindle)).color(theme::TEXT).monospace().size(11.0));
+        ui.label(
+            RichText::new(format!("{}%", state.override_spindle))
+                .color(theme::TEXT)
+                .monospace()
+                .size(11.0),
+        );
         if ui
-            .add_enabled(caps.supports_spindle_override, egui::Button::new("▲").small())
+            .add_enabled(
+                caps.supports_spindle_override,
+                egui::Button::new("▲").small(),
+            )
             .on_hover_text("Increase laser power override (+10%)")
             .clicked()
         {
             action.spindle_up = true;
         }
         if ui
-            .add_enabled(caps.supports_spindle_override, egui::Button::new("▼").small())
+            .add_enabled(
+                caps.supports_spindle_override,
+                egui::Button::new("▼").small(),
+            )
             .on_hover_text("Decrease laser power override (-10%)")
             .clicked()
         {
@@ -109,7 +133,11 @@ pub fn show(
 
         // Unit toggle (F96)
         let unit_label = display_unit.label();
-        if ui.small_button(unit_label).on_hover_text("Toggle mm / inches").clicked() {
+        if ui
+            .small_button(unit_label)
+            .on_hover_text("Toggle mm / inches")
+            .clicked()
+        {
             action.toggle_unit = true;
         }
 
@@ -117,16 +145,33 @@ pub fn show(
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if let Some((cost, currency)) = cost_estimate {
                 if cost > 0.0 {
-                    ui.label(RichText::new(format!("~{cost:.2}{currency}")).color(theme::GREEN).size(11.0));
+                    ui.label(
+                        RichText::new(format!("~{cost:.2}{currency}"))
+                            .color(theme::GREEN)
+                            .size(11.0),
+                    );
                 }
             }
             if let Some((filename, lines, est)) = file_info {
                 let time_str = format_duration(est);
-                ui.label(RichText::new(format!("{filename} | {lines} lines | ~{time_str}")).color(theme::SUBTEXT).size(11.0));
+                ui.label(
+                    RichText::new(format!("{filename} | {lines} lines | ~{time_str}"))
+                        .color(theme::SUBTEXT)
+                        .size(11.0),
+                );
             }
             if let Some((current, total)) = progress {
-                let pct = if total > 0 { (current as f32 / total as f32) * 100.0 } else { 0.0 };
-                ui.label(RichText::new(format!("{current}/{total} ({pct:.0}%)")).color(theme::YELLOW).monospace().size(11.0));
+                let pct = if total > 0 {
+                    (current as f32 / total as f32) * 100.0
+                } else {
+                    0.0
+                };
+                ui.label(
+                    RichText::new(format!("{current}/{total} ({pct:.0}%)"))
+                        .color(theme::YELLOW)
+                        .monospace()
+                        .size(11.0),
+                );
             }
         });
     });

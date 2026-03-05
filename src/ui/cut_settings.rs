@@ -1,7 +1,7 @@
-use egui::RichText;
-use crate::ui::layers_new::{CutLayer, CutMode};
-use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::theme;
+use crate::ui::drawing::{ShapeKind, ShapeParams};
+use crate::ui::layers_new::{CutLayer, CutMode};
+use egui::RichText;
 
 pub struct CutSettingsState {
     pub is_open: bool,
@@ -74,7 +74,10 @@ pub fn show(
     layers: &[CutLayer],
     shapes: &[ShapeParams],
 ) -> CutSettingsAction {
-    let mut action = CutSettingsAction { apply: None, close: false };
+    let mut action = CutSettingsAction {
+        apply: None,
+        close: false,
+    };
 
     if !state.is_open {
         return action;

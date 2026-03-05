@@ -1,4 +1,4 @@
-use egui::{Pos2, Ui, RichText, TextureHandle};
+use egui::{Pos2, RichText, TextureHandle, Ui};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default)]
