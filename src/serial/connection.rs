@@ -158,15 +158,22 @@ pub fn list_ports() -> Vec<String> {
 
     // Fallback: scan /dev
     if ports.is_empty() {
-        for pattern in &["ttyUSB", "ttyACM"] {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut fallback_ports = Vec::new();
             if let Ok(entries) = std::fs::read_dir("/dev") {
                 for entry in entries.flatten() {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    if name.starts_with(pattern) {
-                        ports.push(format!("/dev/{name}"));
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if name.starts_with("ttyUSB") || name.starts_with("ttyACM") {
+                        fallback_ports.push(format!("/dev/{name}"));
                     }
                 }
             }
+            let _ = tx.send(fallback_ports);
+        });
+
+        if let Ok(fallback_ports) = rx.recv_timeout(Duration::from_millis(250)) {
+            ports.extend(fallback_ports);
         }
     }
 
