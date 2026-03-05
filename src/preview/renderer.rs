@@ -1457,7 +1457,7 @@ impl PreviewRenderer {
                     let label_y = s_y_start.max(rect.top() + 4.0);
                     if label_y <= s_y_end - 10.0 { // Only draw if we're not squishing into the bottom edge
                         painter.text(
-                            Pos2::new(sx + 2.0, label_y),
+                            Pos2::new(sx + 2.0, label_y - 12.0),
                             egui::Align2::LEFT_TOP,
                             format!("{:.0}", wx),
                             egui::FontId::monospace(9.0),
@@ -1491,7 +1491,7 @@ impl PreviewRenderer {
                     let label_x = s_x_start.max(rect.left() + 2.0);
                     if label_x <= s_x_end - 20.0 { // Only draw if we're not squishing into the right edge
                         painter.text(
-                            Pos2::new(label_x, sy - 9.0),
+                            Pos2::new(label_x - 22.0, sy - 9.0),
                             egui::Align2::LEFT_TOP,
                             format!("{:.0}", wy),
                             egui::FontId::monospace(9.0),
