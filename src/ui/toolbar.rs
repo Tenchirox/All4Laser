@@ -227,6 +227,10 @@ pub fn show(
                 action.set_theme = Some(theme::UiTheme::Modern);
                 ui.close_menu();
             }
+            if ui.selectable_label(false, tr("Pro (new)")).clicked() {
+                action.set_theme = Some(theme::UiTheme::Pro);
+                ui.close_menu();
+            }
             if ui.selectable_label(false, tr("Industrial (advanced)")).clicked() {
                 action.set_theme = Some(theme::UiTheme::Industrial);
                 ui.close_menu();
@@ -236,6 +240,10 @@ pub fn show(
             ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());
             if ui.selectable_label(false, tr("Modern layout (simple)")).clicked() {
                 action.set_layout = Some(theme::UiLayout::Modern);
+                ui.close_menu();
+            }
+            if ui.selectable_label(false, tr("Pro layout (aesthetic & practical)")).clicked() {
+                action.set_layout = Some(theme::UiLayout::Pro);
                 ui.close_menu();
             }
             if ui.selectable_label(false, tr("Classic layout (expert)")).clicked() {

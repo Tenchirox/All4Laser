@@ -10,7 +10,7 @@ fn quantize_mm(v: f32) -> i32 {
     (v * 100.0).round() as i32
 }
 
-fn normalized_segment_key(a: (f32, f32), b: (f32, f32)) -> SegmentKey {
+pub fn normalized_segment_key(a: (f32, f32), b: (f32, f32)) -> SegmentKey {
     let qa = (quantize_mm(a.0), quantize_mm(a.1));
     let qb = (quantize_mm(b.0), quantize_mm(b.1));
     if qa <= qb { (qa, qb) } else { (qb, qa) }
