@@ -1,9 +1,13 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 
 use egui::{CentralPanel, SidePanel, TopBottomPanel, RichText};
 
+use crate::app_types::{
+    JobTransform, CameraLiveState, TestFireState, WizardState, AutosaveState,
+    path_is_closed_for_fill, shape_fill_warning,
+};
 use crate::config::machine_profile::{MachineProfile, MachineProfileStore};
 use crate::config::recent_files::RecentFiles;
 use crate::config::settings::AppSettings;
@@ -13,13 +17,16 @@ use crate::controller::{
 };
 use crate::gcode::file::GCodeFile;
 use crate::grbl::types::*;
+use crate::imaging;
 use crate::preview::renderer::PreviewRenderer;
-use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::serial::connection::{self, SerialConnection, SerialMsg};
 use crate::theme;
 use crate::ui;
+use crate::ui::drawing::{ShapeKind, ShapeParams};
+use crate::ui::marker_detect::detect_cross_and_circle_markers;
+use crate::ui::node_edit::{NodeEditSnapshot, undo_history_step, redo_history_step};
 use crate::ui::offset::JoinStyle;
-use crate::imaging;
+use crate::ui::preflight::{PreflightReport, PreflightSeverity, PreflightContext};
 
 const MAX_LOG_LINES: usize = 500;
 
@@ -40,7 +47,6 @@ fn play_notification_sound() {
 }
 const STATUS_POLL_MS: u64 = 250;
 const LEFT_PANEL_WIDTH: f32 = 280.0;
-const MAX_NODE_HISTORY: usize = 128;
 
 #[derive(Debug, PartialEq, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub enum RightPanelTab {
@@ -50,289 +56,6 @@ pub enum RightPanelTab {
     Art,
     Laser,
     Notes,
-}
-
-type SegmentKey = ((i32, i32), (i32, i32));
-
-fn quantize_mm(v: f32) -> i32 {
-    (v * 100.0).round() as i32
-}
-
-fn normalized_segment_key(a: (f32, f32), b: (f32, f32)) -> SegmentKey {
-    let qa = (quantize_mm(a.0), quantize_mm(a.1));
-    let qb = (quantize_mm(b.0), quantize_mm(b.1));
-    if qa <= qb {
-        (qa, qb)
-    } else {
-        (qb, qa)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PreflightSeverity {
-    Critical,
-    Warning,
-}
-
-#[derive(Clone, Debug)]
-struct PreflightIssue {
-    severity: PreflightSeverity,
-    message: String,
-}
-
-#[derive(Clone, Debug, Default)]
-struct PreflightReport {
-    issues: Vec<PreflightIssue>,
-}
-
-impl PreflightReport {
-    fn add_critical(&mut self, message: impl Into<String>) {
-        self.issues.push(PreflightIssue {
-            severity: PreflightSeverity::Critical,
-            message: message.into(),
-        });
-    }
-
-    fn add_warning(&mut self, message: impl Into<String>) {
-        self.issues.push(PreflightIssue {
-            severity: PreflightSeverity::Warning,
-            message: message.into(),
-        });
-    }
-
-    fn critical_count(&self) -> usize {
-        self.issues
-            .iter()
-            .filter(|i| i.severity == PreflightSeverity::Critical)
-            .count()
-    }
-
-    fn warning_count(&self) -> usize {
-        self.issues
-            .iter()
-            .filter(|i| i.severity == PreflightSeverity::Warning)
-            .count()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct MarkerComponent {
-    center_x: f32,
-    center_y: f32,
-    fill_ratio: f32,
-    area: usize,
-    aspect_ratio: f32,
-}
-
-fn detect_marker_components(rgba: &[u8], width: usize, height: usize) -> Vec<MarkerComponent> {
-    if width == 0 || height == 0 || rgba.len() < width.saturating_mul(height).saturating_mul(4) {
-        return Vec::new();
-    }
-
-    let mut dark = vec![false; width * height];
-    for y in 0..height {
-        for x in 0..width {
-            let i = (y * width + x) * 4;
-            let lum = (rgba[i] as u16 + rgba[i + 1] as u16 + rgba[i + 2] as u16) / 3;
-            dark[y * width + x] = lum < 80;
-        }
-    }
-
-    let mut visited = vec![false; width * height];
-    let mut out = Vec::new();
-    let min_area = ((width * height) as f32 * 0.00025).max(16.0) as usize;
-
-    for y in 0..height {
-        for x in 0..width {
-            let idx = y * width + x;
-            if !dark[idx] || visited[idx] {
-                continue;
-            }
-
-            let mut stack = vec![idx];
-            visited[idx] = true;
-            let mut area = 0usize;
-            let mut sum_x = 0usize;
-            let mut sum_y = 0usize;
-            let mut min_x = x;
-            let mut max_x = x;
-            let mut min_y = y;
-            let mut max_y = y;
-
-            while let Some(cur) = stack.pop() {
-                let cx = cur % width;
-                let cy = cur / width;
-                area += 1;
-                sum_x += cx;
-                sum_y += cy;
-                min_x = min_x.min(cx);
-                max_x = max_x.max(cx);
-                min_y = min_y.min(cy);
-                max_y = max_y.max(cy);
-
-                if cx > 0 {
-                    let n = cur - 1;
-                    if dark[n] && !visited[n] {
-                        visited[n] = true;
-                        stack.push(n);
-                    }
-                }
-                if cx + 1 < width {
-                    let n = cur + 1;
-                    if dark[n] && !visited[n] {
-                        visited[n] = true;
-                        stack.push(n);
-                    }
-                }
-                if cy > 0 {
-                    let n = cur - width;
-                    if dark[n] && !visited[n] {
-                        visited[n] = true;
-                        stack.push(n);
-                    }
-                }
-                if cy + 1 < height {
-                    let n = cur + width;
-                    if dark[n] && !visited[n] {
-                        visited[n] = true;
-                        stack.push(n);
-                    }
-                }
-            }
-
-            if area < min_area {
-                continue;
-            }
-
-            let bw = (max_x - min_x + 1) as f32;
-            let bh = (max_y - min_y + 1) as f32;
-            let bbox_area = (bw * bh).max(1.0);
-            let fill_ratio = area as f32 / bbox_area;
-            let aspect_ratio = if bh > 0.0 { bw / bh } else { 0.0 };
-            let center_x = sum_x as f32 / area as f32;
-            let center_y = sum_y as f32 / area as f32;
-
-            out.push(MarkerComponent {
-                center_x,
-                center_y,
-                fill_ratio,
-                area,
-                aspect_ratio,
-            });
-        }
-    }
-
-    out
-}
-
-fn detect_cross_and_circle_markers(rgba: &[u8], width: usize, height: usize) -> Option<((f32, f32), (f32, f32))> {
-    let mut comps = detect_marker_components(rgba, width, height)
-        .into_iter()
-        .filter(|c| c.aspect_ratio > 0.55 && c.aspect_ratio < 1.8)
-        .collect::<Vec<_>>();
-
-    if comps.len() < 2 {
-        return None;
-    }
-
-    comps.sort_by(|a, b| {
-        b.area
-            .cmp(&a.area)
-            .then_with(|| a.fill_ratio.partial_cmp(&b.fill_ratio).unwrap_or(std::cmp::Ordering::Equal))
-    });
-
-    let candidates = comps.into_iter().take(12).collect::<Vec<_>>();
-    let mut best_pair: Option<(MarkerComponent, MarkerComponent, f32)> = None;
-    for i in 0..candidates.len() {
-        for j in 0..candidates.len() {
-            if i == j {
-                continue;
-            }
-            let cross = candidates[i];
-            let circle = candidates[j];
-            let fill_gap = circle.fill_ratio - cross.fill_ratio;
-            if fill_gap < 0.08 {
-                continue;
-            }
-            if cross.fill_ratio > 0.70 || circle.fill_ratio < 0.30 {
-                continue;
-            }
-            let score = fill_gap * 100.0 + (cross.area.min(circle.area) as f32).sqrt();
-            match best_pair {
-                Some((_, _, best)) if score <= best => {}
-                _ => best_pair = Some((cross, circle, score)),
-            }
-        }
-    }
-
-    let (cross, circle, _) = best_pair?;
-    Some(((cross.center_x, cross.center_y), (circle.center_x, circle.center_y)))
-}
-
-#[derive(Clone)]
-struct NodeEditSnapshot {
-    shapes: Vec<ShapeParams>,
-    selected_shape_idx: Vec<usize>,
-    selected_node: Option<(usize, usize)>,
-    selected_nodes: Vec<(usize, usize)>,
-}
-
-fn undo_history_step(
-    undo_stack: &mut VecDeque<NodeEditSnapshot>,
-    redo_stack: &mut VecDeque<NodeEditSnapshot>,
-    current: NodeEditSnapshot,
-) -> Option<NodeEditSnapshot> {
-    let prev = undo_stack.pop_back()?;
-    redo_stack.push_back(current);
-    Some(prev)
-}
-
-fn redo_history_step(
-    undo_stack: &mut VecDeque<NodeEditSnapshot>,
-    redo_stack: &mut VecDeque<NodeEditSnapshot>,
-    current: NodeEditSnapshot,
-) -> Option<NodeEditSnapshot> {
-    let next = redo_stack.pop_back()?;
-    undo_stack.push_back(current);
-    Some(next)
-}
-
-fn path_is_closed_for_fill(points: &[(f32, f32)]) -> bool {
-    if points.len() < 3 {
-        return false;
-    }
-
-    let (Some(first), Some(last)) = (points.first(), points.last()) else {
-        return false;
-    };
-
-    let dx = first.0 - last.0;
-    let dy = first.1 - last.1;
-    let dist = (dx * dx + dy * dy).sqrt();
-    dist <= 0.05
-}
-
-fn shape_fill_warning(shape: &ShapeParams, layers: &[ui::layers_new::CutLayer]) -> Option<&'static str> {
-    let layer = layers.get(shape.layer_idx)?;
-    let is_fill_mode = matches!(
-        layer.mode,
-        ui::layers_new::CutMode::Fill
-            | ui::layers_new::CutMode::FillAndLine
-            | ui::layers_new::CutMode::Offset
-    );
-    if !is_fill_mode {
-        return None;
-    }
-
-    match &shape.shape {
-        ShapeKind::Path(points) if points.len() < 3 => {
-            Some("Fill ignored: path needs at least 3 points.")
-        }
-        ShapeKind::Path(points) if !path_is_closed_for_fill(points) => {
-            Some("Fill ignored: open path. Close contour to enable fill.")
-        }
-        _ => None,
-    }
 }
 
 pub struct All4LaserApp {
@@ -400,10 +123,7 @@ pub struct All4LaserApp {
     controller_backend: Arc<dyn ControllerBackend>,
 
     // Job Transform
-    job_offset_x: f32,
-    job_offset_y: f32,
-    job_rotation: f32, // degrees
-    job_center: Option<egui::Pos2>,
+    job_transform: JobTransform,
 
     // Air Assist
     air_assist_on: bool,
@@ -431,9 +151,7 @@ pub struct All4LaserApp {
     materials_state: ui::materials::MaterialsState,
 
     // Test Fire
-    test_fire_open: bool,
-    test_fire_power: f32,
-    test_fire_ms: f32,
+    test_fire: TestFireState,
 
     // Feed / Spindle RT override (0-100%, 100 = no change)
     feed_override_pct: f32,
@@ -455,12 +173,7 @@ pub struct All4LaserApp {
 
     // Camera
     camera_state: ui::camera::CameraState,
-    camera_stream: Option<crate::camera_stream::CameraStream>,
-    camera_last_frame_rgba: Vec<u8>,
-    camera_last_frame_width: usize,
-    camera_last_frame_height: usize,
-    camera_calibration_picks: Vec<egui::Pos2>,
-    camera_point_align_picks: Vec<egui::Pos2>,
+    camera_live: CameraLiveState,
     circular_array_state: ui::circular_array::CircularArrayState,
     offset_state: ui::offset::OffsetState,
     boolean_ops_state: ui::boolean_ops::BooleanOpsState,
@@ -489,20 +202,16 @@ pub struct All4LaserApp {
     preflight_block_critical: bool,
 
     // Event log (F67)
-    event_log: Vec<String>,
+    event_log: crate::config::event_log::EventLog,
 
     // Project notes (F90)
     project_notes: String,
 
     // Startup wizard (F43)
-    show_startup_wizard: bool,
-    wizard_step: u8,
+    wizard: WizardState,
 
     // Auto-save (F71)
-    last_autosave: Instant,
-    autosave_interval_secs: u64,
-    show_recovery_prompt: bool,
-    pending_recovery: Option<crate::config::project::ProjectFile>,
+    autosave: AutosaveState,
 
     // Timing
     last_poll: Instant,
@@ -553,10 +262,7 @@ impl All4LaserApp {
             machine_profile,
             profile_store,
             controller_backend,
-            job_offset_x: 0.0,
-            job_offset_y: 0.0,
-            job_rotation: 0.0,
-            job_center: None,
+            job_transform: JobTransform::default(),
             air_assist_on: false,
             notify_job_done: false,
             notify_sound_enabled: true,
@@ -568,9 +274,7 @@ impl All4LaserApp {
             job_queue_state: ui::job_queue::JobQueueState::default(),
             active_queue_job: None,
             materials_state: ui::materials::MaterialsState::default(),
-            test_fire_open: false,
-            test_fire_power: 10.0,
-            test_fire_ms: 1000.0,
+            test_fire: TestFireState::default(),
             ui_theme: theme::UiTheme::Modern,
             ui_layout: theme::UiLayout::Modern,
             light_mode: false,
@@ -583,12 +287,7 @@ impl All4LaserApp {
             spindle_override_pct: 100.0,
             estimation: crate::gcode::estimation::EstimationResult::default(),
             camera_state: ui::camera::CameraState::default(),
-            camera_stream: None,
-            camera_last_frame_rgba: Vec::new(),
-            camera_last_frame_width: 0,
-            camera_last_frame_height: 0,
-            camera_calibration_picks: Vec::new(),
-            camera_point_align_picks: Vec::new(),
+            camera_live: CameraLiveState::default(),
             circular_array_state: ui::circular_array::CircularArrayState::default(),
             offset_state: ui::offset::OffsetState::default(),
             boolean_ops_state: ui::boolean_ops::BooleanOpsState::default(),
@@ -603,14 +302,10 @@ impl All4LaserApp {
             settings: AppSettings::load(),
             preflight_report: None,
             preflight_block_critical: true,
-            event_log: Self::load_event_log(),
+            event_log: crate::config::event_log::EventLog::default(),
             project_notes: String::new(),
-            show_startup_wizard: false,
-            wizard_step: 0,
-            last_autosave: Instant::now(),
-            autosave_interval_secs: 60,
-            show_recovery_prompt: false,
-            pending_recovery: None,
+            wizard: WizardState::default(),
+            autosave: AutosaveState::default(),
         };
 
         // Apply loaded settings
@@ -638,14 +333,14 @@ impl All4LaserApp {
 
         // Check for recovery file (F71)
         if let Some(recovery) = crate::config::project::ProjectFile::load_recovery() {
-            app.pending_recovery = Some(recovery);
-            app.show_recovery_prompt = true;
+            app.autosave.pending_recovery = Some(recovery);
+            app.autosave.show_recovery_prompt = true;
         }
 
         // Startup wizard (F43)
         if !app.settings.first_run_done {
-            app.show_startup_wizard = true;
-            app.wizard_step = 0;
+            app.wizard.show = true;
+            app.wizard.step = 0;
         }
 
         crate::i18n::set_language(app.language);
@@ -662,9 +357,9 @@ impl All4LaserApp {
             } else {
                 None
             },
-            offset_x: self.job_offset_x,
-            offset_y: self.job_offset_y,
-            rotation_deg: self.job_rotation,
+            offset_x: self.job_transform.offset_x,
+            offset_y: self.job_transform.offset_y,
+            rotation_deg: self.job_transform.rotation,
             machine_profile: Some(self.machine_profile.clone()),
             camera_enabled: self.camera_state.enabled,
             camera_opacity: self.camera_state.opacity,
@@ -679,9 +374,9 @@ impl All4LaserApp {
     }
 
     fn apply_recovery(&mut self, recovery: crate::config::project::ProjectFile) {
-        self.job_offset_x = recovery.offset_x;
-        self.job_offset_y = recovery.offset_y;
-        self.job_rotation = recovery.rotation_deg;
+        self.job_transform.offset_x = recovery.offset_x;
+        self.job_transform.offset_y = recovery.offset_y;
+        self.job_transform.rotation = recovery.rotation_deg;
         if let Some(content) = recovery.gcode_content {
             let lines: Vec<String> = content.lines().map(String::from).collect();
             let name = recovery.gcode_path.as_deref().unwrap_or("recovered");
@@ -699,10 +394,10 @@ impl All4LaserApp {
     }
 
     fn perform_autosave(&mut self) {
-        if self.last_autosave.elapsed() < Duration::from_secs(self.autosave_interval_secs) {
+        if self.autosave.last_save.elapsed() < Duration::from_secs(self.autosave.interval_secs) {
             return;
         }
-        self.last_autosave = Instant::now();
+        self.autosave.last_save = Instant::now();
         if self.program_lines.is_empty() && self.drawing_state.shapes.is_empty() {
             return;
         }
@@ -727,7 +422,7 @@ impl All4LaserApp {
         self.settings.material_selected_preset =
             self.materials_state.selected_preset_name().map(str::to_string);
         self.settings.save();
-        self.save_event_log();
+        self.event_log.save();
     }
 
     fn materials_ui_context(&self) -> ui::materials::MaterialsUiContext {
@@ -771,7 +466,7 @@ impl All4LaserApp {
             self.jog_feed = s;
         }
         if let Some(p) = mat_action.apply_power {
-            self.test_fire_power = p / 10.0;
+            self.test_fire.power = p / 10.0;
         }
     }
 
@@ -837,34 +532,7 @@ impl All4LaserApp {
         if self.console_log.len() > MAX_LOG_LINES {
             self.console_log.pop_front();
         }
-        // Persist to event log (F67)
         self.event_log.push(entry);
-        if self.event_log.len() > 2000 {
-            self.event_log.drain(0..500);
-        }
-    }
-
-    fn event_log_path() -> std::path::PathBuf {
-        std::env::current_exe()
-            .unwrap_or_default()
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("event_log.txt")
-    }
-
-    fn load_event_log() -> Vec<String> {
-        let path = Self::event_log_path();
-        std::fs::read_to_string(path)
-            .unwrap_or_default()
-            .lines()
-            .map(String::from)
-            .collect()
-    }
-
-    fn save_event_log(&self) {
-        let path = Self::event_log_path();
-        let content = self.event_log.join("\n");
-        let _ = std::fs::write(path, content);
     }
 
     fn show_error(&mut self, msg: String) {
@@ -992,10 +660,10 @@ impl All4LaserApp {
             let line_idx = self.program_index;
             self.program_index += 1;
 
-            let mut cmd = if let (Some(file), Some(center)) = (&self.loaded_file, self.job_center) {
+            let mut cmd = if let (Some(file), Some(center)) = (&self.loaded_file, self.job_transform.center) {
                 if let Some(parsed) = file.lines.get(line_idx) {
                     // Standard transform (offset/rotate)
-                    let transformed = parsed.transform(egui::vec2(self.job_offset_x, self.job_offset_y), self.job_rotation, center, 1.0);
+                    let transformed = parsed.transform(egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y), self.job_transform.rotation, center, 1.0);
 
                     // Apply Rotary transformation if enabled
                     if self.machine_profile.rotary_enabled {
@@ -1165,9 +833,9 @@ impl All4LaserApp {
         self.program_index = 0;
         // Calculate job center for rotation
         if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
-            self.job_center = Some(egui::Pos2::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0));
+            self.job_transform.center = Some(egui::Pos2::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0));
         } else {
-            self.job_center = Some(egui::Pos2::ZERO);
+            self.job_transform.center = Some(egui::Pos2::ZERO);
         }
         
         self.loaded_file = Some(file);
@@ -1333,7 +1001,7 @@ impl All4LaserApp {
 
     fn push_node_undo_snapshot(&mut self) {
         self.node_undo_stack.push_back(self.capture_node_snapshot());
-        if self.node_undo_stack.len() > MAX_NODE_HISTORY {
+        if self.node_undo_stack.len() > crate::ui::node_edit::MAX_NODE_HISTORY {
             self.node_undo_stack.pop_front();
         }
         self.node_redo_stack.clear();
@@ -1417,7 +1085,7 @@ impl All4LaserApp {
         let device_index = self.camera_state.device_index.max(0) as u32;
         match crate::camera_stream::CameraStream::start(device_index) {
             Ok(stream) => {
-                self.camera_stream = Some(stream);
+                self.camera_live.stream = Some(stream);
                 self.camera_state.live_streaming = true;
                 self.camera_state.snapshot_path = None;
                 self.camera_state.texture = None;
@@ -1432,7 +1100,7 @@ impl All4LaserApp {
     }
 
     fn stop_live_camera(&mut self) {
-        if let Some(mut stream) = self.camera_stream.take() {
+        if let Some(mut stream) = self.camera_live.stream.take() {
             stream.stop();
         }
         self.camera_state.live_streaming = false;
@@ -1443,9 +1111,9 @@ impl All4LaserApp {
         ctx: &egui::Context,
         frame: crate::camera_stream::CameraFrame,
     ) {
-        self.camera_last_frame_width = frame.width;
-        self.camera_last_frame_height = frame.height;
-        self.camera_last_frame_rgba = frame.rgba.clone();
+        self.camera_live.last_frame_width = frame.width;
+        self.camera_live.last_frame_height = frame.height;
+        self.camera_live.last_frame_rgba = frame.rgba.clone();
         let color_image = egui::ColorImage::from_rgba_unmultiplied([frame.width, frame.height], &frame.rgba);
         if let Some(texture) = self.camera_state.texture.as_mut() {
             texture.set(color_image, Default::default());
@@ -1462,7 +1130,7 @@ impl All4LaserApp {
         let mut latest_frame = None;
         let mut latest_error = None;
 
-        if let Some(stream) = self.camera_stream.as_ref() {
+        if let Some(stream) = self.camera_live.stream.as_ref() {
             latest_frame = stream.try_recv_latest_frame();
             latest_error = stream.try_recv_error();
         }
@@ -1484,18 +1152,18 @@ impl All4LaserApp {
             self.show_error("Start live camera (or load image) before calibration wizard.".into());
             return;
         }
-        self.camera_point_align_picks.clear();
+        self.camera_live.point_align_picks.clear();
         self.camera_state.point_align_active = false;
         self.camera_state.point_align_pick_count = 0;
 
-        self.camera_calibration_picks.clear();
+        self.camera_live.calibration_picks.clear();
         self.camera_state.calibration_wizard_active = true;
         self.camera_state.calibration_pick_count = 0;
         self.log("Calibration wizard started: pick origin, +X, +Y on camera overlay.".into());
     }
 
     fn stop_camera_calibration_wizard(&mut self) {
-        self.camera_calibration_picks.clear();
+        self.camera_live.calibration_picks.clear();
         self.camera_state.calibration_wizard_active = false;
         self.camera_state.calibration_pick_count = 0;
     }
@@ -1509,32 +1177,32 @@ impl All4LaserApp {
             self.show_error("Load a job before 2-point align.".into());
             return;
         }
-        self.camera_calibration_picks.clear();
+        self.camera_live.calibration_picks.clear();
         self.camera_state.calibration_wizard_active = false;
         self.camera_state.calibration_pick_count = 0;
 
-        self.camera_point_align_picks.clear();
+        self.camera_live.point_align_picks.clear();
         self.camera_state.point_align_active = true;
         self.camera_state.point_align_pick_count = 0;
         self.log("2-point align started: pick bottom-left then bottom-right target on camera overlay.".into());
     }
 
     fn stop_camera_point_align(&mut self) {
-        self.camera_point_align_picks.clear();
+        self.camera_live.point_align_picks.clear();
         self.camera_state.point_align_active = false;
         self.camera_state.point_align_pick_count = 0;
     }
 
     fn apply_calibration_from_picks(&mut self) -> bool {
-        if self.camera_calibration_picks.len() < 3 {
+        if self.camera_live.calibration_picks.len() < 3 {
             return false;
         }
 
         let wsx = self.renderer.workspace_size.x.max(1.0);
         let wsy = self.renderer.workspace_size.y.max(1.0);
-        let p0 = self.camera_calibration_picks[0];
-        let px = self.camera_calibration_picks[1];
-        let py = self.camera_calibration_picks[2];
+        let p0 = self.camera_live.calibration_picks[0];
+        let px = self.camera_live.calibration_picks[1];
+        let py = self.camera_live.calibration_picks[2];
 
         let vx = px - p0;
         let vy = py - p0;
@@ -1576,7 +1244,7 @@ impl All4LaserApp {
     }
 
     fn apply_point_align_from_picks(&mut self) -> bool {
-        if self.camera_point_align_picks.len() < 2 {
+        if self.camera_live.point_align_picks.len() < 2 {
             return false;
         }
         let Some(file) = self.loaded_file.as_ref() else {
@@ -1598,8 +1266,8 @@ impl All4LaserApp {
             return false;
         }
 
-        let dst0 = self.camera_point_align_picks[0];
-        let dst1 = self.camera_point_align_picks[1];
+        let dst0 = self.camera_live.point_align_picks[0];
+        let dst1 = self.camera_live.point_align_picks[1];
 
         let src_angle = (src1.y - src0.y).atan2(src1.x - src0.x);
         let dst_angle = (dst1.y - dst0.y).atan2(dst1.x - dst0.x);
@@ -1614,23 +1282,23 @@ impl All4LaserApp {
             center.y + dx * sin_a + dy * cos_a,
         );
 
-        self.job_rotation = rot;
-        self.job_offset_x = dst0.x - r0.x;
-        self.job_offset_y = dst0.y - r0.y;
+        self.job_transform.rotation = rot;
+        self.job_transform.offset_x = dst0.x - r0.x;
+        self.job_transform.offset_y = dst0.y - r0.y;
         self.needs_auto_fit = true;
 
         self.log(format!(
             "2-point align applied (offset X={:.2} Y={:.2}, rot={:.2}°).",
-            self.job_offset_x, self.job_offset_y, self.job_rotation
+            self.job_transform.offset_x, self.job_transform.offset_y, self.job_transform.rotation
         ));
         true
     }
 
     fn handle_camera_pick_point(&mut self, point: egui::Pos2) {
         if self.camera_state.calibration_wizard_active {
-            self.camera_calibration_picks.push(point);
-            self.camera_state.calibration_pick_count = self.camera_calibration_picks.len();
-            if self.camera_calibration_picks.len() >= 3 {
+            self.camera_live.calibration_picks.push(point);
+            self.camera_state.calibration_pick_count = self.camera_live.calibration_picks.len();
+            if self.camera_live.calibration_picks.len() >= 3 {
                 let applied = self.apply_calibration_from_picks();
                 self.stop_camera_calibration_wizard();
                 if applied {
@@ -1641,9 +1309,9 @@ impl All4LaserApp {
         }
 
         if self.camera_state.point_align_active {
-            self.camera_point_align_picks.push(point);
-            self.camera_state.point_align_pick_count = self.camera_point_align_picks.len();
-            if self.camera_point_align_picks.len() >= 2 {
+            self.camera_live.point_align_picks.push(point);
+            self.camera_state.point_align_pick_count = self.camera_live.point_align_picks.len();
+            if self.camera_live.point_align_picks.len() >= 2 {
                 self.apply_point_align_from_picks();
                 self.stop_camera_point_align();
             }
@@ -1688,13 +1356,13 @@ impl All4LaserApp {
         let mut height = 0usize;
         let mut source = "none";
 
-        if !self.camera_last_frame_rgba.is_empty()
-            && self.camera_last_frame_width > 0
-            && self.camera_last_frame_height > 0
+        if !self.camera_live.last_frame_rgba.is_empty()
+            && self.camera_live.last_frame_width > 0
+            && self.camera_live.last_frame_height > 0
         {
-            rgba = self.camera_last_frame_rgba.clone();
-            width = self.camera_last_frame_width;
-            height = self.camera_last_frame_height;
+            rgba = self.camera_live.last_frame_rgba.clone();
+            width = self.camera_live.last_frame_width;
+            height = self.camera_live.last_frame_height;
             source = "live";
         } else if let Some(path) = self.camera_state.snapshot_path.as_deref() {
             match image::open(path) {
@@ -1759,9 +1427,9 @@ impl All4LaserApp {
             return;
         };
 
-        self.camera_point_align_picks.clear();
-        self.camera_point_align_picks.push(cross);
-        self.camera_point_align_picks.push(circle);
+        self.camera_live.point_align_picks.clear();
+        self.camera_live.point_align_picks.push(cross);
+        self.camera_live.point_align_picks.push(circle);
         if self.apply_point_align_from_picks() {
             self.stop_camera_point_align();
             self.sync_settings();
@@ -1781,15 +1449,15 @@ impl All4LaserApp {
 
         let job_center = egui::Pos2::new((min_x + max_x) * 0.5, (min_y + max_y) * 0.5);
         let target = self.camera_overlay_center_world();
-        self.job_offset_x = target.x - job_center.x;
-        self.job_offset_y = target.y - job_center.y;
-        self.job_rotation = self.camera_state.calibration.rotation;
+        self.job_transform.offset_x = target.x - job_center.x;
+        self.job_transform.offset_y = target.y - job_center.y;
+        self.job_transform.rotation = self.camera_state.calibration.rotation;
         self.needs_auto_fit = true;
         self.sync_settings();
 
         self.log(format!(
             "Job aligned to camera overlay (offset X={:.2} Y={:.2}, rot={:.2}°).",
-            self.job_offset_x, self.job_offset_y, self.job_rotation
+            self.job_transform.offset_x, self.job_transform.offset_y, self.job_transform.rotation
         ));
     }
 
@@ -1931,147 +1599,14 @@ impl All4LaserApp {
     }
 
     fn build_preflight_report(&self) -> PreflightReport {
-        let mut report = PreflightReport::default();
-
-        if self.program_lines.is_empty() {
-            report.add_critical("No program loaded.");
-            return report;
-        }
-
-        let mut duplicate_segments: HashMap<SegmentKey, usize> = HashMap::new();
-        let mut open_paths = 0usize;
-        let mut used_layers: HashSet<usize> = HashSet::new();
-
-        if !self.drawing_state.shapes.is_empty() {
-            for (idx, shape) in self.drawing_state.shapes.iter().enumerate() {
-                used_layers.insert(shape.layer_idx);
-                if shape.layer_idx >= self.layers.len() {
-                    report.add_critical(format!(
-                        "Shape #{} uses missing layer index {}.",
-                        idx + 1,
-                        shape.layer_idx
-                    ));
-                }
-
-                if let ShapeKind::Path(points) = &shape.shape {
-                    if points.len() >= 2 && !path_is_closed_for_fill(points) {
-                        open_paths += 1;
-                    }
-                    for seg in points.windows(2) {
-                        let p0 = shape.world_pos(seg[0].0, seg[0].1);
-                        let p1 = shape.world_pos(seg[1].0, seg[1].1);
-                        let key = normalized_segment_key(p0, p1);
-                        *duplicate_segments.entry(key).or_insert(0) += 1;
-                    }
-                }
-            }
-        } else if let Some(file) = &self.loaded_file {
-            for seg in &file.segments {
-                used_layers.insert(seg.layer_id);
-                let key = normalized_segment_key((seg.x1, seg.y1), (seg.x2, seg.y2));
-                *duplicate_segments.entry(key).or_insert(0) += 1;
-            }
-        }
-
-        if open_paths > 0 {
-            report.add_critical(format!(
-                "Detected {open_paths} open path(s). Close contours before launch."
-            ));
-        }
-
-        let duplicate_count = duplicate_segments.values().filter(|&&count| count > 1).count();
-        if duplicate_count > 0 {
-            report.add_critical(format!(
-                "Detected {duplicate_count} duplicated path segment group(s)."
-            ));
-        }
-
-        // F84: Detect fully overlapping shapes (same position + same type + same size)
-        if self.drawing_state.shapes.len() >= 2 {
-            let mut overlap_count = 0usize;
-            for i in 0..self.drawing_state.shapes.len() {
-                for j in (i + 1)..self.drawing_state.shapes.len() {
-                    let a = &self.drawing_state.shapes[i];
-                    let b = &self.drawing_state.shapes[j];
-                    if (a.x - b.x).abs() < 0.01
-                        && (a.y - b.y).abs() < 0.01
-                        && (a.width - b.width).abs() < 0.01
-                        && (a.height - b.height).abs() < 0.01
-                        && (a.radius - b.radius).abs() < 0.01
-                        && std::mem::discriminant(&a.shape) == std::mem::discriminant(&b.shape)
-                    {
-                        overlap_count += 1;
-                    }
-                }
-            }
-            if overlap_count > 0 {
-                report.add_warning(format!(
-                    "{overlap_count} pair(s) of shapes appear identical/overlapping — risk of double-burn."
-                ));
-            }
-        }
-
-        // Workspace bounds collision detection (F59)
-        let ws_x = self.machine_profile.workspace_x_mm;
-        let ws_y = self.machine_profile.workspace_y_mm;
-        for (idx, shape) in self.drawing_state.shapes.iter().enumerate() {
-            let (min_x, min_y, max_x, max_y) = crate::ui::drawing::shape_world_bounds_pub(shape);
-            if min_x < -0.1 || min_y < -0.1 || max_x > ws_x + 0.1 || max_y > ws_y + 0.1 {
-                report.add_warning(format!(
-                    "Shape #{} extends outside workspace bounds ({:.0}x{:.0}mm).",
-                    idx + 1, ws_x, ws_y
-                ));
-            }
-        }
-
-        // Interlock safety checks (F94)
-        if self.machine_profile.interlock_lid_enabled {
-            report.add_warning("Lid interlock enabled -- ensure lid is closed before running.".to_string());
-        }
-        if self.machine_profile.interlock_water_enabled {
-            report.add_warning("Water cooling interlock enabled -- ensure water flow is active.".to_string());
-        }
-
-        for layer_idx in used_layers {
-            let Some(layer) = self.layers.get(layer_idx) else {
-                report.add_critical(format!("Used layer index {layer_idx} is missing from layer list."));
-                continue;
-            };
-
-            if layer.speed <= 0.0 {
-                report.add_critical(format!("Layer {} has invalid speed (<= 0).", layer.name));
-            }
-            if layer.power < 0.0 {
-                report.add_critical(format!("Layer {} has invalid power (< 0).", layer.name));
-            }
-            if layer.passes == 0 {
-                report.add_critical(format!("Layer {} has invalid passes (= 0).", layer.name));
-            }
-            if matches!(
-                layer.mode,
-                ui::layers_new::CutMode::Fill | ui::layers_new::CutMode::FillAndLine
-            ) && layer.fill_interval_mm <= 0.0
-            {
-                report.add_critical(format!(
-                    "Layer {} fill interval must be > 0 for fill modes.",
-                    layer.name
-                ));
-            }
-            if !layer.visible {
-                report.add_warning(format!(
-                    "Layer {} is disabled but still referenced by current job.",
-                    layer.name
-                ));
-            }
-            if layer.power > 1000.0 {
-                report.add_warning(format!(
-                    "Layer {} power ({:.0}) exceeds nominal GRBL S1000 range.",
-                    layer.name, layer.power
-                ));
-            }
-        }
-
-        report
+        let ctx = PreflightContext {
+            shapes: &self.drawing_state.shapes,
+            layers: &self.layers,
+            loaded_file: self.loaded_file.as_ref(),
+            program_lines: &self.program_lines,
+            machine_profile: &self.machine_profile,
+        };
+        crate::ui::preflight::build_preflight_report(&ctx)
     }
 
     fn run_preflight(&mut self, source: &str, block_if_critical: bool) -> bool {
@@ -2174,7 +1709,11 @@ impl All4LaserApp {
             &self.machine_profile.name,
             self.program_lines.len(),
         );
-        let report_path = Self::event_log_path().with_file_name("last_job_report.csv");
+        let report_path = std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("last_job_report.csv");
         let _ = std::fs::write(&report_path, &report_csv);
 
         self.log("Program complete.".to_string());
@@ -2787,6 +2326,79 @@ impl All4LaserApp {
         }
     }
 
+    fn handle_camera_ui_actions(&mut self, ui: &mut egui::Ui) {
+        let prev_cam_enabled = self.camera_state.enabled;
+        let prev_cam_opacity = self.camera_state.opacity;
+        let prev_cam_calib = self.camera_state.calibration.clone();
+        let prev_cam_device_index = self.camera_state.device_index;
+        let prev_cam_live_streaming = self.camera_state.live_streaming;
+        let camera_action = ui::camera::show(ui, &mut self.camera_state);
+        if camera_action.load_snapshot {
+            self.load_camera_snapshot(ui.ctx());
+            self.sync_settings();
+        }
+        if camera_action.start_live_stream {
+            self.start_live_camera();
+            self.sync_settings();
+        }
+        if camera_action.stop_live_stream {
+            self.stop_live_camera();
+            self.sync_settings();
+            self.log("Live camera stopped.".into());
+        }
+        if camera_action.start_calibration_wizard {
+            self.start_camera_calibration_wizard();
+        }
+        if camera_action.stop_calibration_wizard {
+            self.stop_camera_calibration_wizard();
+        }
+        if camera_action.start_point_align {
+            self.start_camera_point_align();
+        }
+        if camera_action.stop_point_align {
+            self.stop_camera_point_align();
+        }
+        if camera_action.auto_detect_markers {
+            self.auto_detect_camera_markers();
+        }
+        if camera_action.apply_detected_align {
+            self.apply_detected_marker_align();
+        }
+        if self.camera_state.live_streaming
+            && self.camera_state.device_index != prev_cam_device_index
+        {
+            self.start_live_camera();
+            self.sync_settings();
+        }
+        if camera_action.clear_snapshot {
+            self.stop_live_camera();
+            self.camera_state.texture = None;
+            self.camera_state.snapshot_path = None;
+            self.camera_live.last_frame_rgba.clear();
+            self.camera_live.last_frame_width = 0;
+            self.camera_live.last_frame_height = 0;
+            self.camera_state.detected_cross_world = None;
+            self.camera_state.detected_circle_world = None;
+            self.camera_state.detection_status = "No marker detection run yet.".to_string();
+            self.sync_settings();
+            self.log("Camera image cleared.".into());
+        }
+        if camera_action.align_job_to_camera {
+            self.align_job_to_camera();
+        }
+        if self.camera_state.enabled != prev_cam_enabled
+            || (self.camera_state.opacity - prev_cam_opacity).abs() > f32::EPSILON
+            || self.camera_state.calibration.offset_x != prev_cam_calib.offset_x
+            || self.camera_state.calibration.offset_y != prev_cam_calib.offset_y
+            || self.camera_state.calibration.scale != prev_cam_calib.scale
+            || self.camera_state.calibration.rotation != prev_cam_calib.rotation
+            || self.camera_state.device_index != prev_cam_device_index
+            || self.camera_state.live_streaming != prev_cam_live_streaming
+        {
+            self.sync_settings();
+        }
+    }
+
     fn ui_left_content(&mut self, ui: &mut egui::Ui, connected: bool) {
         let caps = self.controller_capabilities();
         let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
@@ -2875,19 +2487,19 @@ impl All4LaserApp {
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
                         ui.label("Offset X:");
-                        ui.add(egui::DragValue::new(&mut self.job_offset_x).speed(1.0).suffix(" mm"));
+                        ui.add(egui::DragValue::new(&mut self.job_transform.offset_x).speed(1.0).suffix(" mm"));
                         ui.label("Y:");
-                        ui.add(egui::DragValue::new(&mut self.job_offset_y).speed(1.0).suffix(" mm"));
+                        ui.add(egui::DragValue::new(&mut self.job_transform.offset_y).speed(1.0).suffix(" mm"));
                     });
                     ui.horizontal(|ui| {
                         ui.label("Rotation:");
-                        ui.add(egui::Slider::new(&mut self.job_rotation, -180.0..=180.0).suffix("°"));
+                        ui.add(egui::Slider::new(&mut self.job_transform.rotation, -180.0..=180.0).suffix("°"));
                         if ui
                             .button("Reset")
                             .on_hover_text("Reset job rotation to 0°")
                             .clicked()
                         {
-                            self.job_rotation = 0.0;
+                            self.job_transform.rotation = 0.0;
                         }
                     });
                     if ui.button("Center Job").clicked() {
@@ -2897,8 +2509,8 @@ impl All4LaserApp {
                                 let mid_y = (min_y + max_y) / 2.0;
                                 let wm_x = self.machine_profile.workspace_x_mm / 2.0;
                                 let wm_y = self.machine_profile.workspace_y_mm / 2.0;
-                                self.job_offset_x = wm_x - mid_x;
-                                self.job_offset_y = wm_y - mid_y;
+                                self.job_transform.offset_x = wm_x - mid_x;
+                                self.job_transform.offset_y = wm_y - mid_y;
                             }
                         }
                     }
@@ -2956,76 +2568,7 @@ impl All4LaserApp {
                 self.ui_shape_properties(ui, &selection);
 
                 ui.add_space(6.0);
-                let prev_cam_enabled = self.camera_state.enabled;
-                let prev_cam_opacity = self.camera_state.opacity;
-                let prev_cam_calib = self.camera_state.calibration.clone();
-                let prev_cam_device_index = self.camera_state.device_index;
-                let prev_cam_live_streaming = self.camera_state.live_streaming;
-                let camera_action = ui::camera::show(ui, &mut self.camera_state);
-                if camera_action.load_snapshot {
-                    self.load_camera_snapshot(ui.ctx());
-                    self.sync_settings();
-                }
-                if camera_action.start_live_stream {
-                    self.start_live_camera();
-                    self.sync_settings();
-                }
-                if camera_action.stop_live_stream {
-                    self.stop_live_camera();
-                    self.sync_settings();
-                    self.log("Live camera stopped.".into());
-                }
-                if camera_action.start_calibration_wizard {
-                    self.start_camera_calibration_wizard();
-                }
-                if camera_action.stop_calibration_wizard {
-                    self.stop_camera_calibration_wizard();
-                }
-                if camera_action.start_point_align {
-                    self.start_camera_point_align();
-                }
-                if camera_action.stop_point_align {
-                    self.stop_camera_point_align();
-                }
-                if camera_action.auto_detect_markers {
-                    self.auto_detect_camera_markers();
-                }
-                if camera_action.apply_detected_align {
-                    self.apply_detected_marker_align();
-                }
-                if self.camera_state.live_streaming
-                    && self.camera_state.device_index != prev_cam_device_index
-                {
-                    self.start_live_camera();
-                    self.sync_settings();
-                }
-                if camera_action.clear_snapshot {
-                    self.stop_live_camera();
-                    self.camera_state.texture = None;
-                    self.camera_state.snapshot_path = None;
-                    self.camera_last_frame_rgba.clear();
-                    self.camera_last_frame_width = 0;
-                    self.camera_last_frame_height = 0;
-                    self.camera_state.detected_cross_world = None;
-                    self.camera_state.detected_circle_world = None;
-                    self.camera_state.detection_status = "No marker detection run yet.".to_string();
-                    self.sync_settings();
-                    self.log("Camera image cleared.".into());
-                }
-                if camera_action.align_job_to_camera {
-                    self.align_job_to_camera();
-                }
-                if self.camera_state.enabled != prev_cam_enabled
-                    || (self.camera_state.opacity - prev_cam_opacity).abs() > f32::EPSILON
-                    || self.camera_state.calibration.offset_x != prev_cam_calib.offset_x
-                    || self.camera_state.calibration.offset_y != prev_cam_calib.offset_y
-                    || self.camera_state.calibration.scale != prev_cam_calib.scale
-                    || self.camera_state.calibration.rotation != prev_cam_calib.rotation
-                    || self.camera_state.device_index != prev_cam_device_index
-                    || self.camera_state.live_streaming != prev_cam_live_streaming
-                {
-                    self.sync_settings();
-                }
+                self.handle_camera_ui_actions(ui);
 
                 ui.add_space(6.0);
                 let gen_action = ui::generators::show(ui, &mut self.generator_state);
@@ -3064,329 +2607,13 @@ impl All4LaserApp {
                 });
 
                 ui.add_space(6.0);
-                let node_edit_text = if self.renderer.node_edit_mode { "✅ Node Editing" } else { "🖱 Node Editing" };
-                if ui.selectable_label(self.renderer.node_edit_mode, RichText::new(node_edit_text).color(theme::PEACH).strong()).clicked() {
-                    self.renderer.node_edit_mode = !self.renderer.node_edit_mode;
-                    if !self.renderer.node_edit_mode {
-                        self.renderer.selected_node = None;
-                        self.renderer.selected_nodes.clear();
-                    }
-                }
-
-                // Measure tool (F50)
-                let measure_text = if self.renderer.measure_mode { "✅ Measure" } else { "📏 Measure" };
-                if ui.selectable_label(self.renderer.measure_mode, RichText::new(measure_text).color(theme::TEAL).strong()).clicked() {
-                    self.renderer.measure_mode = !self.renderer.measure_mode;
-                    if !self.renderer.measure_mode {
-                        self.renderer.measure_start = None;
-                        self.renderer.measure_end = None;
-                    }
-                }
-                if self.renderer.measure_mode {
-                    if let (Some(s), Some(e)) = (self.renderer.measure_start, self.renderer.measure_end) {
-                        let dx = e.0 - s.0;
-                        let dy = e.1 - s.1;
-                        let dist = (dx * dx + dy * dy).sqrt();
-                        ui.label(RichText::new(format!("Distance: {dist:.2} mm")).color(theme::TEAL).small());
-                    } else {
-                        ui.label(RichText::new("Click two points on canvas to measure").small().color(theme::SUBTEXT));
-                    }
-                }
-
-                if self.renderer.node_edit_mode {
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        if ui
-                            .add_enabled(selection.len() >= 2, egui::Button::new("🔗 Join Paths"))
-                            .clicked()
-                        {
-                            self.push_node_undo_snapshot();
-                            match ui::vector_edit::join_selected_paths(&mut self.drawing_state, &selection) {
-                                Ok(new_idx) => {
-                                    self.renderer.selected_shape_idx.clear();
-                                    self.renderer.selected_shape_idx.insert(new_idx);
-                                    self.renderer.selected_node = None;
-                                    self.renderer.selected_nodes.clear();
-                                    self.regenerate_drawing_gcode();
-                                    self.log("Paths joined.".into());
-                                }
-                                Err(e) => self.log(format!("Join paths failed: {e}")),
-                            }
-                        }
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Node smooth:");
-                        ui.add(egui::Slider::new(&mut self.node_smooth_strength, 0.0..=1.0));
-                        ui.label("Corner strength:");
-                        ui.add(egui::Slider::new(&mut self.node_corner_strength, 0.0..=1.5));
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Simplify tol:");
-                        ui.add(egui::Slider::new(&mut self.path_simplify_tolerance, 0.01..=2.0));
-                        ui.label("Path smooth:");
-                        ui.add(egui::Slider::new(&mut self.path_smooth_strength, 0.0..=1.0));
-                        ui.label("iter:");
-                        ui.add(egui::DragValue::new(&mut self.path_smooth_iterations).range(1..=8));
-                    });
-
-                    if let Some((shape_idx, node_idx)) = self.renderer.selected_node {
-                        let mut selected_nodes: Vec<usize> = self
-                            .renderer
-                            .selected_nodes
-                            .iter()
-                            .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
-                            .collect();
-                        selected_nodes.sort_unstable();
-                        selected_nodes.dedup();
-                        if selected_nodes.is_empty() {
-                            selected_nodes.push(node_idx);
-                        }
-
-                        ui.horizontal(|ui| {
-                            if ui.button("➕ Node").on_hover_text("Insert midpoint after selected node").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::insert_midpoint_after(&mut self.drawing_state, shape_idx, node_idx) {
-                                    Ok(new_idx) => {
-                                        self.renderer.selected_node = Some((shape_idx, new_idx));
-                                        self.renderer.selected_nodes.clear();
-                                        self.renderer.selected_nodes.insert((shape_idx, new_idx));
-                                        self.regenerate_drawing_gcode();
-                                    }
-                                    Err(e) => self.log(format!("Insert node failed: {e}")),
-                                }
-                            }
-                            if ui.button("✂ Split").on_hover_text("Split path at selected node").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::split_path_at_node(&mut self.drawing_state, shape_idx, node_idx) {
-                                    Ok(other_idx) => {
-                                        self.renderer.selected_shape_idx.clear();
-                                        self.renderer.selected_shape_idx.insert(shape_idx);
-                                        self.renderer.selected_shape_idx.insert(other_idx);
-                                        self.renderer.selected_node = None;
-                                        self.renderer.selected_nodes.clear();
-                                        self.regenerate_drawing_gcode();
-                                    }
-                                    Err(e) => self.log(format!("Split path failed: {e}")),
-                                }
-                            }
-                            if ui.button("🧼 Smooth").on_hover_text("Soften selected node").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::smooth_nodes_weighted(
-                                    &mut self.drawing_state,
-                                    shape_idx,
-                                    &selected_nodes,
-                                    self.node_smooth_strength,
-                                ) {
-                                    Ok(()) => self.regenerate_drawing_gcode(),
-                                    Err(e) => self.log(format!("Smooth node failed: {e}")),
-                                }
-                            }
-                            if ui.button("📐 Corner").on_hover_text("Sharpen selected node").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::corner_nodes_weighted(
-                                    &mut self.drawing_state,
-                                    shape_idx,
-                                    &selected_nodes,
-                                    self.node_corner_strength,
-                                ) {
-                                    Ok(()) => self.regenerate_drawing_gcode(),
-                                    Err(e) => self.log(format!("Corner node failed: {e}")),
-                                }
-                            }
-                            if ui.button("🧹 Simplify").on_hover_text("Simplify path with quality guard").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::simplify_path(
-                                    &mut self.drawing_state,
-                                    shape_idx,
-                                    self.path_simplify_tolerance,
-                                ) {
-                                    Ok(removed) => {
-                                        self.regenerate_drawing_gcode();
-                                        self.log(format!("Path simplified: removed {removed} nodes."));
-                                    }
-                                    Err(e) => self.log(format!("Simplify path failed: {e}")),
-                                }
-                            }
-                            if ui.button("〰 Smooth Path").on_hover_text("Smooth entire path with iterations").clicked() {
-                                self.push_node_undo_snapshot();
-                                match ui::vector_edit::smooth_path(
-                                    &mut self.drawing_state,
-                                    shape_idx,
-                                    self.path_smooth_iterations as usize,
-                                    self.path_smooth_strength,
-                                ) {
-                                    Ok(()) => self.regenerate_drawing_gcode(),
-                                    Err(e) => self.log(format!("Smooth path failed: {e}")),
-                                }
-                            }
-                            if ui.button("🗑 Delete Node").clicked() {
-                                self.push_node_undo_snapshot();
-                                let result = if selected_nodes.len() > 1 {
-                                    ui::vector_edit::delete_nodes(&mut self.drawing_state, shape_idx, &selected_nodes)
-                                } else {
-                                    ui::vector_edit::delete_node(&mut self.drawing_state, shape_idx, node_idx)
-                                };
-                                match result {
-                                    Ok(()) => {
-                                        self.renderer.selected_nodes.clear();
-                                        self.renderer.selected_node = Some((shape_idx, node_idx.saturating_sub(1)));
-                                        self.regenerate_drawing_gcode();
-                                    }
-                                    Err(e) => self.log(format!("Delete node failed: {e}")),
-                                }
-                            }
-                        });
-
-                        if selected_nodes.len() > 1 {
-                            ui.label(
-                                RichText::new(format!("{} nodes selected", selected_nodes.len()))
-                                    .small()
-                                    .color(theme::SUBTEXT),
-                            );
-                        }
-                    } else {
-                        ui.label(RichText::new("Node mode: click a node to edit, click a segment to add.").small().color(theme::SUBTEXT));
-                    }
-                }
-
-                if self.renderer.selected_shape_idx.len() == 1 {
-                    let idx = *self.renderer.selected_shape_idx.iter().next().unwrap();
-                    if let Some(shape) = self.drawing_state.shapes.get(idx) {
-                        if !matches!(shape.shape, ShapeKind::Path(_)) {
-                            if ui.button("🛤 Convert to Path").clicked() {
-                                if let Some(poly) = ui::offset::shape_to_polygon(shape) {
-                                    let exterior = poly.exterior();
-                                    let pts: Vec<(f32, f32)> = exterior.coords().map(|c| (c.x as f32, c.y as f32)).collect();
-                                    let mut new_shape = shape.clone();
-                                    new_shape.shape = ShapeKind::Path(pts);
-                                    new_shape.x = 0.0;
-                                    new_shape.y = 0.0;
-                                    self.drawing_state.shapes[idx] = new_shape;
-                                    self.log("Converted to path.".into());
-                                }
-                            }
-                        }
-                    }
-                }
+                self.ui_node_editing_tools(ui, &selection);
             });
 
         ui.add_space(6.0);
 
         if !self.beginner_mode {
-            egui::CollapsingHeader::new(
-                RichText::new(format!("🛠 {}", crate::i18n::tr("Advanced Tools")))
-                    .color(theme::LAVENDER)
-                    .strong(),
-            )
-                .default_open(false)
-                .show(ui, |ui| {
-                ui.add_space(6.0);
-
-                let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
-                if let Some(mac) = macros_action.execute_macro {
-                    self.execute_macro_script(&mac.label, &mac.gcode);
-                }
-
-                ui.add_space(6.0);
-
-                let console_action = ui::console::show(ui, self.console_log.make_contiguous(), &mut self.console_input);
-                if let Some(cmd) = console_action.send_command {
-                    self.send_command(&cmd);
-                }
-
-                ui.add_space(6.0);
-
-                let mat_context = self.materials_ui_context();
-                let mat_action = ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
-                self.apply_material_action(mat_action);
-
-                ui.add_space(6.0);
-
-                // Alignment tools (F39)
-                ui.group(|ui| {
-                    ui.label(RichText::new("📐 Align / Distribute").color(theme::LAVENDER).strong());
-                    let sel: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
-                    let has_sel = sel.len() >= 2;
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(has_sel, egui::Button::new("⬅").small()).on_hover_text("Align Left").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::Left);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_sel, egui::Button::new("➡").small()).on_hover_text("Align Right").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::Right);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_sel, egui::Button::new("⬆").small()).on_hover_text("Align Top").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::Top);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_sel, egui::Button::new("⬇").small()).on_hover_text("Align Bottom").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::Bottom);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_sel, egui::Button::new("⬌").small()).on_hover_text("Center Horizontal").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::CenterH);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_sel, egui::Button::new("⬍").small()).on_hover_text("Center Vertical").clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::CenterV);
-                            self.regenerate_drawing_gcode();
-                        }
-                    });
-                    let has_3 = sel.len() >= 3;
-                    ui.horizontal(|ui| {
-                        if ui.add_enabled(has_3, egui::Button::new("⇔ Distribute H").small()).clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::DistributeH);
-                            self.regenerate_drawing_gcode();
-                        }
-                        if ui.add_enabled(has_3, egui::Button::new("⇕ Distribute V").small()).clicked() {
-                            self.push_node_undo_snapshot();
-                            crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::DistributeV);
-                            self.regenerate_drawing_gcode();
-                        }
-                    });
-                });
-
-                ui.add_space(6.0);
-
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
-                    });
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("⇊ Run Z-Probe").on_hover_text("Search for surface using G38.2 and set Z0").clicked() {
-                            self.send_command("G38.2 Z-50 F100");
-                            self.send_command("G4 P0.5");
-                            self.send_command("G92 Z0");
-                            self.send_command("G0 Z5 F500");
-                            self.log("Probing complete. Z set to 5mm above surface.".into());
-                        }
-                        if ui.button("🎯 Focus Point").on_hover_text("Move to Z focusing position (e.g. 20mm)").clicked() {
-                            self.send_command("G0 Z20 F1000");
-                        }
-                    });
-                    // Z Focus Test (F93)
-                    ui.add_space(4.0);
-                    if ui.button("🔍 Generate Z Focus Test").on_hover_text("Generate lines at different Z heights to find focus").clicked() {
-                        let lines = ui::power_speed_test::generate_z_focus_test(
-                            0.0, 10.0, 10, 40.0, 1000.0, 500.0, 5.0, 5.0,
-                        );
-                        let file = crate::gcode::file::GCodeFile::from_lines("z_focus_test", &lines);
-                        self.set_loaded_file(file, lines);
-                        self.log("Z focus test pattern loaded.".into());
-                    }
-                });
-                });
+            self.ui_advanced_tools(ui, connected);
         } else {
             ui.label(
                 RichText::new(format!(
@@ -3397,6 +2624,320 @@ impl All4LaserApp {
                 .color(theme::SUBTEXT),
             );
         }
+    }
+
+    fn ui_node_editing_tools(&mut self, ui: &mut egui::Ui, selection: &[usize]) {
+        let node_edit_text = if self.renderer.node_edit_mode { "✅ Node Editing" } else { "🖱 Node Editing" };
+        if ui.selectable_label(self.renderer.node_edit_mode, RichText::new(node_edit_text).color(theme::PEACH).strong()).clicked() {
+            self.renderer.node_edit_mode = !self.renderer.node_edit_mode;
+            if !self.renderer.node_edit_mode {
+                self.renderer.selected_node = None;
+                self.renderer.selected_nodes.clear();
+            }
+        }
+
+        // Measure tool (F50)
+        let measure_text = if self.renderer.measure_mode { "✅ Measure" } else { "📏 Measure" };
+        if ui.selectable_label(self.renderer.measure_mode, RichText::new(measure_text).color(theme::TEAL).strong()).clicked() {
+            self.renderer.measure_mode = !self.renderer.measure_mode;
+            if !self.renderer.measure_mode {
+                self.renderer.measure_start = None;
+                self.renderer.measure_end = None;
+            }
+        }
+        if self.renderer.measure_mode {
+            if let (Some(s), Some(e)) = (self.renderer.measure_start, self.renderer.measure_end) {
+                let dx = e.0 - s.0;
+                let dy = e.1 - s.1;
+                let dist = (dx * dx + dy * dy).sqrt();
+                ui.label(RichText::new(format!("Distance: {dist:.2} mm")).color(theme::TEAL).small());
+            } else {
+                ui.label(RichText::new("Click two points on canvas to measure").small().color(theme::SUBTEXT));
+            }
+        }
+
+        if self.renderer.node_edit_mode {
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(selection.len() >= 2, egui::Button::new("🔗 Join Paths"))
+                    .clicked()
+                {
+                    self.push_node_undo_snapshot();
+                    match ui::vector_edit::join_selected_paths(&mut self.drawing_state, selection) {
+                        Ok(new_idx) => {
+                            self.renderer.selected_shape_idx.clear();
+                            self.renderer.selected_shape_idx.insert(new_idx);
+                            self.renderer.selected_node = None;
+                            self.renderer.selected_nodes.clear();
+                            self.regenerate_drawing_gcode();
+                            self.log("Paths joined.".into());
+                        }
+                        Err(e) => self.log(format!("Join paths failed: {e}")),
+                    }
+                }
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Node smooth:");
+                ui.add(egui::Slider::new(&mut self.node_smooth_strength, 0.0..=1.0));
+                ui.label("Corner strength:");
+                ui.add(egui::Slider::new(&mut self.node_corner_strength, 0.0..=1.5));
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Simplify tol:");
+                ui.add(egui::Slider::new(&mut self.path_simplify_tolerance, 0.01..=2.0));
+                ui.label("Path smooth:");
+                ui.add(egui::Slider::new(&mut self.path_smooth_strength, 0.0..=1.0));
+                ui.label("iter:");
+                ui.add(egui::DragValue::new(&mut self.path_smooth_iterations).range(1..=8));
+            });
+
+            if let Some((shape_idx, node_idx)) = self.renderer.selected_node {
+                let mut selected_nodes: Vec<usize> = self
+                    .renderer
+                    .selected_nodes
+                    .iter()
+                    .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
+                    .collect();
+                selected_nodes.sort_unstable();
+                selected_nodes.dedup();
+                if selected_nodes.is_empty() {
+                    selected_nodes.push(node_idx);
+                }
+
+                ui.horizontal(|ui| {
+                    if ui.button("➕ Node").on_hover_text("Insert midpoint after selected node").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::insert_midpoint_after(&mut self.drawing_state, shape_idx, node_idx) {
+                            Ok(new_idx) => {
+                                self.renderer.selected_node = Some((shape_idx, new_idx));
+                                self.renderer.selected_nodes.clear();
+                                self.renderer.selected_nodes.insert((shape_idx, new_idx));
+                                self.regenerate_drawing_gcode();
+                            }
+                            Err(e) => self.log(format!("Insert node failed: {e}")),
+                        }
+                    }
+                    if ui.button("✂ Split").on_hover_text("Split path at selected node").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::split_path_at_node(&mut self.drawing_state, shape_idx, node_idx) {
+                            Ok(other_idx) => {
+                                self.renderer.selected_shape_idx.clear();
+                                self.renderer.selected_shape_idx.insert(shape_idx);
+                                self.renderer.selected_shape_idx.insert(other_idx);
+                                self.renderer.selected_node = None;
+                                self.renderer.selected_nodes.clear();
+                                self.regenerate_drawing_gcode();
+                            }
+                            Err(e) => self.log(format!("Split path failed: {e}")),
+                        }
+                    }
+                    if ui.button("🧼 Smooth").on_hover_text("Soften selected node").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::smooth_nodes_weighted(
+                            &mut self.drawing_state,
+                            shape_idx,
+                            &selected_nodes,
+                            self.node_smooth_strength,
+                        ) {
+                            Ok(()) => self.regenerate_drawing_gcode(),
+                            Err(e) => self.log(format!("Smooth node failed: {e}")),
+                        }
+                    }
+                    if ui.button("📐 Corner").on_hover_text("Sharpen selected node").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::corner_nodes_weighted(
+                            &mut self.drawing_state,
+                            shape_idx,
+                            &selected_nodes,
+                            self.node_corner_strength,
+                        ) {
+                            Ok(()) => self.regenerate_drawing_gcode(),
+                            Err(e) => self.log(format!("Corner node failed: {e}")),
+                        }
+                    }
+                    if ui.button("🧹 Simplify").on_hover_text("Simplify path with quality guard").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::simplify_path(
+                            &mut self.drawing_state,
+                            shape_idx,
+                            self.path_simplify_tolerance,
+                        ) {
+                            Ok(removed) => {
+                                self.regenerate_drawing_gcode();
+                                self.log(format!("Path simplified: removed {removed} nodes."));
+                            }
+                            Err(e) => self.log(format!("Simplify path failed: {e}")),
+                        }
+                    }
+                    if ui.button("〰 Smooth Path").on_hover_text("Smooth entire path with iterations").clicked() {
+                        self.push_node_undo_snapshot();
+                        match ui::vector_edit::smooth_path(
+                            &mut self.drawing_state,
+                            shape_idx,
+                            self.path_smooth_iterations as usize,
+                            self.path_smooth_strength,
+                        ) {
+                            Ok(()) => self.regenerate_drawing_gcode(),
+                            Err(e) => self.log(format!("Smooth path failed: {e}")),
+                        }
+                    }
+                    if ui.button("🗑 Delete Node").clicked() {
+                        self.push_node_undo_snapshot();
+                        let result = if selected_nodes.len() > 1 {
+                            ui::vector_edit::delete_nodes(&mut self.drawing_state, shape_idx, &selected_nodes)
+                        } else {
+                            ui::vector_edit::delete_node(&mut self.drawing_state, shape_idx, node_idx)
+                        };
+                        match result {
+                            Ok(()) => {
+                                self.renderer.selected_nodes.clear();
+                                self.renderer.selected_node = Some((shape_idx, node_idx.saturating_sub(1)));
+                                self.regenerate_drawing_gcode();
+                            }
+                            Err(e) => self.log(format!("Delete node failed: {e}")),
+                        }
+                    }
+                });
+
+                if selected_nodes.len() > 1 {
+                    ui.label(
+                        RichText::new(format!("{} nodes selected", selected_nodes.len()))
+                            .small()
+                            .color(theme::SUBTEXT),
+                    );
+                }
+            } else {
+                ui.label(RichText::new("Node mode: click a node to edit, click a segment to add.").small().color(theme::SUBTEXT));
+            }
+        }
+
+        if self.renderer.selected_shape_idx.len() == 1 {
+            let idx = *self.renderer.selected_shape_idx.iter().next().unwrap();
+            if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                if !matches!(shape.shape, ShapeKind::Path(_)) {
+                    if ui.button("🛤 Convert to Path").clicked() {
+                        if let Some(poly) = ui::offset::shape_to_polygon(shape) {
+                            let exterior = poly.exterior();
+                            let pts: Vec<(f32, f32)> = exterior.coords().map(|c| (c.x as f32, c.y as f32)).collect();
+                            let mut new_shape = shape.clone();
+                            new_shape.shape = ShapeKind::Path(pts);
+                            new_shape.x = 0.0;
+                            new_shape.y = 0.0;
+                            self.drawing_state.shapes[idx] = new_shape;
+                            self.log("Converted to path.".into());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn ui_advanced_tools(&mut self, ui: &mut egui::Ui, connected: bool) {
+        egui::CollapsingHeader::new(
+            RichText::new(format!("🛠 {}", crate::i18n::tr("Advanced Tools")))
+                .color(theme::LAVENDER)
+                .strong(),
+        )
+            .default_open(false)
+            .show(ui, |ui| {
+            ui.add_space(6.0);
+
+            let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
+            if let Some(mac) = macros_action.execute_macro {
+                self.execute_macro_script(&mac.label, &mac.gcode);
+            }
+
+            ui.add_space(6.0);
+
+            let console_action = ui::console::show(ui, self.console_log.make_contiguous(), &mut self.console_input);
+            if let Some(cmd) = console_action.send_command {
+                self.send_command(&cmd);
+            }
+
+            ui.add_space(6.0);
+
+            let mat_context = self.materials_ui_context();
+            let mat_action = ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
+            self.apply_material_action(mat_action);
+
+            ui.add_space(6.0);
+
+            self.ui_alignment_tools(ui);
+
+            ui.add_space(6.0);
+
+            self.ui_z_probe_tools(ui);
+            });
+    }
+
+    fn ui_alignment_tools(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.label(RichText::new("📐 Align / Distribute").color(theme::LAVENDER).strong());
+            let sel: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
+            let has_sel = sel.len() >= 2;
+            ui.horizontal(|ui| {
+                for (label, hint, op) in [
+                    ("⬅", "Align Left", crate::ui::drawing::AlignOp::Left),
+                    ("➡", "Align Right", crate::ui::drawing::AlignOp::Right),
+                    ("⬆", "Align Top", crate::ui::drawing::AlignOp::Top),
+                    ("⬇", "Align Bottom", crate::ui::drawing::AlignOp::Bottom),
+                    ("⬌", "Center Horizontal", crate::ui::drawing::AlignOp::CenterH),
+                    ("⬍", "Center Vertical", crate::ui::drawing::AlignOp::CenterV),
+                ] {
+                    if ui.add_enabled(has_sel, egui::Button::new(label).small()).on_hover_text(hint).clicked() {
+                        self.push_node_undo_snapshot();
+                        crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, op);
+                        self.regenerate_drawing_gcode();
+                    }
+                }
+            });
+            let has_3 = sel.len() >= 3;
+            ui.horizontal(|ui| {
+                if ui.add_enabled(has_3, egui::Button::new("⇔ Distribute H").small()).clicked() {
+                    self.push_node_undo_snapshot();
+                    crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::DistributeH);
+                    self.regenerate_drawing_gcode();
+                }
+                if ui.add_enabled(has_3, egui::Button::new("⇕ Distribute V").small()).clicked() {
+                    self.push_node_undo_snapshot();
+                    crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::DistributeV);
+                    self.regenerate_drawing_gcode();
+                }
+            });
+        });
+    }
+
+    fn ui_z_probe_tools(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
+            });
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if ui.button("⇊ Run Z-Probe").on_hover_text("Search for surface using G38.2 and set Z0").clicked() {
+                    self.send_command("G38.2 Z-50 F100");
+                    self.send_command("G4 P0.5");
+                    self.send_command("G92 Z0");
+                    self.send_command("G0 Z5 F500");
+                    self.log("Probing complete. Z set to 5mm above surface.".into());
+                }
+                if ui.button("🎯 Focus Point").on_hover_text("Move to Z focusing position (e.g. 20mm)").clicked() {
+                    self.send_command("G0 Z20 F1000");
+                }
+            });
+            ui.add_space(4.0);
+            if ui.button("🔍 Generate Z Focus Test").on_hover_text("Generate lines at different Z heights to find focus").clicked() {
+                let lines = ui::power_speed_test::generate_z_focus_test(
+                    0.0, 10.0, 10, 40.0, 1000.0, 500.0, 5.0, 5.0,
+                );
+                let file = crate::gcode::file::GCodeFile::from_lines("z_focus_test", &lines);
+                self.set_loaded_file(file, lines);
+                self.log("Z focus test pattern loaded.".into());
+            }
+        });
     }
 
     fn ui_right_content(&mut self, ui: &mut egui::Ui) {
@@ -3701,207 +3242,520 @@ impl All4LaserApp {
             }
         });
     }
-}
 
-impl eframe::App for All4LaserApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.poll_camera_stream(ctx);
-
-        // Poll serial
-        self.poll_serial();
-
-        // Handle keyboard shortcuts (only when no text input is focused)
-        if !ctx.wants_keyboard_input() {
-            self.handle_keyboard(ctx);
-        }
-
-        // Handle drag-and-drop
-        self.handle_file_drop(ctx);
-
-        // Auto-save (F71)
-        self.perform_autosave();
-
-        // Recovery prompt (F71)
-        if self.show_recovery_prompt {
-            let mut restore = false;
-            let mut discard = false;
-            egui::Window::new("🔄 Session Recovery")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    ui.label("A previous session was interrupted. Restore it?");
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("✅ Restore").clicked() {
-                            restore = true;
-                        }
-                        if ui.button("🗑 Discard").clicked() {
-                            discard = true;
-                        }
-                    });
-                });
-            if restore {
-                if let Some(recovery) = self.pending_recovery.take() {
-                    self.apply_recovery(recovery);
+    fn update_modals(&mut self, ctx: &egui::Context) {
+        // === Handle Cut Settings Modal ===
+        {
+            let action = ui::cut_settings::show(
+                ctx,
+                &mut self.cut_settings_state,
+                &self.layers,
+                &self.drawing_state.shapes,
+            );
+            if let Some((idx, new_layer)) = action.apply {
+                if idx < self.layers.len() {
+                    self.layers[idx] = new_layer;
+                    if !self.drawing_state.shapes.is_empty() {
+                        self.regenerate_drawing_gcode();
+                    }
                 }
-                self.show_recovery_prompt = false;
-            }
-            if discard {
-                self.pending_recovery = None;
-                self.show_recovery_prompt = false;
-                crate::config::project::ProjectFile::clear_recovery();
             }
         }
 
-        // Startup wizard (F43)
-        if self.show_startup_wizard {
-            let mut finish = false;
-            egui::Window::new("🚀 Welcome to All4Laser")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    match self.wizard_step {
-                        0 => {
-                            ui.label(egui::RichText::new("Step 1/3 — Language").size(16.0).strong());
-                            ui.add_space(8.0);
-                            for lang in &[
-                                crate::i18n::Language::English,
-                                crate::i18n::Language::French,
-                                crate::i18n::Language::German,
-                                crate::i18n::Language::Spanish,
-                                crate::i18n::Language::Italian,
-                                crate::i18n::Language::Portuguese,
-                                crate::i18n::Language::Japanese,
-                                crate::i18n::Language::Arabic,
-                            ] {
-                                if ui.selectable_label(self.language == *lang, lang.name()).clicked() {
-                                    self.language = *lang;
-                                    crate::i18n::set_language(self.language);
+        // === Handle Settings Modal ===
+        let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
+        let mut settings_write_blocked = false;
+        if let Some(state) = &mut self.settings_state {
+            ui::settings_dialog::show(ctx, state);
+            if !state.is_open {
+                self.settings_state = None;
+            } else {
+                if !state.pending_writes.is_empty() {
+                    if !supports_grbl_settings {
+                        settings_write_blocked = true;
+                        state.pending_writes.clear();
+                    } else {
+                        let writes = std::mem::take(&mut state.pending_writes);
+                        for (id, val) in writes {
+                            if id == -1 && val == "$$" {
+                                self.send_command("$$");
+                            } else {
+                                self.send_command(&format!("${}={}", id, val));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if settings_write_blocked {
+            self.log(format!(
+                "Settings write is not supported by {} backend.",
+                self.machine_profile.controller_kind.label()
+            ));
+        }
+    }
+
+    fn handle_toolbar_actions(&mut self, ctx: &egui::Context, actions: ui::toolbar::ToolbarAction) {
+        let is_connected = self.is_connected();
+        if actions.connect_toggle {
+            if is_connected { self.disconnect(); } else { self.connect(); }
+        }
+        if actions.open_file { self.open_file(); }
+        if let Some(path) = actions.open_recent { self.load_file_path(&path); }
+        if actions.save_file { self.save_file(); }
+        if actions.save_file && !self.drawing_state.shapes.is_empty() {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("SVG", &["svg"])
+                .set_file_name("export.svg")
+                .save_file()
+            {
+                let svg = crate::ui::drawing::export_shapes_to_svg(
+                    &self.drawing_state.shapes,
+                    &self.layers,
+                );
+                match std::fs::write(&path, svg) {
+                    Ok(()) => self.log(format!("SVG exported: {}", path.display())),
+                    Err(e) => self.show_error(format!("SVG export failed: {e}")),
+                }
+            }
+        }
+        if actions.run_program {
+            self.is_dry_run = false;
+            if self.run_preflight("run", true) {
+                self.run_program();
+            }
+        }
+        if actions.frame_bbox { self.frame_bbox(); }
+        if actions.dry_run {
+            self.is_dry_run = true;
+            if self.run_preflight("dry-run", true) {
+                self.run_program();
+            } else {
+                self.is_dry_run = false;
+            }
+        }
+        if actions.abort_program { self.abort_program(); }
+        if actions.hold {
+            self.send_realtime_or_warn(RealtimeCommand::FeedHold, "Feed hold");
+        }
+        if actions.resume {
+            self.send_realtime_or_warn(RealtimeCommand::CycleStart, "Cycle start");
+        }
+        if actions.home { self.send_command("$H"); }
+        if actions.unlock { self.send_command("$X"); }
+        if actions.set_zero { self.send_command("G92X0Y0Z0"); }
+        if actions.reset {
+            self.send_realtime_or_warn(RealtimeCommand::Reset, "Reset");
+        }
+        if let Some(t) = actions.set_theme {
+            self.ui_theme = t;
+            self.apply_theme(ctx);
+            self.sync_settings();
+        }
+        if let Some(l) = actions.set_layout {
+            self.ui_layout = l;
+            self.sync_settings();
+        }
+        if let Some(lang) = actions.set_language {
+            self.language = lang;
+            crate::i18n::set_language(lang);
+            self.sync_settings();
+        }
+        if actions.toggle_light_mode {
+            self.light_mode = !self.light_mode;
+            self.apply_theme(ctx);
+            self.sync_settings();
+        }
+        if actions.toggle_beginner_mode {
+            self.beginner_mode = !self.beginner_mode;
+            self.sync_settings();
+        }
+        if actions.open_power_speed_test { self.power_speed_test.is_open = true; }
+        if actions.open_gcode_editor { self.gcode_editor.is_open = true; }
+        if actions.open_shortcuts { self.shortcuts.is_open = true; }
+        if actions.open_tiling { self.tiling.is_open = true; }
+        if actions.open_nesting { self.nesting_state.is_open = true; }
+        if actions.open_job_queue { self.job_queue_state.is_open = true; }
+        if actions.open_test_fire { self.test_fire.is_open = true; }
+        if actions.open_project { self.handle_open_project(ctx); }
+        if actions.save_project { self.handle_save_project(); }
+        if actions.open_settings {
+            if self.settings_state.is_none() {
+                let mut state = ui::settings_dialog::SettingsDialogState::default();
+                state.is_open = true;
+                state.pending_writes.push((-1, "$$".to_string()));
+                self.settings_state = Some(state);
+            }
+        }
+    }
+
+    fn handle_open_project(&mut self, ctx: &egui::Context) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("All4Laser Project", &["a4l"])
+            .pick_file()
+        {
+            let path_str = path.to_string_lossy().to_string();
+            match crate::config::project::ProjectFile::load(&path_str) {
+                Ok(proj) => {
+                    self.job_transform.offset_x = proj.offset_x;
+                    self.job_transform.offset_y = proj.offset_y;
+                    self.job_transform.rotation = proj.rotation_deg;
+                    if let Some(mp) = proj.machine_profile {
+                        let previous_kind = self.machine_profile.controller_kind;
+                        self.machine_profile = mp;
+                        self.apply_controller_kind_change(previous_kind);
+                    }
+                    self.camera_state.enabled = proj.camera_enabled;
+                    self.camera_state.opacity = proj.camera_opacity;
+                    self.camera_state.calibration = proj.camera_calibration;
+                    self.camera_state.device_index = proj.camera_device_index;
+                    self.camera_state.live_streaming = proj.camera_live_streaming;
+                    self.camera_state.snapshot_path = proj.camera_snapshot_path.clone();
+                    if let Some(preset_name) = proj.material_selected_preset.as_deref() {
+                        self.materials_state.select_preset_by_name(preset_name);
+                    }
+                    if self.camera_state.live_streaming {
+                        self.start_live_camera();
+                    } else if let Some(path) = proj.camera_snapshot_path {
+                        if self.load_camera_snapshot_from_path(ctx, &path).is_err() {
+                            self.camera_state.texture = None;
+                        }
+                    } else {
+                        self.camera_state.texture = None;
+                    }
+                    if let Some(gc_path) = proj.gcode_path {
+                        self.load_file_path(&gc_path);
+                    } else if let Some(content) = proj.gcode_content {
+                        let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+                        let file = GCodeFile::from_lines("project", &lines);
+                        self.set_loaded_file(file, lines);
+                    }
+                    self.sync_settings();
+                    self.log("Project loaded.".into());
+                }
+                Err(e) => self.show_error(format!("Project load failed: {e}")),
+            }
+        }
+    }
+
+    fn handle_save_project(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("All4Laser Project", &["a4l"])
+            .set_file_name("project.a4l")
+            .save_file()
+        {
+            let path_str = path.to_string_lossy().to_string();
+            let proj = crate::config::project::ProjectFile {
+                version: 1,
+                gcode_content: Some(self.program_lines.join("\n")),
+                gcode_path: None,
+                offset_x: self.job_transform.offset_x,
+                offset_y: self.job_transform.offset_y,
+                rotation_deg: self.job_transform.rotation,
+                machine_profile: Some(self.machine_profile.clone()),
+                camera_enabled: self.camera_state.enabled,
+                camera_opacity: self.camera_state.opacity,
+                camera_calibration: self.camera_state.calibration.clone(),
+                camera_snapshot_path: self.camera_state.snapshot_path.clone(),
+                camera_device_index: self.camera_state.device_index,
+                camera_live_streaming: self.camera_state.live_streaming,
+                material_selected_preset: self
+                    .materials_state
+                    .selected_preset_name()
+                    .map(str::to_string),
+                checkpoint_line: None,
+                project_notes: self.project_notes.clone(),
+            };
+            match crate::config::project::ProjectFile::save(&path_str, &proj) {
+                Ok(_) => self.log(format!("Project saved: {path_str}")),
+                Err(e) => self.show_error(format!("Project save failed: {e}")),
+            }
+        }
+    }
+
+    fn update_preview(&mut self, ctx: &egui::Context) {
+        CentralPanel::default().show(ctx, |ui| {
+            let segments = self.loaded_file
+                .as_ref()
+                .map(|f| {
+                    f.segments.iter()
+                        .filter(|seg| {
+                            f.layers.get(seg.layer_id).map(|l| l.visible).unwrap_or(true)
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            let offset = egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y);
+
+            let preview_action = ui::preview_panel::show(
+                ui,
+                &mut self.renderer,
+                &segments,
+                &self.drawing_state.shapes,
+                &self.layers,
+                self.light_mode,
+                offset,
+                self.job_transform.rotation,
+                &mut self.camera_state
+            );
+
+            if preview_action.zoom_in { self.renderer.zoom_in(); }
+            if preview_action.zoom_out { self.renderer.zoom_out(); }
+            if preview_action.auto_fit {
+                if let Some(file) = self.loaded_file.as_ref() {
+                    let segments = file.segments.clone();
+                    let rect = ui.max_rect();
+                    self.renderer.auto_fit(&segments, rect, offset, self.job_transform.rotation);
+                }
+            }
+
+            if !matches!(
+                preview_action.interactive_action,
+                crate::preview::renderer::InteractiveAction::MoveNode { .. }
+                    | crate::preview::renderer::InteractiveAction::MoveNodeHandle { .. }
+            ) {
+                self.node_move_undo_armed = true;
+            }
+
+            if !matches!(
+                preview_action.interactive_action,
+                crate::preview::renderer::InteractiveAction::DragSelection { .. }
+                    | crate::preview::renderer::InteractiveAction::RotateSelection { .. }
+            ) {
+                self.shape_transform_undo_armed = true;
+            }
+
+            self.handle_interactive_action(preview_action.interactive_action);
+
+            self.renderer.machine_pos = egui::Pos2::new(
+                self.grbl_state.wpos.x,
+                self.grbl_state.wpos.y,
+            );
+        });
+    }
+
+    fn handle_interactive_action(&mut self, action: crate::preview::renderer::InteractiveAction) {
+        use crate::preview::renderer::InteractiveAction;
+        match action {
+            InteractiveAction::SelectShape(idx, _is_multi) => {
+                if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                    self.drawing_state.current = shape.clone();
+                }
+            }
+            InteractiveAction::Deselect => {}
+            InteractiveAction::DragSelection { delta } => {
+                if self.shape_transform_undo_armed {
+                    self.push_node_undo_snapshot();
+                    self.shape_transform_undo_armed = false;
+                }
+                for &idx in &self.renderer.selected_shape_idx {
+                    if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
+                        shape.x += delta.x;
+                        shape.y += delta.y;
+                    }
+                }
+                self.regenerate_drawing_gcode();
+            }
+            InteractiveAction::RotateSelection { shape_idx, delta_deg } => {
+                if self.shape_transform_undo_armed {
+                    self.push_node_undo_snapshot();
+                    self.shape_transform_undo_armed = false;
+                }
+                if let Some(shape) = self.drawing_state.shapes.get_mut(shape_idx) {
+                    let local_center = shape.local_center();
+                    let (old_cx, old_cy) = shape.world_pos(local_center.0, local_center.1);
+                    shape.rotation += delta_deg;
+                    shape.rotation = (shape.rotation + 360.0) % 360.0;
+                    let (new_cx, new_cy) = shape.world_pos(local_center.0, local_center.1);
+                    shape.x += old_cx - new_cx;
+                    shape.y += old_cy - new_cy;
+                    self.regenerate_drawing_gcode();
+                }
+            }
+            InteractiveAction::MoveNode { shape_idx, node_idx, new_pos } => {
+                if self.node_move_undo_armed {
+                    self.push_node_undo_snapshot();
+                    self.node_move_undo_armed = false;
+                }
+                if let Some(shape_ro) = self.drawing_state.shapes.get(shape_idx) {
+                    if let ShapeKind::Path(pts_ro) = &shape_ro.shape {
+                        if let Some(p0) = pts_ro.get(node_idx) {
+                            let (cur_wx, cur_wy) = shape_ro.world_pos(p0.0, p0.1);
+                            let dx = new_pos.x - cur_wx;
+                            let dy = new_pos.y - cur_wy;
+                            let angle = shape_ro.rotation.to_radians();
+                            let (sin_a, cos_a) = angle.sin_cos();
+                            let dlx = dx * cos_a + dy * sin_a;
+                            let dly = -dx * sin_a + dy * cos_a;
+
+                            let mut selected_nodes: Vec<usize> = self
+                                .renderer
+                                .selected_nodes
+                                .iter()
+                                .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
+                                .collect();
+                            selected_nodes.sort_unstable();
+                            selected_nodes.dedup();
+                            if selected_nodes.is_empty() {
+                                selected_nodes.push(node_idx);
+                            }
+
+                            if let Some(shape_rw) = self.drawing_state.shapes.get_mut(shape_idx) {
+                                if let ShapeKind::Path(pts_rw) = &mut shape_rw.shape {
+                                    for idx in selected_nodes {
+                                        if let Some(p) = pts_rw.get_mut(idx) {
+                                            p.0 += dlx;
+                                            p.1 += dly;
+                                        }
+                                    }
                                 }
                             }
-                            ui.add_space(8.0);
-                            if ui.button("Next →").clicked() { self.wizard_step = 1; }
-                        }
-                        1 => {
-                            ui.label(egui::RichText::new("Step 2/3 — Machine Dimensions").size(16.0).strong());
-                            ui.add_space(8.0);
-                            ui.horizontal(|ui| {
-                                ui.label("Name:");
-                                ui.text_edit_singleline(&mut self.machine_profile.name);
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("Width (mm):");
-                                ui.add(egui::DragValue::new(&mut self.machine_profile.workspace_x_mm).speed(10.0));
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("Height (mm):");
-                                ui.add(egui::DragValue::new(&mut self.machine_profile.workspace_y_mm).speed(10.0));
-                            });
-                            ui.add_space(8.0);
-                            ui.horizontal(|ui| {
-                                if ui.button("← Back").clicked() { self.wizard_step = 0; }
-                                if ui.button("Next →").clicked() { self.wizard_step = 2; }
-                            });
-                        }
-                        _ => {
-                            ui.label(egui::RichText::new("Step 3/3 — Controller").size(16.0).strong());
-                            ui.add_space(8.0);
-                            let prev_kind = self.machine_profile.controller_kind;
-                            ui.selectable_value(&mut self.machine_profile.controller_kind, ControllerKind::Grbl, "GRBL");
-                            ui.selectable_value(&mut self.machine_profile.controller_kind, ControllerKind::Ruida, "Ruida (beta)");
-                            ui.selectable_value(&mut self.machine_profile.controller_kind, ControllerKind::Trocen, "Trocen (beta)");
-                            if self.machine_profile.controller_kind != prev_kind {
-                                self.sync_controller_backend();
-                            }
-                            ui.add_space(8.0);
-                            ui.horizontal(|ui| {
-                                if ui.button("← Back").clicked() { self.wizard_step = 1; }
-                                if ui.button("✅ Finish").clicked() { finish = true; }
-                            });
+                            self.regenerate_drawing_gcode();
                         }
                     }
-                    ui.add_space(4.0);
-                    if ui.small_button("Skip wizard").clicked() { finish = true; }
-                });
-            if finish {
-                self.show_startup_wizard = false;
-                self.settings.first_run_done = true;
-                // Save profile to store
-                if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
-                    *p = self.machine_profile.clone();
                 }
-                self.profile_store.save();
-                self.sync_settings();
-                self.log("Setup wizard completed.".into());
             }
-        }
-
-        // Request repaint for live updates
-        ctx.request_repaint_after(Duration::from_millis(50));
-
-        // Auto-fit after file load
-        if self.needs_auto_fit {
-            if let Some(file) = &self.loaded_file {
-                let rect = ctx.available_rect();
-                let offset = egui::vec2(self.job_offset_x, self.job_offset_y);
-                self.renderer.auto_fit(&file.segments, rect, offset, self.job_rotation);
-                self.needs_auto_fit = false;
+            InteractiveAction::MoveNodeHandle { shape_idx, node_idx, handle, new_pos } => {
+                if self.node_move_undo_armed {
+                    self.push_node_undo_snapshot();
+                    self.node_move_undo_armed = false;
+                }
+                if let Some(shape_ro) = self.drawing_state.shapes.get(shape_idx) {
+                    let (lx, ly) = Self::world_to_shape_local(shape_ro, new_pos.x, new_pos.y);
+                    if let Some(shape_rw) = self.drawing_state.shapes.get_mut(shape_idx) {
+                        if let ShapeKind::Path(pts) = &mut shape_rw.shape {
+                            let target_idx = match handle {
+                                crate::preview::renderer::NodeHandleKind::In => node_idx.saturating_sub(1),
+                                crate::preview::renderer::NodeHandleKind::Out => node_idx.saturating_add(1),
+                            };
+                            if target_idx < pts.len() {
+                                if let Some(p) = pts.get_mut(target_idx) {
+                                    p.0 = lx;
+                                    p.1 = ly;
+                                    self.regenerate_drawing_gcode();
+                                }
+                            }
+                        }
+                    }
+                }
             }
+            InteractiveAction::AddNode { shape_idx, insert_after, new_pos } => {
+                self.push_node_undo_snapshot();
+                if let Some(shape) = self.drawing_state.shapes.get(shape_idx) {
+                    let (lx, ly) = Self::world_to_shape_local(shape, new_pos.x, new_pos.y);
+                    match ui::vector_edit::insert_node_on_segment(
+                        &mut self.drawing_state,
+                        shape_idx,
+                        insert_after,
+                        (lx, ly),
+                    ) {
+                        Ok(insert_idx) => {
+                            self.renderer.selected_shape_idx.clear();
+                            self.renderer.selected_shape_idx.insert(shape_idx);
+                            self.renderer.selected_node = Some((shape_idx, insert_idx));
+                            self.renderer.selected_nodes.clear();
+                            self.renderer.selected_nodes.insert((shape_idx, insert_idx));
+                            self.regenerate_drawing_gcode();
+                        }
+                        Err(e) => self.log(format!("Add node failed: {e}")),
+                    }
+                }
+            }
+            InteractiveAction::CameraPickPoint(pos) => {
+                self.handle_camera_pick_point(pos);
+            }
+            _ => {}
         }
+    }
 
-        // Sync workspace size from machine profile to renderer
-        self.renderer.workspace_size = egui::vec2(
-            self.machine_profile.workspace_x_mm,
-            self.machine_profile.workspace_y_mm,
-        );
+    fn update_import_modal(&mut self, ctx: &egui::Context) {
+        if let Some(mut state) = self.import_state.take() {
+            if state.needs_texture_update {
+                if let ui::image_dialog::ImportType::Raster(base_img) = &state.import_type {
+                    let processed = imaging::raster::preprocess_image(base_img, &state.raster_params);
+                    let rgba = processed.to_rgba8();
+                    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                        [rgba.width() as _, rgba.height() as _],
+                        rgba.as_flat_samples().as_slice(),
+                    );
+                    state.texture = Some(ctx.load_texture(
+                        &state.filename,
+                        color_image,
+                        Default::default(),
+                    ));
+                    state.needs_texture_update = false;
+                }
+            }
 
-        // === Error Notification ===
-        // We clone the error first to avoid borrowing `self` in the closure
-        let error_to_show = self.last_error.clone();
-        if let Some(err) = error_to_show {
-             let mut open = true;
-             egui::Window::new("❌ Error")
+            let mut open = true;
+            let mut import_triggered = false;
+            let mut cancel_triggered = false;
+
+            egui::Window::new("Import Settings")
                 .open(&mut open)
                 .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .resizable(true)
+                .default_width(600.0)
                 .show(ctx, |ui| {
-                    ui.label(egui::RichText::new(err).color(theme::RED));
-                    ui.add_space(8.0);
-                    if ui.button("OK").clicked() {
-                        self.last_error = None;
-                    }
+                    let res = ui::image_dialog::show(ui, &mut state);
+                    if res.imported { import_triggered = true; }
+                    if res.cancel { cancel_triggered = true; }
                 });
-             if !open {
-                 self.last_error = None;
-             }
-        }
 
-        // === Job Done Notification ===
-        if self.notify_job_done {
-            egui::Window::new("✅ Job Complete")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    ui.label(egui::RichText::new("Program finished successfully!").size(16.0));
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.notify_sound_enabled, "🔔 Sound");
-                    });
-                    ui.add_space(4.0);
-                    if ui.button("OK").clicked() {
-                        self.notify_job_done = false;
+            if !open || cancel_triggered {
+                self.import_state = None;
+            } else if import_triggered {
+                match &state.import_type {
+                    ui::image_dialog::ImportType::Raster(img) => {
+                        if state.vectorize {
+                            let mut vector_shapes = crate::imaging::tracing::trace_image(img, &state.raster_params);
+                            for shape in vector_shapes.iter_mut() {
+                                shape.layer_idx = self.active_layer_idx;
+                            }
+                            self.drawing_state.shapes.extend(vector_shapes);
+                        } else {
+                            let shape = crate::ui::drawing::ShapeParams {
+                                shape: crate::ui::drawing::ShapeKind::RasterImage {
+                                    data: crate::ui::drawing::ImageData(std::sync::Arc::new(img.clone())),
+                                    params: state.raster_params.clone(),
+                                },
+                                x: 0.0,
+                                y: 0.0,
+                                width: state.raster_params.width_mm,
+                                height: state.raster_params.height_mm,
+                                ..Default::default()
+                            };
+                            self.drawing_state.shapes.push(shape);
+                        }
+                        self.regenerate_drawing_gcode();
                     }
-                });
-            if self.notify_sound_enabled {
-                play_notification_sound();
+                    ui::image_dialog::ImportType::Svg(data) => {
+                        match imaging::svg::svg_to_paths(data, &state.svg_params) {
+                            Ok(paths) => {
+                                for (pts, layer_idx) in paths {
+                                    let shape = crate::ui::drawing::ShapeParams {
+                                        shape: crate::ui::drawing::ShapeKind::Path(pts),
+                                        layer_idx,
+                                        ..Default::default()
+                                    };
+                                    self.drawing_state.shapes.push(shape);
+                                }
+                                self.regenerate_drawing_gcode();
+                            }
+                            Err(e) => self.log(format!("SVG Conversion failed: {e}")),
+                        }
+                    }
+                }
+                self.import_state = None;
+            } else {
+                self.import_state = Some(state);
             }
-            self.notify_job_done = false;
         }
+    }
 
+    fn update_tool_windows(&mut self, ctx: &egui::Context) {
         // === Power/Speed Test Window ===
         {
             let pst_action = ui::power_speed_test::show(ctx, &mut self.power_speed_test);
@@ -3916,7 +3770,6 @@ impl eframe::App for All4LaserApp {
             let ed_action = ui::gcode_editor::show(ctx, &mut self.gcode_editor);
             if let Some(lines) = ed_action.apply {
                 let file = GCodeFile::from_lines("edited", &lines);
-                // Don't re-sync editor text (it's the source)
                 self.log(format!("GCode editor applied ({} lines)", lines.len()));
                 self.program_lines = lines.clone();
                 self.program_index = 0;
@@ -3927,13 +3780,11 @@ impl eframe::App for All4LaserApp {
 
         // === Shortcuts Panel ===
         {
-            // Allow '?' on keyboard to open
             if !ctx.wants_keyboard_input() {
                 if ctx.input(|i| i.key_pressed(egui::Key::Questionmark)) {
                     self.shortcuts.is_open = true;
                 }
             }
-            // Render via Ui trick: pass a dummy Ui context using CentralPanel? No — use ctx wrapper
             egui::Area::new(egui::Id::new("shortcuts_area"))
                 .interactable(false)
                 .fixed_pos(egui::pos2(0.0, 0.0))
@@ -4045,7 +3896,7 @@ impl eframe::App for All4LaserApp {
         }
 
         // === Test Fire Window ===
-        if self.test_fire_open {
+        if self.test_fire.is_open {
             let connected = self.is_connected();
             let mut close_tf = false;
             egui::Window::new("🔥 Test Fire")
@@ -4054,18 +3905,18 @@ impl eframe::App for All4LaserApp {
                 .show(ctx, |ui| {
                     egui::Grid::new("tf_grid").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
                         ui.label("Power (S):");
-                        ui.add(egui::DragValue::new(&mut self.test_fire_power).range(1.0..=1000.0).speed(5.0));
+                        ui.add(egui::DragValue::new(&mut self.test_fire.power).range(1.0..=1000.0).speed(5.0));
                         ui.end_row();
                         ui.label("Duration (ms):");
-                        ui.add(egui::DragValue::new(&mut self.test_fire_ms).range(10.0..=5000.0).speed(10.0));
+                        ui.add(egui::DragValue::new(&mut self.test_fire.duration_ms).range(10.0..=5000.0).speed(10.0));
                         ui.end_row();
                     });
                     ui.horizontal(|ui| {
                         if ui.add_enabled(connected, egui::Button::new(
                             egui::RichText::new("🔥 Fire").color(theme::RED).strong()
                         )).clicked() {
-                            let pow = self.test_fire_power;
-                            let secs = self.test_fire_ms / 1000.0;
+                            let pow = self.test_fire.power;
+                            let secs = self.test_fire.duration_ms / 1000.0;
                             self.send_command(&format!("M3 S{:.0}", pow));
                             self.send_command(&format!("G4 P{:.3}", secs));
                             self.send_command("M5");
@@ -4073,7 +3924,7 @@ impl eframe::App for All4LaserApp {
                         if ui.button("Close").clicked() { close_tf = true; }
                     });
                 });
-            if close_tf { self.test_fire_open = false; }
+            if close_tf { self.test_fire.is_open = false; }
         }
 
         // === Feed/Spindle Override Window ===
@@ -4101,146 +3952,154 @@ impl eframe::App for All4LaserApp {
                     }
                 });
         }
+    }
+}
 
-        // --- Handle Import Modal ---
-        if let Some(mut state) = self.import_state.take() {
-            // Lazy load or Refresh texture
-            if state.needs_texture_update {
-                if let ui::image_dialog::ImportType::Raster(base_img) = &state.import_type {
-                    // Apply adjustments for preview
-                    let processed = imaging::raster::preprocess_image(base_img, &state.raster_params);
-                    let rgba = processed.to_rgba8();
-                    let color_image = egui::ColorImage::from_rgba_unmultiplied(
-                        [rgba.width() as _, rgba.height() as _],
-                        rgba.as_flat_samples().as_slice(),
-                    );
-                    state.texture = Some(ctx.load_texture(
-                        &state.filename,
-                        color_image,
-                        Default::default(),
-                    ));
-                    state.needs_texture_update = false;
+impl eframe::App for All4LaserApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_camera_stream(ctx);
+
+        // Poll serial
+        self.poll_serial();
+
+        // Handle keyboard shortcuts (only when no text input is focused)
+        if !ctx.wants_keyboard_input() {
+            self.handle_keyboard(ctx);
+        }
+
+        // Handle drag-and-drop
+        self.handle_file_drop(ctx);
+
+        // Auto-save (F71)
+        self.perform_autosave();
+
+        // Recovery prompt (F71)
+        if self.autosave.show_recovery_prompt {
+            let mut restore = false;
+            let mut discard = false;
+            egui::Window::new("🔄 Session Recovery")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.label("A previous session was interrupted. Restore it?");
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("✅ Restore").clicked() {
+                            restore = true;
+                        }
+                        if ui.button("🗑 Discard").clicked() {
+                            discard = true;
+                        }
+                    });
+                });
+            if restore {
+                if let Some(recovery) = self.autosave.pending_recovery.take() {
+                    self.apply_recovery(recovery);
                 }
+                self.autosave.show_recovery_prompt = false;
             }
+            if discard {
+                self.autosave.pending_recovery = None;
+                self.autosave.show_recovery_prompt = false;
+                crate::config::project::ProjectFile::clear_recovery();
+            }
+        }
 
-            let mut open = true;
-            let mut import_triggered = false;
-            let mut cancel_triggered = false;
+        // Startup wizard (F43)
+        {
+            let mut wctx = ui::wizard::WizardContext {
+                wizard: &mut self.wizard,
+                language: &mut self.language,
+                machine_profile: &mut self.machine_profile,
+            };
+            let wresult = ui::wizard::show_wizard(ctx, &mut wctx);
+            if wresult.controller_changed {
+                self.sync_controller_backend();
+            }
+            if wresult.finished {
+                self.settings.first_run_done = true;
+                if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
+                    *p = self.machine_profile.clone();
+                }
+                self.profile_store.save();
+                self.sync_settings();
+                self.log("Setup wizard completed.".into());
+            }
+        }
 
-            egui::Window::new("Import Settings")
+        // Request repaint for live updates
+        ctx.request_repaint_after(Duration::from_millis(50));
+
+        // Auto-fit after file load
+        if self.needs_auto_fit {
+            if let Some(file) = &self.loaded_file {
+                let rect = ctx.available_rect();
+                let offset = egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y);
+                self.renderer.auto_fit(&file.segments, rect, offset, self.job_transform.rotation);
+                self.needs_auto_fit = false;
+            }
+        }
+
+        // Sync workspace size from machine profile to renderer
+        self.renderer.workspace_size = egui::vec2(
+            self.machine_profile.workspace_x_mm,
+            self.machine_profile.workspace_y_mm,
+        );
+
+        // === Error Notification ===
+        // We clone the error first to avoid borrowing `self` in the closure
+        let error_to_show = self.last_error.clone();
+        if let Some(err) = error_to_show {
+             let mut open = true;
+             egui::Window::new("❌ Error")
                 .open(&mut open)
                 .collapsible(false)
-                .resizable(true)
-                .default_width(600.0)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                 .show(ctx, |ui| {
-                    let res = ui::image_dialog::show(ui, &mut state);
-                    if res.imported { import_triggered = true; }
-                    if res.cancel { cancel_triggered = true; }
+                    ui.label(egui::RichText::new(err).color(theme::RED));
+                    ui.add_space(8.0);
+                    if ui.button("OK").clicked() {
+                        self.last_error = None;
+                    }
                 });
+             if !open {
+                 self.last_error = None;
+             }
+        }
 
-            if !open || cancel_triggered {
-                self.import_state = None;
-            } else if import_triggered {
-                match &state.import_type {
-                    ui::image_dialog::ImportType::Raster(img) => {
-                        if state.vectorize {
-                            let mut vector_shapes = crate::imaging::tracing::trace_image(img, &state.raster_params);
-                            // Ensure shapes are placed correctly
-                            for shape in vector_shapes.iter_mut() {
-                                shape.layer_idx = self.active_layer_idx;
-                            }
-                            self.drawing_state.shapes.extend(vector_shapes);
-                        } else {
-                            let shape = crate::ui::drawing::ShapeParams {
-                                shape: crate::ui::drawing::ShapeKind::RasterImage {
-                                    data: crate::ui::drawing::ImageData(std::sync::Arc::new(img.clone())),
-                                    params: state.raster_params.clone(),
-                                },
-                                x: 0.0,
-                                y: 0.0,
-                                width: state.raster_params.width_mm,
-                                height: state.raster_params.height_mm,
-                                ..Default::default()
-                            };
-                            self.drawing_state.shapes.push(shape);
-                        }
-
-                        self.regenerate_drawing_gcode();
+        // === Job Done Notification ===
+        if self.notify_job_done {
+            egui::Window::new("✅ Job Complete")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.label(egui::RichText::new("Program finished successfully!").size(16.0));
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.notify_sound_enabled, "🔔 Sound");
+                    });
+                    ui.add_space(4.0);
+                    if ui.button("OK").clicked() {
+                        self.notify_job_done = false;
                     }
-                    ui::image_dialog::ImportType::Svg(data) => {
-                        match imaging::svg::svg_to_paths(data, &state.svg_params) {
-                            Ok(paths) => {
-                                for (pts, layer_idx) in paths {
-                                    let shape = crate::ui::drawing::ShapeParams {
-                                        shape: crate::ui::drawing::ShapeKind::Path(pts),
-                                        layer_idx,
-                                        ..Default::default()
-                                    };
-                                    self.drawing_state.shapes.push(shape);
-                                }
-                                self.regenerate_drawing_gcode();
-                            }
-                            Err(e) => self.log(format!("SVG Conversion failed: {e}")),
-                        }
-                    }
-                }
-                self.import_state = None;
-            } else {
-                // Keep it open
-                self.import_state = Some(state);
+                });
+            if self.notify_sound_enabled {
+                play_notification_sound();
             }
+            self.notify_job_done = false;
         }
 
-        // === Handle Cut Settings Modal ===
-        {
-            let action = ui::cut_settings::show(
-                ctx,
-                &mut self.cut_settings_state,
-                &self.layers,
-                &self.drawing_state.shapes,
-            );
-            if let Some((idx, new_layer)) = action.apply {
-                if idx < self.layers.len() {
-                    self.layers[idx] = new_layer;
-                    if !self.drawing_state.shapes.is_empty() {
-                        self.regenerate_drawing_gcode();
-                    }
-                }
-            }
-        }
+        // Tool windows dispatch
+        self.update_tool_windows(ctx);
 
-        // === Handle Settings Modal ===
-        let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
-        let mut settings_write_blocked = false;
-        if let Some(state) = &mut self.settings_state {
-            ui::settings_dialog::show(ctx, state);
-            if !state.is_open {
-                self.settings_state = None;
-            } else {
-                // If there are pending writes, send them
-                if !state.pending_writes.is_empty() {
-                    if !supports_grbl_settings {
-                        settings_write_blocked = true;
-                        state.pending_writes.clear();
-                    } else {
-                        let writes = std::mem::take(&mut state.pending_writes);
-                        for (id, val) in writes {
-                            if id == -1 && val == "$$" {
-                                self.send_command("$$"); // Refresh
-                            } else {
-                                self.send_command(&format!("${}={}", id, val));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if settings_write_blocked {
-            self.log(format!(
-                "Settings write is not supported by {} backend.",
-                self.machine_profile.controller_kind.label()
-            ));
-        }
+        // Import modal
+        self.update_import_modal(ctx);
+
+        // Modals dispatch (cut settings, GRBL settings)
+        self.update_modals(ctx);
 
         // === TOP: Toolbar ===
         let is_connected = self.is_connected();
@@ -4266,192 +4125,7 @@ impl eframe::App for All4LaserApp {
             );
             ui.add_space(4.0);
 
-            if actions.connect_toggle {
-                if is_connected { self.disconnect(); } else { self.connect(); }
-            }
-            if actions.open_file { self.open_file(); }
-            if let Some(path) = actions.open_recent { self.load_file_path(&path); }
-            if actions.save_file { self.save_file(); }
-            // Export SVG (F54) — triggered from File > Save when shapes exist
-            if actions.save_file && !self.drawing_state.shapes.is_empty() {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("SVG", &["svg"])
-                    .set_file_name("export.svg")
-                    .save_file()
-                {
-                    let svg = crate::ui::drawing::export_shapes_to_svg(
-                        &self.drawing_state.shapes,
-                        &self.layers,
-                    );
-                    match std::fs::write(&path, svg) {
-                        Ok(()) => self.log(format!("SVG exported: {}", path.display())),
-                        Err(e) => self.show_error(format!("SVG export failed: {e}")),
-                    }
-                }
-            }
-            if actions.run_program {
-                self.is_dry_run = false;
-                if self.run_preflight("run", true) {
-                    self.run_program();
-                }
-            }
-            if actions.frame_bbox { self.frame_bbox(); }
-            if actions.dry_run {
-                self.is_dry_run = true;
-                if self.run_preflight("dry-run", true) {
-                    self.run_program();
-                } else {
-                    self.is_dry_run = false;
-                }
-            }
-            if actions.abort_program { self.abort_program(); }
-            if actions.hold {
-                self.send_realtime_or_warn(RealtimeCommand::FeedHold, "Feed hold");
-            }
-            if actions.resume {
-                self.send_realtime_or_warn(RealtimeCommand::CycleStart, "Cycle start");
-            }
-            if actions.home { self.send_command("$H"); }
-            if actions.unlock { self.send_command("$X"); }
-            if actions.set_zero { self.send_command("G92X0Y0Z0"); }
-            if actions.reset {
-                self.send_realtime_or_warn(RealtimeCommand::Reset, "Reset");
-            }
-            if let Some(t) = actions.set_theme {
-                self.ui_theme = t;
-                self.apply_theme(ctx);
-                self.sync_settings();
-            }
-            if let Some(l) = actions.set_layout {
-                self.ui_layout = l;
-                self.sync_settings();
-            }
-            if let Some(lang) = actions.set_language {
-                self.language = lang;
-                crate::i18n::set_language(lang);
-                self.sync_settings();
-            }
-            if actions.toggle_light_mode {
-                self.light_mode = !self.light_mode;
-                self.apply_theme(ctx);
-                self.sync_settings();
-            }
-            if actions.toggle_beginner_mode {
-                self.beginner_mode = !self.beginner_mode;
-                self.sync_settings();
-            }
-            if actions.open_power_speed_test {
-                self.power_speed_test.is_open = true;
-            }
-            if actions.open_gcode_editor {
-                self.gcode_editor.is_open = true;
-            }
-            if actions.open_shortcuts {
-                self.shortcuts.is_open = true;
-            }
-            if actions.open_tiling {
-                self.tiling.is_open = true;
-            }
-            if actions.open_nesting {
-                self.nesting_state.is_open = true;
-            }
-            if actions.open_job_queue {
-                self.job_queue_state.is_open = true;
-            }
-            if actions.open_test_fire {
-                self.test_fire_open = true;
-            }
-            if actions.open_project {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("All4Laser Project", &["a4l"])
-                    .pick_file()
-                {
-                    let path_str = path.to_string_lossy().to_string();
-                    match crate::config::project::ProjectFile::load(&path_str) {
-                        Ok(proj) => {
-                            self.job_offset_x = proj.offset_x;
-                            self.job_offset_y = proj.offset_y;
-                            self.job_rotation = proj.rotation_deg;
-                            if let Some(mp) = proj.machine_profile {
-                                let previous_kind = self.machine_profile.controller_kind;
-                                self.machine_profile = mp;
-                                self.apply_controller_kind_change(previous_kind);
-                            }
-                            self.camera_state.enabled = proj.camera_enabled;
-                            self.camera_state.opacity = proj.camera_opacity;
-                            self.camera_state.calibration = proj.camera_calibration;
-                            self.camera_state.device_index = proj.camera_device_index;
-                            self.camera_state.live_streaming = proj.camera_live_streaming;
-                            self.camera_state.snapshot_path = proj.camera_snapshot_path.clone();
-                            if let Some(preset_name) = proj.material_selected_preset.as_deref() {
-                                self.materials_state.select_preset_by_name(preset_name);
-                            }
-                            if self.camera_state.live_streaming {
-                                self.start_live_camera();
-                            } else if let Some(path) = proj.camera_snapshot_path {
-                                if self.load_camera_snapshot_from_path(ctx, &path).is_err() {
-                                    self.camera_state.texture = None;
-                                }
-                            } else {
-                                self.camera_state.texture = None;
-                            }
-                            if let Some(gc_path) = proj.gcode_path {
-                                self.load_file_path(&gc_path);
-                            } else if let Some(content) = proj.gcode_content {
-                                let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
-                                let file = GCodeFile::from_lines("project", &lines);
-                                self.set_loaded_file(file, lines);
-                            }
-                            self.sync_settings();
-                            self.log("Project loaded.".into());
-                        }
-                        Err(e) => self.show_error(format!("Project load failed: {e}")),
-                    }
-                }
-            }
-            if actions.save_project {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("All4Laser Project", &["a4l"])
-                    .set_file_name("project.a4l")
-                    .save_file()
-                {
-                    let path_str = path.to_string_lossy().to_string();
-                    let proj = crate::config::project::ProjectFile {
-                        version: 1,
-                        gcode_content: Some(self.program_lines.join("\n")),
-                        gcode_path: None,
-                        offset_x: self.job_offset_x,
-                        offset_y: self.job_offset_y,
-                        rotation_deg: self.job_rotation,
-                        machine_profile: Some(self.machine_profile.clone()),
-                        camera_enabled: self.camera_state.enabled,
-                        camera_opacity: self.camera_state.opacity,
-                        camera_calibration: self.camera_state.calibration.clone(),
-                        camera_snapshot_path: self.camera_state.snapshot_path.clone(),
-                        camera_device_index: self.camera_state.device_index,
-                        camera_live_streaming: self.camera_state.live_streaming,
-                        material_selected_preset: self
-                            .materials_state
-                            .selected_preset_name()
-                            .map(str::to_string),
-                        checkpoint_line: None,
-                        project_notes: self.project_notes.clone(),
-                    };
-                    match crate::config::project::ProjectFile::save(&path_str, &proj) {
-                        Ok(_) => self.log(format!("Project saved: {path_str}")),
-                        Err(e) => self.show_error(format!("Project save failed: {e}")),
-                    }
-                }
-            }
-            if actions.open_settings {
-                if self.settings_state.is_none() {
-                    let mut state = ui::settings_dialog::SettingsDialogState::default();
-                    state.is_open = true;
-                    // Trigger a refresh automatically on open
-                    state.pending_writes.push((-1, "$$".to_string()));
-                    self.settings_state = Some(state);
-                }
-            }
+            self.handle_toolbar_actions(ctx, actions);
         });
 
         // === BOTTOM: Progress bar + Status bar ===
@@ -4556,213 +4230,7 @@ impl eframe::App for All4LaserApp {
         });
 
         // === CENTER: Preview ===
-        CentralPanel::default().show(ctx, |ui| {
-            let segments = self.loaded_file
-                .as_ref()
-                .map(|f| {
-                    // Filter segments by layer visibility
-                    f.segments.iter()
-                        .filter(|seg| {
-                            f.layers.get(seg.layer_id).map(|l| l.visible).unwrap_or(true)
-                        })
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-
-            let offset = egui::vec2(self.job_offset_x, self.job_offset_y);
-
-            let preview_action = ui::preview_panel::show(
-                ui, 
-                &mut self.renderer, 
-                &segments,
-                &self.drawing_state.shapes,
-                &self.layers,
-                self.light_mode, 
-                offset, 
-                self.job_rotation,
-                &mut self.camera_state
-            );
-
-            if preview_action.zoom_in { self.renderer.zoom_in(); }
-            if preview_action.zoom_out { self.renderer.zoom_out(); }
-            if preview_action.auto_fit {
-                if let Some(file) = self.loaded_file.as_ref() {
-                    let segments = file.segments.clone();
-                    let rect = ui.max_rect();
-                    self.renderer.auto_fit(&segments, rect, offset, self.job_rotation);
-                }
-            }
-
-            if !matches!(
-                preview_action.interactive_action,
-                crate::preview::renderer::InteractiveAction::MoveNode { .. }
-                    | crate::preview::renderer::InteractiveAction::MoveNodeHandle { .. }
-            ) {
-                self.node_move_undo_armed = true;
-            }
-
-            if !matches!(
-                preview_action.interactive_action,
-                crate::preview::renderer::InteractiveAction::DragSelection { .. }
-                    | crate::preview::renderer::InteractiveAction::RotateSelection { .. }
-            ) {
-                self.shape_transform_undo_armed = true;
-            }
-
-            // Handle Interaction from Preview
-            match preview_action.interactive_action {
-                crate::preview::renderer::InteractiveAction::SelectShape(idx, _is_multi) => {
-                    // Update drawing tool to reflect selection (of the most recently clicked)
-                    if let Some(shape) = self.drawing_state.shapes.get(idx) {
-                        self.drawing_state.current = shape.clone();
-                    }
-                }
-                crate::preview::renderer::InteractiveAction::Deselect => {
-                    // Selection cleared in renderer, app doesn't need to do much
-                }
-                crate::preview::renderer::InteractiveAction::DragSelection { delta } => {
-                    if self.shape_transform_undo_armed {
-                        self.push_node_undo_snapshot();
-                        self.shape_transform_undo_armed = false;
-                    }
-                    // Iterate over all selected shapes in renderer
-                    for &idx in &self.renderer.selected_shape_idx {
-                        if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
-                            shape.x += delta.x;
-                            shape.y += delta.y;
-                        }
-                    }
-
-                    // Trigger Live Update
-                    self.regenerate_drawing_gcode();
-                }
-                crate::preview::renderer::InteractiveAction::RotateSelection { shape_idx, delta_deg } => {
-                    if self.shape_transform_undo_armed {
-                        self.push_node_undo_snapshot();
-                        self.shape_transform_undo_armed = false;
-                    }
-                    if let Some(shape) = self.drawing_state.shapes.get_mut(shape_idx) {
-                        // 1. Get current world center
-                        let local_center = shape.local_center();
-                        let (old_cx, old_cy) = shape.world_pos(local_center.0, local_center.1);
-
-                        // 2. Apply rotation
-                        shape.rotation += delta_deg;
-                        // Normalize 0-360
-                        shape.rotation = (shape.rotation + 360.0) % 360.0;
-
-                        // 3. Get new world center if (x,y) stayed same
-                        let (new_cx, new_cy) = shape.world_pos(local_center.0, local_center.1);
-
-                        // 4. Adjust (x,y) to keep center at (old_cx, old_cy)
-                        shape.x += old_cx - new_cx;
-                        shape.y += old_cy - new_cy;
-                        
-                        self.regenerate_drawing_gcode();
-                    }
-                }
-                crate::preview::renderer::InteractiveAction::MoveNode { shape_idx, node_idx, new_pos } => {
-                    if self.node_move_undo_armed {
-                        self.push_node_undo_snapshot();
-                        self.node_move_undo_armed = false;
-                    }
-                    if let Some(shape_ro) = self.drawing_state.shapes.get(shape_idx) {
-                        if let ShapeKind::Path(pts_ro) = &shape_ro.shape {
-                            if let Some(p0) = pts_ro.get(node_idx) {
-                                let (cur_wx, cur_wy) = shape_ro.world_pos(p0.0, p0.1);
-                                let dx = new_pos.x - cur_wx;
-                                let dy = new_pos.y - cur_wy;
-                                let angle = shape_ro.rotation.to_radians();
-                                let (sin_a, cos_a) = angle.sin_cos();
-                                let dlx = dx * cos_a + dy * sin_a;
-                                let dly = -dx * sin_a + dy * cos_a;
-
-                                let mut selected_nodes: Vec<usize> = self
-                                    .renderer
-                                    .selected_nodes
-                                    .iter()
-                                    .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
-                                    .collect();
-                                selected_nodes.sort_unstable();
-                                selected_nodes.dedup();
-                                if selected_nodes.is_empty() {
-                                    selected_nodes.push(node_idx);
-                                }
-
-                                if let Some(shape_rw) = self.drawing_state.shapes.get_mut(shape_idx) {
-                                    if let ShapeKind::Path(pts_rw) = &mut shape_rw.shape {
-                                        for idx in selected_nodes {
-                                            if let Some(p) = pts_rw.get_mut(idx) {
-                                                p.0 += dlx;
-                                                p.1 += dly;
-                                            }
-                                        }
-                                    }
-                                }
-                                self.regenerate_drawing_gcode();
-                            }
-                        }
-                    }
-                }
-                crate::preview::renderer::InteractiveAction::MoveNodeHandle { shape_idx, node_idx, handle, new_pos } => {
-                    if self.node_move_undo_armed {
-                        self.push_node_undo_snapshot();
-                        self.node_move_undo_armed = false;
-                    }
-                    if let Some(shape_ro) = self.drawing_state.shapes.get(shape_idx) {
-                        let (lx, ly) = Self::world_to_shape_local(shape_ro, new_pos.x, new_pos.y);
-                        if let Some(shape_rw) = self.drawing_state.shapes.get_mut(shape_idx) {
-                            if let ShapeKind::Path(pts) = &mut shape_rw.shape {
-                                let target_idx = match handle {
-                                    crate::preview::renderer::NodeHandleKind::In => node_idx.saturating_sub(1),
-                                    crate::preview::renderer::NodeHandleKind::Out => node_idx.saturating_add(1),
-                                };
-                                if target_idx < pts.len() {
-                                    if let Some(p) = pts.get_mut(target_idx) {
-                                        p.0 = lx;
-                                        p.1 = ly;
-                                        self.regenerate_drawing_gcode();
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                crate::preview::renderer::InteractiveAction::AddNode { shape_idx, insert_after, new_pos } => {
-                    self.push_node_undo_snapshot();
-                    if let Some(shape) = self.drawing_state.shapes.get(shape_idx) {
-                        let (lx, ly) = Self::world_to_shape_local(shape, new_pos.x, new_pos.y);
-                        match ui::vector_edit::insert_node_on_segment(
-                            &mut self.drawing_state,
-                            shape_idx,
-                            insert_after,
-                            (lx, ly),
-                        ) {
-                            Ok(insert_idx) => {
-                                self.renderer.selected_shape_idx.clear();
-                                self.renderer.selected_shape_idx.insert(shape_idx);
-                                self.renderer.selected_node = Some((shape_idx, insert_idx));
-                                self.renderer.selected_nodes.clear();
-                                self.renderer.selected_nodes.insert((shape_idx, insert_idx));
-                                self.regenerate_drawing_gcode();
-                            }
-                            Err(e) => self.log(format!("Add node failed: {e}")),
-                        }
-                    }
-                }
-                crate::preview::renderer::InteractiveAction::CameraPickPoint(pos) => {
-                    self.handle_camera_pick_point(pos);
-                }
-                _ => {}
-            }
-
-            // Update machine position in preview
-            self.renderer.machine_pos = egui::Pos2::new(
-                self.grbl_state.wpos.x,
-                self.grbl_state.wpos.y,
-            );
-        });
+        self.update_preview(ctx);
     }
 }
 
