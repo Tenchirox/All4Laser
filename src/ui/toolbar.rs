@@ -242,6 +242,10 @@ pub fn show(
                 action.set_layout = Some(theme::UiLayout::Modern);
                 ui.close_menu();
             }
+            if ui.selectable_label(false, tr("Pro layout (aesthetic & practical)")).clicked() {
+                action.set_layout = Some(theme::UiLayout::Pro);
+                ui.close_menu();
+            }
             if ui.selectable_label(false, tr("Classic layout (expert)")).clicked() {
                 action.set_layout = Some(theme::UiLayout::Classic);
                 ui.close_menu();

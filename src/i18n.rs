@@ -82,6 +82,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     fr.insert("Industrial (advanced)", "Industriel (avancé)");
     fr.insert("Modern layout (simple)", "Disposition moderne (simple)");
     fr.insert("Classic layout (expert)", "Disposition classique (expert)");
+    fr.insert("Pro layout (aesthetic & practical)", "Disposition Pro (esthétique & pratique)");
     fr.insert("Beginner Mode", "Mode débutant");
     fr.insert("Connection & Control", "Connexion & Contrôle");
     fr.insert("Job Preparation", "Préparation du job");
@@ -142,6 +143,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     ja.insert("Industrial (advanced)", "インダストリアル（上級者向け）");
     ja.insert("Modern layout (simple)", "モダンレイアウト（シンプル）");
     ja.insert("Classic layout (expert)", "クラシックレイアウト（上級者向け）");
+    ja.insert("Pro layout (aesthetic & practical)", "プロレイアウト（美的で実用的）");
     ja.insert("Beginner Mode", "初心者モード");
     ja.insert("Connection & Control", "接続と操作");
     ja.insert("Job Preparation", "ジョブ準備");
@@ -202,6 +204,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     de.insert("Industrial (advanced)", "Industriell (erweitert)");
     de.insert("Modern layout (simple)", "Modernes Layout (einfach)");
     de.insert("Classic layout (expert)", "Klassisches Layout (Experte)");
+    de.insert("Pro layout (aesthetic & practical)", "Pro Layout (ästhetisch & praktisch)");
     de.insert("Beginner Mode", "Anfängermodus");
     de.insert("Connection & Control", "Verbindung & Steuerung");
     de.insert("Job Preparation", "Jobvorbereitung");
@@ -262,6 +265,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     it.insert("Industrial (advanced)", "Industriale (avanzato)");
     it.insert("Modern layout (simple)", "Layout moderno (semplice)");
     it.insert("Classic layout (expert)", "Layout classico (esperto)");
+    it.insert("Pro layout (aesthetic & practical)", "Layout Pro (estetico & pratico)");
     it.insert("Beginner Mode", "Modalità principiante");
     it.insert("Connection & Control", "Connessione e Controllo");
     it.insert("Job Preparation", "Preparazione lavoro");
@@ -322,6 +326,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     es.insert("Industrial (advanced)", "Industrial (avanzado)");
     es.insert("Modern layout (simple)", "Diseño moderno (simple)");
     es.insert("Classic layout (expert)", "Diseño clásico (experto)");
+    es.insert("Pro layout (aesthetic & practical)", "Diseño Pro (estético y práctico)");
     es.insert("Beginner Mode", "Modo principiante");
     es.insert("Connection & Control", "Conexión y control");
     es.insert("Job Preparation", "Preparación del trabajo");
@@ -382,6 +387,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     pt.insert("Industrial (advanced)", "Industrial (avançado)");
     pt.insert("Modern layout (simple)", "Layout moderno (simples)");
     pt.insert("Classic layout (expert)", "Layout clássico (especialista)");
+    pt.insert("Pro layout (aesthetic & practical)", "Layout Pro (estético e prático)");
     pt.insert("Beginner Mode", "Modo iniciante");
     pt.insert("Connection & Control", "Conexão e Controle");
     pt.insert("Job Preparation", "Preparação do trabalho");
@@ -442,6 +448,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     ar.insert("Industrial (advanced)", "صناعي (متقدم)");
     ar.insert("Modern layout (simple)", "تخطيط حديث (بسيط)");
     ar.insert("Classic layout (expert)", "تخطيط كلاسيكي (خبير)");
+    ar.insert("Pro layout (aesthetic & practical)", "تخطيط احترافي (جمالي وعملي)");
     ar.insert("Beginner Mode", "وضع المبتدئ");
     ar.insert("Connection & Control", "الاتصال والتحكم");
     ar.insert("Job Preparation", "إعداد المهمة");
@@ -520,6 +527,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     zh.insert("Industrial (advanced)", "工业（高级）");
     zh.insert("Modern layout (simple)", "现代布局（简单）");
     zh.insert("Classic layout (expert)", "经典布局（专家）");
+    zh.insert("Pro layout (aesthetic & practical)", "专业布局 (美观且实用)");
     zh.insert("Beginner Mode", "新手模式");
     zh.insert("Connection & Control", "连接与控制");
     zh.insert("Job Preparation", "作业准备");
@@ -577,6 +585,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     ru.insert("Industrial (advanced)", "Промышленный (продвинутый)");
     ru.insert("Modern layout (simple)", "Современный макет (простой)");
     ru.insert("Classic layout (expert)", "Классический макет (эксперт)");
+    ru.insert("Pro layout (aesthetic & practical)", "Про макет (эстетичный и практичный)");
     ru.insert("Beginner Mode", "Режим новичка");
     ru.insert("Connection & Control", "Подключение и управление");
     ru.insert("Job Preparation", "Подготовка задания");
@@ -634,6 +643,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     tr_lang.insert("Industrial (advanced)", "Endüstriyel (gelişmiş)");
     tr_lang.insert("Modern layout (simple)", "Modern düzen (basit)");
     tr_lang.insert("Classic layout (expert)", "Klasik düzen (uzman)");
+    tr_lang.insert("Pro layout (aesthetic & practical)", "Pro düzen (estetik ve pratik)");
     tr_lang.insert("Beginner Mode", "Başlangıç Modu");
     tr_lang.insert("Connection & Control", "Bağlantı ve Kontrol");
     tr_lang.insert("Job Preparation", "İş Hazırlığı");
@@ -691,6 +701,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     ko.insert("Industrial (advanced)", "산업용 (고급)");
     ko.insert("Modern layout (simple)", "현대적 레이아웃 (간단)");
     ko.insert("Classic layout (expert)", "클래식 레이아웃 (전문가)");
+    ko.insert("Pro layout (aesthetic & practical)", "프로 레이아웃 (미적이고 실용적)");
     ko.insert("Beginner Mode", "초보자 모드");
     ko.insert("Connection & Control", "연결 및 제어");
     ko.insert("Job Preparation", "작업 준비");
@@ -748,6 +759,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     pl.insert("Industrial (advanced)", "Przemysłowy (zaawansowany)");
     pl.insert("Modern layout (simple)", "Nowoczesny układ (prosty)");
     pl.insert("Classic layout (expert)", "Klasyczny układ (ekspert)");
+    pl.insert("Pro layout (aesthetic & practical)", "Pro układ (estetyczny i praktyczny)");
     pl.insert("Beginner Mode", "Tryb początkującego");
     pl.insert("Connection & Control", "Połączenie i sterowanie");
     pl.insert("Job Preparation", "Przygotowanie zadania");

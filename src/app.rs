@@ -4205,9 +4205,14 @@ impl eframe::App for All4LaserApp {
         // === LEFT: Control panels ===
         let connected = self.is_connected();
         // === LEFT SIDEBAR ===
+        let left_panel_width = match self.ui_layout {
+            theme::UiLayout::Modern => LEFT_PANEL_WIDTH,
+            theme::UiLayout::Pro => 300.0,
+            theme::UiLayout::Classic => 360.0,
+        };
         SidePanel::left("left_panel")
             .resizable(true)
-            .default_width(if self.ui_layout == theme::UiLayout::Modern { LEFT_PANEL_WIDTH } else { 360.0 })
+            .default_width(left_panel_width)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().id_salt("left_scroll").show(ui, |ui| {
                     self.ui_left_content(ui, connected);
@@ -4215,19 +4220,32 @@ impl eframe::App for All4LaserApp {
             });
 
         // === RIGHT SIDEBAR ===
-        let right_panel_id = "right_panel";
-        let right_panel = SidePanel::right(right_panel_id)
+        let right_panel_width = match self.ui_layout {
+            theme::UiLayout::Modern => 220.0,
+            theme::UiLayout::Pro => 280.0,
+            theme::UiLayout::Classic => 340.0,
+        };
+        SidePanel::right("right_panel")
             .resizable(true)
-            .default_width(if self.ui_layout == theme::UiLayout::Modern { 220.0 } else { 340.0 });
+            .default_width(right_panel_width)
+            .show(ctx, |ui| {
+                if self.ui_layout == theme::UiLayout::Modern {
+                    self.ui_right_content(ui);
+                } else {
+                    // Pro and Classic use the Tabbed interface on the right
+                    self.ui_right_tabs(ui, connected);
+                }
+            });
 
-        right_panel.show(ctx, |ui| {
-            if self.ui_layout == theme::UiLayout::Modern {
-                self.ui_right_content(ui);
-            } else {
-                // Classic Right: Tabbed interface
-                self.ui_right_tabs(ui, connected);
-            }
-        });
+        // === BOTTOM PANEL (Pro Layout Only) ===
+        if self.ui_layout == theme::UiLayout::Pro {
+            egui::TopBottomPanel::bottom("bottom_console_panel")
+                .resizable(true)
+                .default_height(150.0)
+                .show(ctx, |ui| {
+                    self.ui_right_content(ui);
+                });
+        }
 
         // === CENTER: Preview ===
         self.update_preview(ctx);

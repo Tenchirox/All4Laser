@@ -12,6 +12,7 @@ pub enum UiTheme {
 pub enum UiLayout {
     Modern, // sidebar left
     Classic, // LightBurn style (sidebar left/right, console right)
+    Pro,     // High-end workspace: wider panels, robust layout
 }
 
 pub struct AppTheme {
