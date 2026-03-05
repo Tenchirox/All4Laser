@@ -5,6 +5,7 @@ use egui::{Color32, Context};
 pub enum UiTheme {
     Modern,    // Catppuccin
     Industrial, // LightBurn-style
+    Pro,        // Clean, High-contrast, Modern Professional
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -139,6 +140,31 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
                 (DARK_BASE, DARK_MANTLE, DARK_CRUST, DARK_SURFACE0, DARK_SURFACE1, DARK_SURFACE2, DARK_TEXT, BLUE)
             }
         }
+        UiTheme::Pro => {
+            if state.is_light {
+                (
+                    Color32::from_rgb(250, 250, 250), // Base
+                    Color32::from_rgb(240, 240, 240), // Mantle
+                    Color32::from_rgb(230, 230, 230), // Crust
+                    Color32::from_rgb(255, 255, 255), // Surface0
+                    Color32::from_rgb(245, 245, 245), // Surface1
+                    Color32::from_rgb(220, 220, 220), // Surface2
+                    Color32::from_rgb(17, 24, 39),    // Text (very dark gray)
+                    Color32::from_rgb(14, 165, 233),  // Accent (Sky Blue)
+                )
+            } else {
+                (
+                    Color32::from_rgb(15, 23, 42),    // Base (Slate 900)
+                    Color32::from_rgb(2, 6, 23),      // Mantle (Slate 950)
+                    Color32::from_rgb(0, 0, 0),       // Crust (Black)
+                    Color32::from_rgb(30, 41, 59),    // Surface0 (Slate 800)
+                    Color32::from_rgb(51, 65, 85),    // Surface1 (Slate 700)
+                    Color32::from_rgb(71, 85, 105),   // Surface2 (Slate 600)
+                    Color32::from_rgb(248, 250, 252), // Text (Slate 50)
+                    Color32::from_rgb(56, 189, 248),  // Accent (Sky 400)
+                )
+            }
+        }
         UiTheme::Industrial => {
             // LightBurn utilise un thème sombre professionnel avec des accents bleus
             if state.is_light {
@@ -175,6 +201,13 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
                 Color32::from_rgb(60, 63, 82)
             }
         }
+        UiTheme::Pro => {
+            if state.is_light {
+                Color32::from_rgb(226, 232, 240) // Slate 200
+            } else {
+                Color32::from_rgb(51, 65, 85) // Slate 700
+            }
+        }
     };
 
     style.visuals.dark_mode = !state.is_light;
@@ -186,10 +219,10 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
     style.visuals.window_stroke = egui::Stroke::new(1.0, border_color);
 
     // Rounding based on theme
-    let rounding = if state.ui_theme == UiTheme::Industrial {
-        egui::CornerRadius::same(1) // Quasi plat
-    } else {
-        egui::CornerRadius::same(6) // Modern/Round
+    let rounding = match state.ui_theme {
+        UiTheme::Industrial => egui::CornerRadius::same(1), // Quasi plat
+        UiTheme::Pro => egui::CornerRadius::same(4),        // Slightly rounded, crisp
+        UiTheme::Modern => egui::CornerRadius::same(6),     // Modern/Round
     };
 
     // Noninteractive
@@ -204,7 +237,7 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
     style.visuals.widgets.inactive.weak_bg_fill = if state.ui_theme == UiTheme::Industrial {
         mantle
     } else if state.is_light {
-        Color32::from_rgb(225, 228, 238)
+        if state.ui_theme == UiTheme::Pro { Color32::from_rgb(241, 245, 249) } else { Color32::from_rgb(225, 228, 238) }
     } else {
         surface0
     };
@@ -240,14 +273,22 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
         crust
     };
     
-    if state.ui_theme == UiTheme::Industrial {
-        style.spacing.button_padding = egui::vec2(5.5, 3.0);
-        style.spacing.item_spacing = egui::vec2(3.5, 3.5);
-        style.spacing.indent = 10.0;
-        style.visuals.window_stroke = egui::Stroke::new(1.0, Color32::from_rgb(83, 85, 92));
-    } else {
-        style.spacing.button_padding = egui::vec2(12.0, 6.0);
-        style.spacing.item_spacing = egui::vec2(8.0, 7.0);
+    match state.ui_theme {
+        UiTheme::Industrial => {
+            style.spacing.button_padding = egui::vec2(5.5, 3.0);
+            style.spacing.item_spacing = egui::vec2(3.5, 3.5);
+            style.spacing.indent = 10.0;
+            style.visuals.window_stroke = egui::Stroke::new(1.0, Color32::from_rgb(83, 85, 92));
+        }
+        UiTheme::Pro => {
+            style.spacing.button_padding = egui::vec2(10.0, 5.0);
+            style.spacing.item_spacing = egui::vec2(6.0, 6.0);
+            style.spacing.indent = 12.0;
+        }
+        UiTheme::Modern => {
+            style.spacing.button_padding = egui::vec2(12.0, 6.0);
+            style.spacing.item_spacing = egui::vec2(8.0, 7.0);
+        }
     }
     
     ctx.set_style(style);

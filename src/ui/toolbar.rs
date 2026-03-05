@@ -227,6 +227,10 @@ pub fn show(
                 action.set_theme = Some(theme::UiTheme::Modern);
                 ui.close_menu();
             }
+            if ui.selectable_label(false, tr("Pro (new)")).clicked() {
+                action.set_theme = Some(theme::UiTheme::Pro);
+                ui.close_menu();
+            }
             if ui.selectable_label(false, tr("Industrial (advanced)")).clicked() {
                 action.set_theme = Some(theme::UiTheme::Industrial);
                 ui.close_menu();

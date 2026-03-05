@@ -4352,6 +4352,7 @@ mod tests {
 
     #[test]
     fn normalized_segment_key_is_direction_agnostic() {
+        use crate::ui::preflight::normalized_segment_key;
         let a = normalized_segment_key((0.0, 0.0), (10.0, 5.0));
         let b = normalized_segment_key((10.0, 5.0), (0.0, 0.0));
         assert_eq!(a, b);
