@@ -2,7 +2,7 @@ use crate::gcode::types::GCodeLine;
 
 /// A group of GCode lines that form a continuous burn (M3 on -> moves -> M5 off)
 #[derive(Debug, Clone)]
-pub struct BurnPath {
+pub struct BurnPath<'a> {
     pub start_x: f32,
     pub start_y: f32,
     pub end_x: f32,
@@ -11,7 +11,7 @@ pub struct BurnPath {
     pub min_y: f32,
     pub max_x: f32,
     pub max_y: f32,
-    pub lines: Vec<GCodeLine>,
+    pub lines: Vec<&'a GCodeLine>,
     pub nesting_level: usize,
 }
 
@@ -43,14 +43,14 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
                     min_y: cur_y,
                     max_x: cur_x,
                     max_y: cur_y,
-                    lines: vec![line.clone()],
+                    lines: vec![line],
                     nesting_level: 0,
                 });
                 continue;
             }
             if m == 5 {
                 if let Some(mut path) = current_path.take() {
-                    path.lines.push(line.clone());
+                    path.lines.push(line);
                     burn_paths.push(path);
                 }
                 continue;
@@ -58,6 +58,7 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
         }
 
         if let Some(path) = current_path.as_mut() {
+            path.lines.push(line);
             path.lines.push(line.clone());
             if let Some(x) = line.x {
                 path.end_x = x;
@@ -73,6 +74,10 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
             }
         } else if !burn_paths.is_empty() {
             // Footer logic: everything after the last M5
+            footer.push(line);
+        } else {
+            // Header logic: everything before the first M3
+            header.push(line);
             footer.push(line.clone());
         } else {
             // Header logic: everything before the first M3
@@ -105,7 +110,10 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
     }
 
     // 3. Greedy sorting with nesting priority
-    optimized.extend(header);
+    optimized.reserve(
+        header.len() + footer.len() + burn_paths.iter().map(|p| p.lines.len()).sum::<usize>(),
+    );
+    optimized.extend(header.into_iter().cloned());
 
     // Group remaining paths by nesting level using BTreeMap of Vecs
     let mut paths_by_level: std::collections::BTreeMap<usize, Vec<BurnPath>> = std::collections::BTreeMap::new();
@@ -135,6 +143,9 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
                 }
             }
 
+        if let Some(idx) = best_index {
+            let best_path = remaining.remove(idx);
+            optimized.extend(best_path.lines.into_iter().cloned());
             // Remove the nearest path and process it
             // swap_remove is O(1) compared to remove which is O(N).
             let best_path = level_paths.swap_remove(best_index);
@@ -144,6 +155,6 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
         }
     }
 
-    optimized.extend(footer);
+    optimized.extend(footer.into_iter().cloned());
     optimized
 }
