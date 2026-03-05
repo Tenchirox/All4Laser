@@ -1,7 +1,7 @@
-use egui::RichText;
 use crate::theme;
-use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
-use geo::{MultiPolygon, BooleanOps};
+use crate::ui::drawing::{DrawingState, ShapeKind, ShapeParams};
+use egui::RichText;
+use geo::{BooleanOps, MultiPolygon};
 
 #[derive(Clone, Debug)]
 pub struct BooleanOpsState {
@@ -50,7 +50,10 @@ pub fn show(ctx: &egui::Context, state: &mut BooleanOpsState) -> BooleanAction {
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("🧩 Apply").color(theme::GREEN).strong()).clicked() {
+                if ui
+                    .button(RichText::new("🧩 Apply").color(theme::GREEN).strong())
+                    .clicked()
+                {
                     action.apply = true;
                 }
                 if ui.button("Close").clicked() {
@@ -62,7 +65,11 @@ pub fn show(ctx: &egui::Context, state: &mut BooleanOpsState) -> BooleanAction {
     action
 }
 
-pub fn apply_boolean(state: &BooleanOpsState, drawing: &mut DrawingState, selected_indices: &[usize]) {
+pub fn apply_boolean(
+    state: &BooleanOpsState,
+    drawing: &mut DrawingState,
+    selected_indices: &[usize],
+) {
     if selected_indices.len() < 2 {
         return;
     }
@@ -125,7 +132,10 @@ pub fn apply_boolean(state: &BooleanOpsState, drawing: &mut DrawingState, select
     // Add new shapes from the result
     for poly in result.0 {
         let exterior = poly.exterior();
-        let points: Vec<(f32, f32)> = exterior.coords().map(|c| (c.x as f32, c.y as f32)).collect();
+        let points: Vec<(f32, f32)> = exterior
+            .coords()
+            .map(|c| (c.x as f32, c.y as f32))
+            .collect();
         if !points.is_empty() {
             let mut new_shape = ShapeParams::default();
             new_shape.shape = ShapeKind::Path(points);
@@ -133,10 +143,13 @@ pub fn apply_boolean(state: &BooleanOpsState, drawing: &mut DrawingState, select
             new_shape.y = 0.0;
             drawing.shapes.push(new_shape);
         }
-        
+
         // Handle holes (interiors)
         for interior in poly.interiors() {
-            let points: Vec<(f32, f32)> = interior.coords().map(|c| (c.x as f32, c.y as f32)).collect();
+            let points: Vec<(f32, f32)> = interior
+                .coords()
+                .map(|c| (c.x as f32, c.y as f32))
+                .collect();
             if !points.is_empty() {
                 let mut hole_shape = ShapeParams::default();
                 hole_shape.shape = ShapeKind::Path(points);

@@ -1,4 +1,4 @@
-use egui::{Pos2, Ui, RichText, TextureHandle};
+use egui::{Pos2, RichText, TextureHandle, Ui};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default)]
@@ -239,7 +239,7 @@ pub fn show(ui: &mut Ui, state: &mut CameraState) -> CameraAction {
                 };
                 ui.label(RichText::new(step_hint).small().color(crate::theme::PEACH));
             }
-            
+
             ui.collapsing("Calibration", |ui| {
                 egui::Grid::new("cam_calib").num_columns(2).show(ui, |ui| {
                     ui.label("Offset X:"); ui.add(egui::DragValue::new(&mut state.calibration.offset_x).speed(1.0));

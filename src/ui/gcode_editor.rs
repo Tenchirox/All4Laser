@@ -1,6 +1,6 @@
+use crate::theme;
 /// Integrated GCode editor panel
 use egui::RichText;
-use crate::theme;
 
 pub struct GCodeEditorState {
     pub is_open: bool,
@@ -10,7 +10,11 @@ pub struct GCodeEditorState {
 
 impl Default for GCodeEditorState {
     fn default() -> Self {
-        Self { is_open: false, text: String::new(), dirty: false }
+        Self {
+            is_open: false,
+            text: String::new(),
+            dirty: false,
+        }
     }
 }
 
@@ -33,7 +37,11 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
         .default_size([640.0, 480.0])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("📝 GCode Editor").color(theme::LAVENDER).strong());
+                ui.label(
+                    RichText::new("📝 GCode Editor")
+                        .color(theme::LAVENDER)
+                        .strong(),
+                );
                 if state.dirty {
                     ui.label(RichText::new("● unsaved").color(theme::PEACH).small());
                 }
@@ -41,7 +49,10 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
                     if ui.button("✖ Close").clicked() {
                         close_clicked = true;
                     }
-                    if ui.button(RichText::new("✔ Apply").color(theme::GREEN)).clicked() {
+                    if ui
+                        .button(RichText::new("✔ Apply").color(theme::GREEN))
+                        .clicked()
+                    {
                         apply_clicked = true;
                     }
                 });
@@ -57,14 +68,18 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
                     let mut current_token = String::new();
 
                     while let Some(c) = chars.next() {
-                         if c == ';' || c == '(' {
+                        if c == ';' || c == '(' {
                             // Comment rest of line
                             if !current_token.is_empty() {
-                                job.append(&current_token, 0.0, egui::TextFormat {
-                                    font_id: egui::TextStyle::Monospace.resolve(ui.style()),
-                                    color: theme::TEXT,
-                                    ..Default::default()
-                                });
+                                job.append(
+                                    &current_token,
+                                    0.0,
+                                    egui::TextFormat {
+                                        font_id: egui::TextStyle::Monospace.resolve(ui.style()),
+                                        color: theme::TEXT,
+                                        ..Default::default()
+                                    },
+                                );
                                 current_token.clear();
                             }
                             let mut comment = String::from(c);
@@ -72,11 +87,15 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
                                 comment.push(next);
                                 chars.next();
                             }
-                            job.append(&comment, 0.0, egui::TextFormat {
-                                font_id: egui::TextStyle::Monospace.resolve(ui.style()),
-                                color: theme::SUBTEXT,
-                                ..Default::default()
-                            });
+                            job.append(
+                                &comment,
+                                0.0,
+                                egui::TextFormat {
+                                    font_id: egui::TextStyle::Monospace.resolve(ui.style()),
+                                    color: theme::SUBTEXT,
+                                    ..Default::default()
+                                },
+                            );
                             break;
                         } else if c.is_whitespace() {
                             if !current_token.is_empty() {

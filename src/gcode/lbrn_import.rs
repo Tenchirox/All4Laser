@@ -1,7 +1,6 @@
 /// LightBurn .lbrn2 import/export (F9)
 /// .lbrn2 files are XML-based with shape and layer definitions
-
-use crate::ui::drawing::{ShapeParams, ShapeKind};
+use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::ui::layers_new::{CutLayer, CutMode};
 
 /// Parse a .lbrn2 XML file and extract shapes + layer overrides
@@ -28,7 +27,9 @@ pub fn import_lbrn2(content: &str) -> Result<(Vec<ShapeParams>, Vec<LbrnLayerOve
         }
 
         // Parse Shape entries — ellipses/circles
-        if trimmed.starts_with("<Shape Type=\"Ellipse\"") || trimmed.starts_with("<Shape Type=\"1\"") {
+        if trimmed.starts_with("<Shape Type=\"Ellipse\"")
+            || trimmed.starts_with("<Shape Type=\"1\"")
+        {
             if let Some(shape) = parse_ellipse_shape(trimmed) {
                 shapes.push(shape);
             }
@@ -55,8 +56,12 @@ pub struct LbrnLayerOverride {
 
 fn parse_cut_setting_line(line: &str) -> Option<LbrnLayerOverride> {
     let index = extract_attr(line, "index")?.parse::<usize>().ok()?;
-    let speed = extract_attr(line, "speed").and_then(|s| s.parse::<f32>().ok()).unwrap_or(1000.0);
-    let max_power = extract_attr(line, "maxPower").and_then(|s| s.parse::<f32>().ok()).unwrap_or(50.0);
+    let speed = extract_attr(line, "speed")
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(1000.0);
+    let max_power = extract_attr(line, "maxPower")
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(50.0);
     let mode_str = extract_attr(line, "type").unwrap_or_default();
     let mode = match mode_str.as_str() {
         "Cut" | "00" => CutMode::Line,
@@ -76,12 +81,18 @@ fn parse_cut_setting_line(line: &str) -> Option<LbrnLayerOverride> {
 fn parse_rect_shape(line: &str) -> Option<ShapeParams> {
     let x = extract_attr(line, "X")?.parse::<f32>().ok()?;
     let y = extract_attr(line, "Y")?.parse::<f32>().ok()?;
-    let w = extract_attr(line, "W").and_then(|s| s.parse::<f32>().ok()).unwrap_or(10.0);
-    let h = extract_attr(line, "H").and_then(|s| s.parse::<f32>().ok()).unwrap_or(10.0);
+    let w = extract_attr(line, "W")
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(10.0);
+    let h = extract_attr(line, "H")
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(10.0);
     Some(ShapeParams {
         shape: ShapeKind::Rectangle,
-        x, y,
-        width: w, height: h,
+        x,
+        y,
+        width: w,
+        height: h,
         radius: 0.0,
         layer_idx: 0,
         text: String::new(),
@@ -94,11 +105,15 @@ fn parse_rect_shape(line: &str) -> Option<ShapeParams> {
 fn parse_ellipse_shape(line: &str) -> Option<ShapeParams> {
     let cx = extract_attr(line, "CX")?.parse::<f32>().ok()?;
     let cy = extract_attr(line, "CY")?.parse::<f32>().ok()?;
-    let rx = extract_attr(line, "Rx").and_then(|s| s.parse::<f32>().ok()).unwrap_or(10.0);
+    let rx = extract_attr(line, "Rx")
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(10.0);
     Some(ShapeParams {
         shape: ShapeKind::Circle,
-        x: cx, y: cy,
-        width: 0.0, height: 0.0,
+        x: cx,
+        y: cy,
+        width: 0.0,
+        height: 0.0,
         radius: rx,
         layer_idx: 0,
         text: String::new(),
@@ -132,7 +147,9 @@ pub fn export_lbrn2(shapes: &[ShapeParams], layers: &[CutLayer]) -> String {
         };
         xml += &format!(
             "  <CutSetting type=\"{mode_str}\" index=\"{i}\" speed=\"{:.1}\" maxPower=\"{:.1}\" passes=\"{}\"/>\n",
-            layer.speed, layer.power / 10.0, layer.passes
+            layer.speed,
+            layer.power / 10.0,
+            layer.passes
         );
     }
 

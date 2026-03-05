@@ -75,8 +75,17 @@ impl std::ops::Sub for GPoint {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JogDirection {
-    N, S, E, W, NE, NW, SE, SW,
-    Zup, Zdown, Home,
+    N,
+    S,
+    E,
+    W,
+    NE,
+    NW,
+    SE,
+    SW,
+    Zup,
+    Zdown,
+    Home,
 }
 
 #[derive(Debug, Clone)]
