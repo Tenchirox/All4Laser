@@ -288,9 +288,9 @@ fn read_flat_pairs<'a>(
             break;
         }
         if let Some(code_line) = iter.next() {
-            flat.push(code_line.trim().to_string());
+            flat.push(code_line.trim());
             if let Some(val_line) = iter.next() {
-                flat.push(val_line.trim().to_string());
+                flat.push(val_line.trim());
             }
         } else {
             break;
@@ -308,5 +308,7 @@ fn parse_flat(flat: &[String]) -> Vec<(i32, String)> {
                 None
             }
         })
+    flat.chunks_exact(2)
+        .map(|c| (c[0].parse().unwrap_or(-1), c[1].clone()))
         .collect()
 }
