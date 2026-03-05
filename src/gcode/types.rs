@@ -64,7 +64,12 @@ impl GCodeLine {
         if let Some(j) = self.j { s.push_str(&format!("J{:.3} ", j)); }
         if let Some(f) = self.f { s.push_str(&format!("F{:.0} ", f)); }
         if let Some(s_val) = self.s { s.push_str(&format!("S{:.0} ", s_val)); }
-        if s.is_empty() { self.raw.clone() } else { s.trim().to_string() }
+        if s.is_empty() {
+            self.raw.clone()
+        } else {
+            s.pop(); // Remove the trailing space without re-allocating
+            s
+        }
     }
 }
 
