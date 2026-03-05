@@ -2,14 +2,14 @@
 fn test_font_enumeration() {
     let mut fonts = Vec::new();
     if let Ok(handles) = font_kit::source::SystemSource::new().all_fonts() {
-         for handle in handles {
-             if let Ok(font) = handle.load() {
-                 let family = font.family_name();
-                 if !fonts.contains(&family) {
-                     fonts.push(family);
-                 }
-             }
-         }
+        for handle in handles {
+            if let Ok(font) = handle.load() {
+                let family = font.family_name();
+                if !fonts.contains(&family) {
+                    fonts.push(family);
+                }
+            }
+        }
     }
     fonts.sort();
     println!("Found {} fonts.", fonts.len());

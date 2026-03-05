@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
 use crate::config::machine_profile::MachineProfile;
 use crate::ui::camera::CameraCalibration;
+use serde::{Deserialize, Serialize};
 
 /// An All4Laser project file (.a4l) – persists everything needed to restore a session
 #[derive(Serialize, Deserialize, Default)]
@@ -39,7 +39,9 @@ pub struct ProjectFile {
     pub project_notes: String,
 }
 
-fn default_camera_opacity() -> f32 { 0.5 }
+fn default_camera_opacity() -> f32 {
+    0.5
+}
 
 /// Job template (F106) — stores layer configurations for reuse
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -55,10 +57,10 @@ pub struct PostProcessor {
     pub name: String,
     pub header: Vec<String>,
     pub footer: Vec<String>,
-    pub laser_on: String,   // e.g. "M3" or "M4"
-    pub laser_off: String,  // e.g. "M5"
-    pub air_on: String,     // e.g. "M8"
-    pub air_off: String,    // e.g. "M9"
+    pub laser_on: String,  // e.g. "M3" or "M4"
+    pub laser_off: String, // e.g. "M5"
+    pub air_on: String,    // e.g. "M8"
+    pub air_off: String,   // e.g. "M9"
     pub comment_style: CommentStyle,
 }
 
@@ -221,8 +223,8 @@ pub struct ParametricParams {
     pub height_mm: f32,
     pub depth_mm: f32,
     pub thickness_mm: f32,
-    pub teeth_count: u32,      // for gears
-    pub points: u32,           // for stars/polygons
+    pub teeth_count: u32, // for gears
+    pub points: u32,      // for stars/polygons
     pub kerf_mm: f32,
 }
 
@@ -283,7 +285,12 @@ impl VariableTextConfig {
     }
 
     pub fn serial_text(&self, row_idx: usize) -> String {
-        format!("{}{}{}", self.prefix, self.start_number + row_idx as u32, self.suffix)
+        format!(
+            "{}{}{}",
+            self.prefix,
+            self.start_number + row_idx as u32,
+            self.suffix
+        )
     }
 }
 
@@ -327,7 +334,11 @@ impl JigTemplate {
             .into_iter()
             .flatten()
             .flatten()
-            .filter_map(|e| e.path().file_stem().map(|n| n.to_string_lossy().to_string()))
+            .filter_map(|e| {
+                e.path()
+                    .file_stem()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
             .collect()
     }
 }
@@ -431,7 +442,8 @@ mod tests {
     #[test]
     fn legacy_project_without_camera_fields_still_loads() {
         let legacy = r#"{"version":1,"gcode_path":null,"gcode_content":null,"offset_x":10.0,"offset_y":-2.0,"rotation_deg":0.0,"machine_profile":null}"#;
-        let parsed: ProjectFile = serde_json::from_str(legacy).expect("legacy project should deserialize");
+        let parsed: ProjectFile =
+            serde_json::from_str(legacy).expect("legacy project should deserialize");
         assert!(!parsed.camera_enabled);
         assert_eq!(parsed.camera_opacity, 0.5);
         assert_eq!(parsed.camera_device_index, 0);
@@ -459,7 +471,10 @@ mod tests {
         assert_eq!(back.camera_device_index, 2);
         assert!(back.camera_live_streaming);
         assert_eq!(back.camera_snapshot_path.as_deref(), Some("snapshot.png"));
-        assert_eq!(back.material_selected_preset.as_deref(), Some("Acrylic 3mm"));
+        assert_eq!(
+            back.material_selected_preset.as_deref(),
+            Some("Acrylic 3mm")
+        );
         assert!((back.camera_calibration.offset_x - 4.5).abs() < f32::EPSILON);
     }
 }

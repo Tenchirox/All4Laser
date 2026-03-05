@@ -202,7 +202,8 @@ fn run_windows_capture(
     use nokhwa::pixel_format::RgbFormat;
     use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
 
-    let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
+    let requested =
+        RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
     let mut camera = match Camera::new(CameraIndex::Index(device_index), requested) {
         Ok(cam) => cam,
         Err(e) => {
@@ -212,7 +213,9 @@ fn run_windows_capture(
     };
 
     if let Err(e) = camera.open_stream() {
-        let _ = error_tx.send(format!("Failed to open camera stream ({device_index}): {e}"));
+        let _ = error_tx.send(format!(
+            "Failed to open camera stream ({device_index}): {e}"
+        ));
         return;
     }
 
@@ -290,7 +293,9 @@ fn run_linux_capture(
     let mut stream = match MmapStream::with_buffers(&dev, Type::VideoCapture, 4) {
         Ok(stream) => stream,
         Err(e) => {
-            let _ = error_tx.send(format!("Failed to start camera stream on /dev/video{device_index}: {e}"));
+            let _ = error_tx.send(format!(
+                "Failed to start camera stream on /dev/video{device_index}: {e}"
+            ));
             return;
         }
     };
@@ -318,7 +323,9 @@ fn run_linux_capture(
             }
             Err(e) => {
                 if !sent_decode_error {
-                    let _ = error_tx.send(format!("Camera decode error (/dev/video{device_index}): {e}"));
+                    let _ = error_tx.send(format!(
+                        "Camera decode error (/dev/video{device_index}): {e}"
+                    ));
                     sent_decode_error = true;
                 }
                 thread::sleep(Duration::from_millis(40));

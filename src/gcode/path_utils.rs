@@ -106,11 +106,7 @@ fn last_dir(path: &[(f32, f32)]) -> Option<(f32, f32)> {
 }
 
 /// Applies tabs (bridges) to a path by breaking it into segments with gaps.
-pub fn apply_tabs(
-    builder: &mut GCodeBuilder,
-    path: &[(f32, f32)],
-    layer: &CutLayer,
-) {
+pub fn apply_tabs(builder: &mut GCodeBuilder, path: &[(f32, f32)], layer: &CutLayer) {
     if path.len() < 2 {
         return;
     }
@@ -132,7 +128,9 @@ pub fn apply_tabs(
             let dx = p2.0 - p1.0;
             let dy = p2.1 - p1.1;
             let seg_len = (dx * dx + dy * dy).sqrt();
-            if seg_len < 0.0001 { continue; }
+            if seg_len < 0.0001 {
+                continue;
+            }
 
             let mut covered = 0.0f32;
             while covered < seg_len - 0.0001 {
@@ -250,27 +248,29 @@ pub fn apply_tabs(
 
     for i in 0..path.len() - 1 {
         let p1 = path[i];
-        let p2 = path[i+1];
+        let p2 = path[i + 1];
         let dx = p2.0 - p1.0;
         let dy = p2.1 - p1.1;
         let seg_len = (dx * dx + dy * dy).sqrt();
 
-        if seg_len == 0.0 { continue; }
+        if seg_len == 0.0 {
+            continue;
+        }
 
         let mut covered = 0.0;
         while covered < seg_len {
             let remaining_seg = seg_len - covered;
-            
+
             if !laser_is_on {
                 // We are in a "cut" zone
                 // How much more can we cut before a tab?
                 let can_cut = tab_spacing - dist_since_last_tab;
                 let move_dist = can_cut.min(remaining_seg);
-                
+
                 let t = (covered + move_dist) / seg_len;
                 let tx = p1.0 + dx * t;
                 let ty = p1.1 + dy * t;
-                
+
                 builder.linear(tx, ty, layer.speed, layer.power);
                 covered += move_dist;
                 dist_since_last_tab += move_dist;
@@ -286,11 +286,11 @@ pub fn apply_tabs(
                 // How much more gap before we resume cutting?
                 let can_gap = tab_size - dist_since_last_tab;
                 let move_dist = can_gap.min(remaining_seg);
-                
+
                 let t = (covered + move_dist) / seg_len;
                 let tx = p1.0 + dx * t;
                 let ty = p1.1 + dy * t;
-                
+
                 builder.rapid(tx, ty); // Move without laser
                 covered += move_dist;
                 dist_since_last_tab += move_dist;
