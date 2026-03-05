@@ -203,7 +203,7 @@ fn read_pairs<'a>(iter: &mut impl Iterator<Item = &'a str>) -> Vec<(i32, String)
     pairs
 }
 
-fn parse_f<'a>(pairs: &[(i32, &'a str)], group: i32) -> f32 {
+fn parse_f<'a>(pairs: &[(i32, String)], group: i32) -> f32 {
     pairs
         .iter()
         .find(|(c, _)| *c == group)
@@ -214,7 +214,7 @@ fn parse_f<'a>(pairs: &[(i32, &'a str)], group: i32) -> f32 {
 fn read_line<'a>(
     iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
 ) -> Option<DxfEntity> {
-    let flat = read_flat_pairs(iter);
+    let flat: Vec<String> = read_flat_pairs(iter);
     let pairs = parse_flat(&flat);
     Some(DxfEntity::Line {
         x1: parse_f(&pairs, 10),
@@ -279,7 +279,7 @@ fn read_polyline<'a>(
 
 fn read_flat_pairs<'a>(
     iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
-) -> Vec<&'a str> {
+) -> Vec<String> {
     let mut flat = Vec::new();
     loop {
         let peeked = iter.peek().copied().unwrap_or("").trim();
@@ -299,14 +299,8 @@ fn read_flat_pairs<'a>(
     flat
 }
 
-fn parse_flat<'a>(flat: &[&'a str]) -> Vec<(i32, &'a str)> {
-    flat.chunks(2)
-        .filter_map(|c| {
-            if c.len() == 2 {
-                Some((c[0].parse().unwrap_or(-1), c[1]))
-            } else {
-                None
-            }
-        })
+fn parse_flat(flat: &[String]) -> Vec<(i32, String)> {
+    flat.chunks_exact(2)
+        .map(|c| (c[0].parse().unwrap_or(-1), c[1].clone()))
         .collect()
 }
