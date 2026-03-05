@@ -1,19 +1,18 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::collections::VecDeque;
 
-use egui::{CentralPanel, SidePanel, TopBottomPanel, RichText};
+use egui::{CentralPanel, RichText, SidePanel, TopBottomPanel};
 
 use crate::app_types::{
-    JobTransform, CameraLiveState, TestFireState, WizardState, AutosaveState,
+    AutosaveState, CameraLiveState, JobTransform, TestFireState, WizardState,
     path_is_closed_for_fill, shape_fill_warning,
 };
 use crate::config::machine_profile::{MachineProfile, MachineProfileStore};
 use crate::config::recent_files::RecentFiles;
 use crate::config::settings::AppSettings;
 use crate::controller::{
-    ControllerBackend, ControllerCapabilities, ControllerKind, ControllerResponse,
-    RealtimeCommand,
+    ControllerBackend, ControllerCapabilities, ControllerKind, ControllerResponse, RealtimeCommand,
 };
 use crate::gcode::file::GCodeFile;
 use crate::grbl::types::*;
@@ -24,9 +23,9 @@ use crate::theme;
 use crate::ui;
 use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::ui::marker_detect::detect_cross_and_circle_markers;
-use crate::ui::node_edit::{NodeEditSnapshot, undo_history_step, redo_history_step};
+use crate::ui::node_edit::{NodeEditSnapshot, redo_history_step, undo_history_step};
 use crate::ui::offset::JoinStyle;
-use crate::ui::preflight::{PreflightReport, PreflightSeverity, PreflightContext};
+use crate::ui::preflight::{PreflightContext, PreflightReport, PreflightSeverity};
 
 const MAX_LOG_LINES: usize = 500;
 
@@ -38,7 +37,9 @@ fn play_notification_sound() {
         unsafe extern "system" {
             fn MessageBeep(uType: u32) -> i32;
         }
-        unsafe { MessageBeep(0x40); }
+        unsafe {
+            MessageBeep(0x40);
+        }
     }
     #[cfg(not(target_os = "windows"))]
     {
@@ -297,7 +298,7 @@ impl All4LaserApp {
             active_layer_idx: 0,
             cut_settings_state: ui::cut_settings::CutSettingsState::default(),
             language: crate::i18n::Language::English, // Will be overridden
-            active_tab: RightPanelTab::Cuts,         // Will be overridden
+            active_tab: RightPanelTab::Cuts,          // Will be overridden
             display_unit: crate::config::settings::DisplayUnit::Millimeters, // Will be overridden
             settings: AppSettings::load(),
             preflight_report: None,
@@ -367,8 +368,15 @@ impl All4LaserApp {
             camera_snapshot_path: self.camera_state.snapshot_path.clone(),
             camera_device_index: self.camera_state.device_index,
             camera_live_streaming: self.camera_state.live_streaming,
-            material_selected_preset: self.materials_state.selected_preset_name().map(str::to_string),
-            checkpoint_line: if self.running { Some(self.program_index) } else { None },
+            material_selected_preset: self
+                .materials_state
+                .selected_preset_name()
+                .map(str::to_string),
+            checkpoint_line: if self.running {
+                Some(self.program_index)
+            } else {
+                None
+            },
             project_notes: self.project_notes.clone(),
         }
     }
@@ -419,8 +427,10 @@ impl All4LaserApp {
         self.settings.camera_snapshot_path = self.camera_state.snapshot_path.clone();
         self.settings.camera_device_index = self.camera_state.device_index;
         self.settings.camera_live_streaming = self.camera_state.live_streaming;
-        self.settings.material_selected_preset =
-            self.materials_state.selected_preset_name().map(str::to_string);
+        self.settings.material_selected_preset = self
+            .materials_state
+            .selected_preset_name()
+            .map(str::to_string);
         self.settings.save();
         self.event_log.save();
     }
@@ -471,10 +481,13 @@ impl All4LaserApp {
     }
 
     pub fn apply_theme(&self, ctx: &egui::Context) {
-        theme::apply_theme(ctx, &theme::AppTheme {
-            ui_theme: self.ui_theme,
-            is_light: self.light_mode,
-        });
+        theme::apply_theme(
+            ctx,
+            &theme::AppTheme {
+                ui_theme: self.ui_theme,
+                is_light: self.light_mode,
+            },
+        );
     }
 
     fn is_connected(&self) -> bool {
@@ -482,14 +495,17 @@ impl All4LaserApp {
     }
 
     fn sync_controller_backend(&mut self) {
-        self.controller_backend = crate::controller::create_backend(self.machine_profile.controller_kind);
+        self.controller_backend =
+            crate::controller::create_backend(self.machine_profile.controller_kind);
     }
 
     fn apply_controller_kind_change(&mut self, previous_kind: ControllerKind) {
         self.sync_controller_backend();
         if previous_kind != self.machine_profile.controller_kind && self.is_connected() {
             self.disconnect();
-            self.log("Controller backend changed. Reconnect to apply protocol changes.".to_string());
+            self.log(
+                "Controller backend changed. Reconnect to apply protocol changes.".to_string(),
+            );
         }
     }
 
@@ -585,7 +601,9 @@ impl All4LaserApp {
                             GrblResponse::Ok => {
                                 if self.running && self.program_index < self.program_lines.len() {
                                     self.send_next_program_line();
-                                } else if self.running && self.program_index >= self.program_lines.len() {
+                                } else if self.running
+                                    && self.program_index >= self.program_lines.len()
+                                {
                                     self.handle_program_completed();
                                 }
                             }
@@ -601,7 +619,9 @@ impl All4LaserApp {
                                 self.log(format!("Grbl {ver}"));
                                 // Auto-detect firmware type (F47)
                                 let ver_lower = ver.to_ascii_lowercase();
-                                let detected = if ver_lower.contains("fluidnc") || ver_lower.contains("fluid") {
+                                let detected = if ver_lower.contains("fluidnc")
+                                    || ver_lower.contains("fluid")
+                                {
                                     Some(("FluidNC (GRBL-compatible)", ControllerKind::Grbl))
                                 } else if ver_lower.contains("grbl") {
                                     Some(("GRBL", ControllerKind::Grbl))
@@ -660,17 +680,24 @@ impl All4LaserApp {
             let line_idx = self.program_index;
             self.program_index += 1;
 
-            let mut cmd = if let (Some(file), Some(center)) = (&self.loaded_file, self.job_transform.center) {
+            let mut cmd = if let (Some(file), Some(center)) =
+                (&self.loaded_file, self.job_transform.center)
+            {
                 if let Some(parsed) = file.lines.get(line_idx) {
                     // Standard transform (offset/rotate)
-                    let transformed = parsed.transform(egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y), self.job_transform.rotation, center, 1.0);
+                    let transformed = parsed.transform(
+                        egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y),
+                        self.job_transform.rotation,
+                        center,
+                        1.0,
+                    );
 
                     // Apply Rotary transformation if enabled
                     if self.machine_profile.rotary_enabled {
                         crate::gcode::transform::apply_rotary(
                             &transformed,
                             self.machine_profile.rotary_diameter_mm,
-                            self.machine_profile.rotary_axis
+                            self.machine_profile.rotary_axis,
                         )
                     } else {
                         transformed
@@ -751,9 +778,17 @@ impl All4LaserApp {
 
     fn load_file_path(&mut self, path: &str) {
         let path_obj = std::path::Path::new(path);
-        let ext = path_obj.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-        let filename = path_obj.file_name().and_then(|n| n.to_str()).unwrap_or(path).to_string();
-        
+        let ext = path_obj
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        let filename = path_obj
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(path)
+            .to_string();
+
         // Push to recent files immediately (before any failure)
         self.recent_files.push(path);
 
@@ -761,7 +796,10 @@ impl All4LaserApp {
             "svg" => {
                 let data = match std::fs::read(path) {
                     Ok(d) => d,
-                    Err(e) => { self.show_error(format!("Error reading SVG: {e}")); return; }
+                    Err(e) => {
+                        self.show_error(format!("Error reading SVG: {e}"));
+                        return;
+                    }
                 };
                 let layers = imaging::svg::extract_layers(&data);
                 let mut svg_params = imaging::svg::SvgParams::default();
@@ -780,11 +818,16 @@ impl All4LaserApp {
             "png" | "jpg" | "jpeg" | "bmp" => {
                 let img = match image::open(path) {
                     Ok(i) => i.to_rgba8(), // we need rgba for texture
-                    Err(e) => { self.show_error(format!("Error opening image: {e}")); return; }
+                    Err(e) => {
+                        self.show_error(format!("Error opening image: {e}"));
+                        return;
+                    }
                 };
-                
+
                 self.import_state = Some(ui::image_dialog::ImageImportState {
-                    import_type: ui::image_dialog::ImportType::Raster(image::DynamicImage::ImageRgba8(img)),
+                    import_type: ui::image_dialog::ImportType::Raster(
+                        image::DynamicImage::ImageRgba8(img),
+                    ),
                     filename,
                     raster_params: imaging::raster::RasterParams::default(),
                     svg_params: imaging::svg::SvgParams::default(),
@@ -797,7 +840,10 @@ impl All4LaserApp {
             "dxf" => {
                 let data = match std::fs::read_to_string(path) {
                     Ok(d) => d,
-                    Err(e) => { self.show_error(format!("Error reading DXF: {e}")); return; }
+                    Err(e) => {
+                        self.show_error(format!("Error reading DXF: {e}"));
+                        return;
+                    }
                 };
                 let params = crate::imaging::dxf::DxfParams::default();
                 match crate::imaging::dxf::dxf_to_gcode(&data, &params) {
@@ -825,7 +871,11 @@ impl All4LaserApp {
     }
 
     fn set_loaded_file(&mut self, file: GCodeFile, lines: Vec<String>) {
-        self.log(format!("Loaded {} ({} lines)", file.filename, file.line_count()));
+        self.log(format!(
+            "Loaded {} ({} lines)",
+            file.filename,
+            file.line_count()
+        ));
         // Populate GCode editor text
         self.gcode_editor.text = lines.join("\n");
         self.gcode_editor.dirty = false;
@@ -833,14 +883,17 @@ impl All4LaserApp {
         self.program_index = 0;
         // Calculate job center for rotation
         if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
-            self.job_transform.center = Some(egui::Pos2::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0));
+            self.job_transform.center = Some(egui::Pos2::new(
+                (min_x + max_x) / 2.0,
+                (min_y + max_y) / 2.0,
+            ));
         } else {
             self.job_transform.center = Some(egui::Pos2::ZERO);
         }
-        
+
         self.loaded_file = Some(file);
         if let Some(file) = self.loaded_file.as_ref() {
-           self.estimation = crate::gcode::estimation::estimate(&file.lines);
+            self.estimation = crate::gcode::estimation::estimate(&file.lines);
         }
     }
 
@@ -1023,7 +1076,11 @@ impl All4LaserApp {
 
     fn undo_node_edit(&mut self) -> bool {
         let current = self.capture_node_snapshot();
-        let Some(prev) = undo_history_step(&mut self.node_undo_stack, &mut self.node_redo_stack, current) else {
+        let Some(prev) = undo_history_step(
+            &mut self.node_undo_stack,
+            &mut self.node_redo_stack,
+            current,
+        ) else {
             return false;
         };
         self.restore_node_snapshot(prev);
@@ -1032,14 +1089,22 @@ impl All4LaserApp {
 
     fn redo_node_edit(&mut self) -> bool {
         let current = self.capture_node_snapshot();
-        let Some(next) = redo_history_step(&mut self.node_undo_stack, &mut self.node_redo_stack, current) else {
+        let Some(next) = redo_history_step(
+            &mut self.node_undo_stack,
+            &mut self.node_redo_stack,
+            current,
+        ) else {
             return false;
         };
         self.restore_node_snapshot(next);
         true
     }
 
-    fn load_camera_snapshot_from_path(&mut self, ctx: &egui::Context, path: &str) -> Result<(), String> {
+    fn load_camera_snapshot_from_path(
+        &mut self,
+        ctx: &egui::Context,
+        path: &str,
+    ) -> Result<(), String> {
         match image::open(path) {
             Ok(img) => {
                 let rgba = img.to_rgba8();
@@ -1114,15 +1179,13 @@ impl All4LaserApp {
         self.camera_live.last_frame_width = frame.width;
         self.camera_live.last_frame_height = frame.height;
         self.camera_live.last_frame_rgba = frame.rgba.clone();
-        let color_image = egui::ColorImage::from_rgba_unmultiplied([frame.width, frame.height], &frame.rgba);
+        let color_image =
+            egui::ColorImage::from_rgba_unmultiplied([frame.width, frame.height], &frame.rgba);
         if let Some(texture) = self.camera_state.texture.as_mut() {
             texture.set(color_image, Default::default());
         } else {
-            self.camera_state.texture = Some(ctx.load_texture(
-                "camera_live_stream",
-                color_image,
-                Default::default(),
-            ));
+            self.camera_state.texture =
+                Some(ctx.load_texture("camera_live_stream", color_image, Default::default()));
         }
     }
 
@@ -1184,7 +1247,10 @@ impl All4LaserApp {
         self.camera_live.point_align_picks.clear();
         self.camera_state.point_align_active = true;
         self.camera_state.point_align_pick_count = 0;
-        self.log("2-point align started: pick bottom-left then bottom-right target on camera overlay.".into());
+        self.log(
+            "2-point align started: pick bottom-left then bottom-right target on camera overlay."
+                .into(),
+        );
     }
 
     fn stop_camera_point_align(&mut self) {
@@ -1326,7 +1392,13 @@ impl All4LaserApp {
         )
     }
 
-    fn camera_pixel_to_world(&self, px: f32, py: f32, frame_w: usize, frame_h: usize) -> egui::Pos2 {
+    fn camera_pixel_to_world(
+        &self,
+        px: f32,
+        py: f32,
+        frame_w: usize,
+        frame_h: usize,
+    ) -> egui::Pos2 {
         let w = frame_w.max(1) as f32;
         let h = frame_h.max(1) as f32;
         let nx = px / w;
@@ -1399,8 +1471,10 @@ impl All4LaserApp {
             let circle_world = self.camera_pixel_to_world(circle_px.0, circle_px.1, width, height);
             self.camera_state.detected_cross_world = Some(cross_world);
             self.camera_state.detected_circle_world = Some(circle_world);
-            self.camera_state.auto_detection_success_count =
-                self.camera_state.auto_detection_success_count.saturating_add(1);
+            self.camera_state.auto_detection_success_count = self
+                .camera_state
+                .auto_detection_success_count
+                .saturating_add(1);
             self.camera_state.detection_status = format!(
                 "Auto-detect success ({source}): markers mapped to workspace/project coordinates."
             );
@@ -1414,7 +1488,10 @@ impl All4LaserApp {
             self.camera_state.detection_status =
                 "Auto-detect failed: marker shapes not recognized. Use Calibration Wizard or 2-Point Align manually."
                     .to_string();
-            self.log("Auto marker detection failed. Manual correction workflow remains available.".into());
+            self.log(
+                "Auto marker detection failed. Manual correction workflow remains available."
+                    .into(),
+            );
         }
     }
 
@@ -1461,7 +1538,11 @@ impl All4LaserApp {
         ));
     }
 
-    fn world_to_shape_local(shape: &crate::ui::drawing::ShapeParams, wx: f32, wy: f32) -> (f32, f32) {
+    fn world_to_shape_local(
+        shape: &crate::ui::drawing::ShapeParams,
+        wx: f32,
+        wy: f32,
+    ) -> (f32, f32) {
         let dx = wx - shape.x;
         let dy = wy - shape.y;
         let angle = -shape.rotation.to_radians();
@@ -1519,11 +1600,11 @@ impl All4LaserApp {
         if let Some(file) = &self.loaded_file {
             if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
                 let feed = 3000.0;
-                
+
                 let commands = vec![
-                    format!("M5"), 
+                    format!("M5"),
                     format!("G0 X{:.2} Y{:.2} F{feed}", min_x, min_y),
-                    format!("M3 S10"), 
+                    format!("M3 S10"),
                     format!("G1 X{:.2} Y{:.2} F{feed}", max_x, min_y),
                     format!("G1 X{:.2} Y{:.2} F{feed}", max_x, max_y),
                     format!("G1 X{:.2} Y{:.2} F{feed}", min_x, max_y),
@@ -1548,14 +1629,16 @@ impl All4LaserApp {
         if let Some(file) = &self.loaded_file {
             if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
                 let (x, y) = match pos {
-                    ui::machine_state::QuickPosition::Center => ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0),
+                    ui::machine_state::QuickPosition::Center => {
+                        ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
+                    }
                     ui::machine_state::QuickPosition::TopLeft => (min_x, max_y),
                     ui::machine_state::QuickPosition::TopRight => (max_x, max_y),
                     ui::machine_state::QuickPosition::BottomLeft => (min_x, min_y),
                     ui::machine_state::QuickPosition::BottomRight => (max_x, min_y),
                 };
                 self.log(format!("Moving to {:?}", pos));
-                
+
                 // Construct standard G0 move
                 let feed = 3000.0;
                 let cmd = format!("G90 G0 X{:.2} Y{:.2} F{feed}", x, y);
@@ -1581,20 +1664,24 @@ impl All4LaserApp {
         self.running = true;
         self.notify_job_done = false;
         self.framing_active = false;
-        
+
         // Air assist ON
         if self.machine_profile.air_assist {
             self.send_command("M8");
         }
-        
+
         // Append return-to-origin if configured
         if self.machine_profile.return_to_origin {
             if self.program_lines.last().map(|l| l.trim()) != Some("G0 X0 Y0") {
                 self.program_lines.push("G0 X0 Y0 F3000".to_string());
             }
         }
-        
-        self.log(if self.is_dry_run { "Starting Dry Run (Laser OFF)…".to_string() } else { "Starting program…".to_string() });
+
+        self.log(if self.is_dry_run {
+            "Starting Dry Run (Laser OFF)…".to_string()
+        } else {
+            "Starting program…".to_string()
+        });
         self.send_next_program_line();
     }
 
@@ -1683,7 +1770,11 @@ impl All4LaserApp {
         let burn_secs = self.estimation.total_burn_mm as f64
             / (self.machine_profile.max_rate_x.max(1.0) as f64 / 60.0);
         self.machine_profile.record_job_burn_time(burn_secs);
-        if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
+        if let Some(p) = self
+            .profile_store
+            .profiles
+            .get_mut(self.profile_store.active_index)
+        {
             p.tube_hours_total = self.machine_profile.tube_hours_total;
         }
         self.profile_store.save();
@@ -1693,17 +1784,26 @@ impl All4LaserApp {
         }
         // Maintenance tracking (F27)
         self.machine_profile.record_job_completed();
-        if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
+        if let Some(p) = self
+            .profile_store
+            .profiles
+            .get_mut(self.profile_store.active_index)
+        {
             p.total_jobs_completed = self.machine_profile.total_jobs_completed;
-            p.maintenance_jobs_since_lens_clean = self.machine_profile.maintenance_jobs_since_lens_clean;
-            p.maintenance_jobs_since_belt_check = self.machine_profile.maintenance_jobs_since_belt_check;
+            p.maintenance_jobs_since_lens_clean =
+                self.machine_profile.maintenance_jobs_since_lens_clean;
+            p.maintenance_jobs_since_belt_check =
+                self.machine_profile.maintenance_jobs_since_belt_check;
         }
         for alert in self.machine_profile.maintenance_alerts() {
             self.console_log.push_back(alert);
         }
         // Job report CSV (F15)
         let report_csv = crate::gcode::estimation::generate_job_report_csv(
-            self.loaded_file.as_ref().map(|f| f.filename.as_str()).unwrap_or("unknown"),
+            self.loaded_file
+                .as_ref()
+                .map(|f| f.filename.as_str())
+                .unwrap_or("unknown"),
             &self.estimation,
             &self.layers,
             &self.machine_profile.name,
@@ -1803,7 +1903,9 @@ impl All4LaserApp {
                 "Macro '{macro_label}' executed: {sent} command(s) sent ({skipped} line(s) skipped)."
             ));
         } else {
-            self.log(format!("Macro '{macro_label}' executed: {sent} command(s) sent."));
+            self.log(format!(
+                "Macro '{macro_label}' executed: {sent} command(s) sent."
+            ));
         }
     }
 
@@ -1862,7 +1964,10 @@ impl All4LaserApp {
         if !self.is_connected() {
             return;
         }
-        if let Some(cmd) = self.controller_backend.jog_command(dir, self.jog_step, self.jog_feed) {
+        if let Some(cmd) = self
+            .controller_backend
+            .jog_command(dir, self.jog_step, self.jog_feed)
+        {
             self.send_command(&cmd);
         } else {
             self.log(format!(
@@ -1888,12 +1993,24 @@ impl All4LaserApp {
 
         ctx.input(|i| {
             if caps.supports_jog {
-                if i.key_pressed(egui::Key::ArrowUp) { jog_dir = Some(JogDirection::N); }
-                if i.key_pressed(egui::Key::ArrowDown) { jog_dir = Some(JogDirection::S); }
-                if i.key_pressed(egui::Key::ArrowLeft) { jog_dir = Some(JogDirection::W); }
-                if i.key_pressed(egui::Key::ArrowRight) { jog_dir = Some(JogDirection::E); }
-                if i.key_pressed(egui::Key::PageUp) { jog_dir = Some(JogDirection::Zup); }
-                if i.key_pressed(egui::Key::PageDown) { jog_dir = Some(JogDirection::Zdown); }
+                if i.key_pressed(egui::Key::ArrowUp) {
+                    jog_dir = Some(JogDirection::N);
+                }
+                if i.key_pressed(egui::Key::ArrowDown) {
+                    jog_dir = Some(JogDirection::S);
+                }
+                if i.key_pressed(egui::Key::ArrowLeft) {
+                    jog_dir = Some(JogDirection::W);
+                }
+                if i.key_pressed(egui::Key::ArrowRight) {
+                    jog_dir = Some(JogDirection::E);
+                }
+                if i.key_pressed(egui::Key::PageUp) {
+                    jog_dir = Some(JogDirection::Zup);
+                }
+                if i.key_pressed(egui::Key::PageDown) {
+                    jog_dir = Some(JogDirection::Zdown);
+                }
             }
             if caps.supports_jog && caps.supports_home && i.key_pressed(egui::Key::Home) {
                 jog_dir = Some(JogDirection::Home);
@@ -1901,10 +2018,13 @@ impl All4LaserApp {
             if caps.supports_hold_resume && i.key_pressed(egui::Key::Space) {
                 hold = true;
             }
-            if i.key_pressed(egui::Key::Escape) { abort = true; }
+            if i.key_pressed(egui::Key::Escape) {
+                abort = true;
+            }
             if i.key_pressed(egui::Key::Delete) {
                 if self.renderer.node_edit_mode
-                    && (self.renderer.selected_node.is_some() || !self.renderer.selected_nodes.is_empty())
+                    && (self.renderer.selected_node.is_some()
+                        || !self.renderer.selected_nodes.is_empty())
                 {
                     delete_node = true;
                 } else {
@@ -1990,7 +2110,11 @@ impl All4LaserApp {
                 }
 
                 let result = if selected_in_shape.len() > 1 {
-                    ui::vector_edit::delete_nodes(&mut self.drawing_state, shape_idx, &selected_in_shape)
+                    ui::vector_edit::delete_nodes(
+                        &mut self.drawing_state,
+                        shape_idx,
+                        &selected_in_shape,
+                    )
                 } else {
                     ui::vector_edit::delete_node(&mut self.drawing_state, shape_idx, node_idx)
                 };
@@ -2042,7 +2166,10 @@ impl All4LaserApp {
                 .and_then(|e| e.to_str())
                 .unwrap_or("")
                 .to_lowercase();
-            if matches!(ext.as_str(), "nc" | "gcode" | "ngc" | "gc" | "svg" | "png" | "jpg" | "jpeg" | "bmp") {
+            if matches!(
+                ext.as_str(),
+                "nc" | "gcode" | "ngc" | "gc" | "svg" | "png" | "jpg" | "jpeg" | "bmp"
+            ) {
                 self.load_file_path(&path_str);
             }
         }
@@ -2053,7 +2180,11 @@ impl All4LaserApp {
             return;
         }
         // Save current edits back to the store before switching
-        if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
+        if let Some(p) = self
+            .profile_store
+            .profiles
+            .get_mut(self.profile_store.active_index)
+        {
             *p = self.machine_profile.clone();
         }
         self.profile_store.set_active(index);
@@ -2063,7 +2194,10 @@ impl All4LaserApp {
         if self.machine_profile.controller_kind != prev_kind {
             self.apply_controller_kind_change(prev_kind);
         }
-        self.log(format!("Switched to profile: {}", self.machine_profile.name));
+        self.log(format!(
+            "Switched to profile: {}",
+            self.machine_profile.name
+        ));
     }
 
     fn ui_machine_profile_editor(&mut self, ui: &mut egui::Ui) {
@@ -2099,14 +2233,22 @@ impl All4LaserApp {
                 }
                 if ui.small_button("📋").on_hover_text("Duplicate").clicked() {
                     // save current edits before duplicating
-                    if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
+                    if let Some(p) = self
+                        .profile_store
+                        .profiles
+                        .get_mut(self.profile_store.active_index)
+                    {
                         *p = self.machine_profile.clone();
                     }
                     self.profile_store.duplicate_active();
                     switch_to = Some(self.profile_store.profiles.len() - 1);
                 }
                 if self.profile_store.profiles.len() > 1 {
-                    if ui.small_button("🗑").on_hover_text("Delete profile").clicked() {
+                    if ui
+                        .small_button("🗑")
+                        .on_hover_text("Delete profile")
+                        .clicked()
+                    {
                         let idx = self.profile_store.active_index;
                         self.profile_store.remove(idx);
                         switch_to = Some(self.profile_store.active_index);
@@ -2196,7 +2338,10 @@ impl All4LaserApp {
 
                     ui.label("Width (mm):");
                     if ui
-                        .add(egui::DragValue::new(&mut self.machine_profile.workspace_x_mm).speed(5.0))
+                        .add(
+                            egui::DragValue::new(&mut self.machine_profile.workspace_x_mm)
+                                .speed(5.0),
+                        )
                         .changed()
                     {
                         profile_changed = true;
@@ -2205,7 +2350,10 @@ impl All4LaserApp {
 
                     ui.label("Height (mm):");
                     if ui
-                        .add(egui::DragValue::new(&mut self.machine_profile.workspace_y_mm).speed(5.0))
+                        .add(
+                            egui::DragValue::new(&mut self.machine_profile.workspace_y_mm)
+                                .speed(5.0),
+                        )
                         .changed()
                     {
                         profile_changed = true;
@@ -2267,7 +2415,10 @@ impl All4LaserApp {
 
             ui.horizontal(|ui| {
                 if ui
-                    .checkbox(&mut self.machine_profile.return_to_origin, "Return to origin")
+                    .checkbox(
+                        &mut self.machine_profile.return_to_origin,
+                        "Return to origin",
+                    )
                     .changed()
                 {
                     profile_changed = true;
@@ -2283,7 +2434,10 @@ impl All4LaserApp {
             });
             ui.horizontal(|ui| {
                 if ui
-                    .checkbox(&mut self.machine_profile.rotary_enabled, "Enable Rotary Support")
+                    .checkbox(
+                        &mut self.machine_profile.rotary_enabled,
+                        "Enable Rotary Support",
+                    )
                     .changed()
                 {
                     profile_changed = true;
@@ -2293,7 +2447,10 @@ impl All4LaserApp {
                 ui.horizontal(|ui| {
                     ui.label("Cylinder Ø:");
                     if ui
-                        .add(egui::DragValue::new(&mut self.machine_profile.rotary_diameter_mm).suffix(" mm"))
+                        .add(
+                            egui::DragValue::new(&mut self.machine_profile.rotary_diameter_mm)
+                                .suffix(" mm"),
+                        )
                         .changed()
                     {
                         profile_changed = true;
@@ -2319,7 +2476,11 @@ impl All4LaserApp {
 
         if profile_changed {
             // Sync active profile back into the store and persist
-            if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
+            if let Some(p) = self
+                .profile_store
+                .profiles
+                .get_mut(self.profile_store.active_index)
+            {
                 *p = self.machine_profile.clone();
             }
             self.profile_store.save();
@@ -2407,54 +2568,59 @@ impl All4LaserApp {
                 .color(theme::LAVENDER)
                 .strong(),
         )
-            .default_open(true)
-            .show(ui, |ui| {
-                let conn_action = ui::connection::show(
-                    ui,
-                    &self.ports,
-                    &mut self.selected_port,
-                    &self.baud_rates,
-                    &mut self.selected_baud,
-                    connected,
-                );
-                if conn_action.connect { self.connect(); }
-                if conn_action.disconnect { self.disconnect(); }
-                if conn_action.refresh_ports {
-                    self.ports = connection::list_ports();
-                    self.log("Ports refreshed.".to_string());
+        .default_open(true)
+        .show(ui, |ui| {
+            let conn_action = ui::connection::show(
+                ui,
+                &self.ports,
+                &mut self.selected_port,
+                &self.baud_rates,
+                &mut self.selected_baud,
+                connected,
+            );
+            if conn_action.connect {
+                self.connect();
+            }
+            if conn_action.disconnect {
+                self.disconnect();
+            }
+            if conn_action.refresh_ports {
+                self.ports = connection::list_ports();
+                self.log("Ports refreshed.".to_string());
+            }
+
+            ui.add_space(6.0);
+            self.ui_machine_profile_editor(ui);
+
+            ui.add_space(6.0);
+
+            let ms_action =
+                ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected);
+            if ms_action.toggle_focus && connected {
+                self.is_focus_on = !self.is_focus_on;
+                if self.is_focus_on {
+                    self.send_command("M3 S10");
+                } else {
+                    self.send_command("M5");
                 }
+            }
+            if let Some(pos) = ms_action.quick_pos {
+                self.quick_move_to(pos);
+            }
 
-                ui.add_space(6.0);
-                self.ui_machine_profile_editor(ui);
+            ui.add_space(6.0);
 
-                ui.add_space(6.0);
-
-                let ms_action = ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected);
-                if ms_action.toggle_focus && connected {
-                    self.is_focus_on = !self.is_focus_on;
-                    if self.is_focus_on {
-                        self.send_command("M3 S10");
-                    } else {
-                        self.send_command("M5");
-                    }
-                }
-                if let Some(pos) = ms_action.quick_pos {
-                    self.quick_move_to(pos);
-                }
-
-                ui.add_space(6.0);
-
-                let jog_action = ui::jog::show(
-                    ui,
-                    &mut self.jog_step,
-                    &mut self.jog_feed,
-                    caps.supports_jog,
-                    caps.supports_home,
-                );
-                if let Some(dir) = jog_action.direction {
-                    self.jog(dir);
-                }
-            });
+            let jog_action = ui::jog::show(
+                ui,
+                &mut self.jog_step,
+                &mut self.jog_feed,
+                caps.supports_jog,
+                caps.supports_home,
+            );
+            if let Some(dir) = jog_action.direction {
+                self.jog(dir);
+            }
+        });
 
         ui.add_space(6.0);
 
@@ -2463,59 +2629,83 @@ impl All4LaserApp {
                 .color(theme::LAVENDER)
                 .strong(),
         )
-            .default_open(true)
-            .show(ui, |ui| {
-                ui.group(|ui| {
-                    let est_time_s = self.estimation.estimated_seconds;
-                    let h = (est_time_s / 3600.0) as u32;
-                    let m = ((est_time_s % 3600.0) / 60.0) as u32;
-                    let s = (est_time_s % 60.0) as u32;
-                    ui.label(RichText::new(format!("⏱ Est. Time: {:02}:{:02}:{:02}", h, m, s)).strong().color(theme::GREEN));
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.group(|ui| {
+                let est_time_s = self.estimation.estimated_seconds;
+                let h = (est_time_s / 3600.0) as u32;
+                let m = ((est_time_s % 3600.0) / 60.0) as u32;
+                let s = (est_time_s % 60.0) as u32;
+                ui.label(
+                    RichText::new(format!("⏱ Est. Time: {:02}:{:02}:{:02}", h, m, s))
+                        .strong()
+                        .color(theme::GREEN),
+                );
 
-                    ui.add_space(4.0);
-                    if ui.button("⚡ Optimize Path").on_hover_text("Reorder segments to minimize travel distance").clicked() {
-                        if let Some(mut file) = self.loaded_file.clone() {
-                            let optimized_lines = crate::gcode::optimizer::optimize(&file.lines);
-                            let raw_lines: Vec<String> = optimized_lines.iter().map(|l| l.to_gcode()).collect();
-                            file.lines = optimized_lines;
-                            self.set_loaded_file(file, raw_lines);
-                            self.log("Path optimized.".to_string());
-                        }
+                ui.add_space(4.0);
+                if ui
+                    .button("⚡ Optimize Path")
+                    .on_hover_text("Reorder segments to minimize travel distance")
+                    .clicked()
+                {
+                    if let Some(mut file) = self.loaded_file.clone() {
+                        let optimized_lines = crate::gcode::optimizer::optimize(&file.lines);
+                        let raw_lines: Vec<String> =
+                            optimized_lines.iter().map(|l| l.to_gcode()).collect();
+                        file.lines = optimized_lines;
+                        self.set_loaded_file(file, raw_lines);
+                        self.log("Path optimized.".to_string());
                     }
-                    ui.add_space(4.0);
-                    ui.label(RichText::new(format!("📐 {}", crate::i18n::tr("Job Transformation"))).color(theme::LAVENDER).strong());
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.label("Offset X:");
-                        ui.add(egui::DragValue::new(&mut self.job_transform.offset_x).speed(1.0).suffix(" mm"));
-                        ui.label("Y:");
-                        ui.add(egui::DragValue::new(&mut self.job_transform.offset_y).speed(1.0).suffix(" mm"));
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Rotation:");
-                        ui.add(egui::Slider::new(&mut self.job_transform.rotation, -180.0..=180.0).suffix("°"));
-                        if ui
-                            .button("Reset")
-                            .on_hover_text("Reset job rotation to 0°")
-                            .clicked()
-                        {
-                            self.job_transform.rotation = 0.0;
-                        }
-                    });
-                    if ui.button("Center Job").clicked() {
-                        if let Some(file) = &self.loaded_file {
-                            if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
-                                let mid_x = (min_x + max_x) / 2.0;
-                                let mid_y = (min_y + max_y) / 2.0;
-                                let wm_x = self.machine_profile.workspace_x_mm / 2.0;
-                                let wm_y = self.machine_profile.workspace_y_mm / 2.0;
-                                self.job_transform.offset_x = wm_x - mid_x;
-                                self.job_transform.offset_y = wm_y - mid_y;
-                            }
-                        }
+                }
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(format!("📐 {}", crate::i18n::tr("Job Transformation")))
+                        .color(theme::LAVENDER)
+                        .strong(),
+                );
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label("Offset X:");
+                    ui.add(
+                        egui::DragValue::new(&mut self.job_transform.offset_x)
+                            .speed(1.0)
+                            .suffix(" mm"),
+                    );
+                    ui.label("Y:");
+                    ui.add(
+                        egui::DragValue::new(&mut self.job_transform.offset_y)
+                            .speed(1.0)
+                            .suffix(" mm"),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Rotation:");
+                    ui.add(
+                        egui::Slider::new(&mut self.job_transform.rotation, -180.0..=180.0)
+                            .suffix("°"),
+                    );
+                    if ui
+                        .button("Reset")
+                        .on_hover_text("Reset job rotation to 0°")
+                        .clicked()
+                    {
+                        self.job_transform.rotation = 0.0;
                     }
                 });
+                if ui.button("Center Job").clicked() {
+                    if let Some(file) = &self.loaded_file {
+                        if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
+                            let mid_x = (min_x + max_x) / 2.0;
+                            let mid_y = (min_y + max_y) / 2.0;
+                            let wm_x = self.machine_profile.workspace_x_mm / 2.0;
+                            let wm_y = self.machine_profile.workspace_y_mm / 2.0;
+                            self.job_transform.offset_x = wm_x - mid_x;
+                            self.job_transform.offset_y = wm_y - mid_y;
+                        }
+                    }
+                }
             });
+        });
 
         ui.add_space(6.0);
 
@@ -2524,91 +2714,136 @@ impl All4LaserApp {
                 .color(theme::LAVENDER)
                 .strong(),
         )
-            .default_open(!self.beginner_mode)
-            .show(ui, |ui| {
-                let draw_action = crate::ui::drawing::show(ui, &mut self.drawing_state, &self.layers, self.active_layer_idx);
-                if let Some(lines) = draw_action.generate_gcode {
-                    let file = GCodeFile::from_lines("drawing", &lines);
-                    self.set_loaded_file(file, lines);
-                }
+        .default_open(!self.beginner_mode)
+        .show(ui, |ui| {
+            let draw_action = crate::ui::drawing::show(
+                ui,
+                &mut self.drawing_state,
+                &self.layers,
+                self.active_layer_idx,
+            );
+            if let Some(lines) = draw_action.generate_gcode {
+                let file = GCodeFile::from_lines("drawing", &lines);
+                self.set_loaded_file(file, lines);
+            }
 
-                ui.add_space(6.0);
-                let text_action = ui::text::show(ui, &mut self.text_state, self.active_layer_idx);
-                if let Some(shapes) = text_action.add_shapes {
-                    let added = shapes.len();
-                    if added > 0 {
-                        self.push_node_undo_snapshot();
-                        let start_idx = self.drawing_state.shapes.len();
-                        self.drawing_state.shapes.extend(shapes);
+            ui.add_space(6.0);
+            let text_action = ui::text::show(ui, &mut self.text_state, self.active_layer_idx);
+            if let Some(shapes) = text_action.add_shapes {
+                let added = shapes.len();
+                if added > 0 {
+                    self.push_node_undo_snapshot();
+                    let start_idx = self.drawing_state.shapes.len();
+                    self.drawing_state.shapes.extend(shapes);
 
-                        self.renderer.selected_shape_idx.clear();
-                        self.renderer.selected_node = None;
-                        self.renderer.selected_nodes.clear();
-                        for idx in start_idx..self.drawing_state.shapes.len() {
-                            self.renderer.selected_shape_idx.insert(idx);
-                        }
-
-                        if let Some(last_idx) = self.renderer.selected_shape_idx.iter().last().copied() {
-                            if let Some(shape) = self.drawing_state.shapes.get(last_idx) {
-                                self.drawing_state.current = shape.clone();
-                            }
-                        }
-
-                        self.regenerate_drawing_gcode();
-                        self.log(format!("Added {added} text path shape(s)."));
+                    self.renderer.selected_shape_idx.clear();
+                    self.renderer.selected_node = None;
+                    self.renderer.selected_nodes.clear();
+                    for idx in start_idx..self.drawing_state.shapes.len() {
+                        self.renderer.selected_shape_idx.insert(idx);
                     }
-                }
 
-                ui.add_space(4.0);
-
-                let ws = self.renderer.workspace_size;
-                ui::alignment::show(ui, &mut self.drawing_state, &selection, ws);
-
-                ui.add_space(6.0);
-                self.ui_shape_properties(ui, &selection);
-
-                ui.add_space(6.0);
-                self.handle_camera_ui_actions(ui);
-
-                ui.add_space(6.0);
-                let gen_action = ui::generators::show(ui, &mut self.generator_state);
-                if let Some(lines) = gen_action.generate_gcode {
-                    let file = GCodeFile::from_lines("generator", &lines);
-                    self.set_loaded_file(file, lines);
-                }
-
-                ui.add_space(6.0);
-                if ui.button(RichText::new("🌀 Circular Array").color(theme::LAVENDER).strong()).clicked() {
-                    self.circular_array_state.is_open = true;
-                }
-                if ui.button(RichText::new("📐 Offset Path").color(theme::LAVENDER).strong()).clicked() {
-                    self.offset_state.is_open = true;
-                }
-                if ui.button(RichText::new("🧩 Boolean Ops").color(theme::LAVENDER).strong()).clicked() {
-                    self.boolean_ops_state.is_open = true;
-                }
-
-                // Group / Ungroup (F51)
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(selection.len() >= 2, egui::Button::new("📦 Group")).clicked() {
-                        self.push_node_undo_snapshot();
-                        if let Some(gid) = crate::ui::drawing::group_shapes(&mut self.drawing_state.shapes, &selection) {
-                            self.log(format!("Grouped {} shapes (group #{gid}).", selection.len()));
+                    if let Some(last_idx) = self.renderer.selected_shape_idx.iter().last().copied()
+                    {
+                        if let Some(shape) = self.drawing_state.shapes.get(last_idx) {
+                            self.drawing_state.current = shape.clone();
                         }
                     }
-                    let has_group = selection.iter().any(|&i| {
-                        self.drawing_state.shapes.get(i).and_then(|s| s.group_id).is_some()
-                    });
-                    if ui.add_enabled(has_group, egui::Button::new("📤 Ungroup")).clicked() {
-                        self.push_node_undo_snapshot();
-                        let n = crate::ui::drawing::ungroup_shapes(&mut self.drawing_state.shapes, &selection);
-                        self.log(format!("Ungrouped {n} shapes."));
+
+                    self.regenerate_drawing_gcode();
+                    self.log(format!("Added {added} text path shape(s)."));
+                }
+            }
+
+            ui.add_space(4.0);
+
+            let ws = self.renderer.workspace_size;
+            ui::alignment::show(ui, &mut self.drawing_state, &selection, ws);
+
+            ui.add_space(6.0);
+            self.ui_shape_properties(ui, &selection);
+
+            ui.add_space(6.0);
+            self.handle_camera_ui_actions(ui);
+
+            ui.add_space(6.0);
+            let gen_action = ui::generators::show(ui, &mut self.generator_state);
+            if let Some(lines) = gen_action.generate_gcode {
+                let file = GCodeFile::from_lines("generator", &lines);
+                self.set_loaded_file(file, lines);
+            }
+
+            ui.add_space(6.0);
+            if ui
+                .button(
+                    RichText::new("🌀 Circular Array")
+                        .color(theme::LAVENDER)
+                        .strong(),
+                )
+                .clicked()
+            {
+                self.circular_array_state.is_open = true;
+            }
+            if ui
+                .button(
+                    RichText::new("📐 Offset Path")
+                        .color(theme::LAVENDER)
+                        .strong(),
+                )
+                .clicked()
+            {
+                self.offset_state.is_open = true;
+            }
+            if ui
+                .button(
+                    RichText::new("🧩 Boolean Ops")
+                        .color(theme::LAVENDER)
+                        .strong(),
+                )
+                .clicked()
+            {
+                self.boolean_ops_state.is_open = true;
+            }
+
+            // Group / Ungroup (F51)
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(selection.len() >= 2, egui::Button::new("📦 Group"))
+                    .clicked()
+                {
+                    self.push_node_undo_snapshot();
+                    if let Some(gid) =
+                        crate::ui::drawing::group_shapes(&mut self.drawing_state.shapes, &selection)
+                    {
+                        self.log(format!(
+                            "Grouped {} shapes (group #{gid}).",
+                            selection.len()
+                        ));
                     }
+                }
+                let has_group = selection.iter().any(|&i| {
+                    self.drawing_state
+                        .shapes
+                        .get(i)
+                        .and_then(|s| s.group_id)
+                        .is_some()
                 });
-
-                ui.add_space(6.0);
-                self.ui_node_editing_tools(ui, &selection);
+                if ui
+                    .add_enabled(has_group, egui::Button::new("📤 Ungroup"))
+                    .clicked()
+                {
+                    self.push_node_undo_snapshot();
+                    let n = crate::ui::drawing::ungroup_shapes(
+                        &mut self.drawing_state.shapes,
+                        &selection,
+                    );
+                    self.log(format!("Ungrouped {n} shapes."));
+                }
             });
+
+            ui.add_space(6.0);
+            self.ui_node_editing_tools(ui, &selection);
+        });
 
         ui.add_space(6.0);
 
@@ -2627,8 +2862,18 @@ impl All4LaserApp {
     }
 
     fn ui_node_editing_tools(&mut self, ui: &mut egui::Ui, selection: &[usize]) {
-        let node_edit_text = if self.renderer.node_edit_mode { "✅ Node Editing" } else { "🖱 Node Editing" };
-        if ui.selectable_label(self.renderer.node_edit_mode, RichText::new(node_edit_text).color(theme::PEACH).strong()).clicked() {
+        let node_edit_text = if self.renderer.node_edit_mode {
+            "✅ Node Editing"
+        } else {
+            "🖱 Node Editing"
+        };
+        if ui
+            .selectable_label(
+                self.renderer.node_edit_mode,
+                RichText::new(node_edit_text).color(theme::PEACH).strong(),
+            )
+            .clicked()
+        {
             self.renderer.node_edit_mode = !self.renderer.node_edit_mode;
             if !self.renderer.node_edit_mode {
                 self.renderer.selected_node = None;
@@ -2637,8 +2882,18 @@ impl All4LaserApp {
         }
 
         // Measure tool (F50)
-        let measure_text = if self.renderer.measure_mode { "✅ Measure" } else { "📏 Measure" };
-        if ui.selectable_label(self.renderer.measure_mode, RichText::new(measure_text).color(theme::TEAL).strong()).clicked() {
+        let measure_text = if self.renderer.measure_mode {
+            "✅ Measure"
+        } else {
+            "📏 Measure"
+        };
+        if ui
+            .selectable_label(
+                self.renderer.measure_mode,
+                RichText::new(measure_text).color(theme::TEAL).strong(),
+            )
+            .clicked()
+        {
             self.renderer.measure_mode = !self.renderer.measure_mode;
             if !self.renderer.measure_mode {
                 self.renderer.measure_start = None;
@@ -2650,9 +2905,17 @@ impl All4LaserApp {
                 let dx = e.0 - s.0;
                 let dy = e.1 - s.1;
                 let dist = (dx * dx + dy * dy).sqrt();
-                ui.label(RichText::new(format!("Distance: {dist:.2} mm")).color(theme::TEAL).small());
+                ui.label(
+                    RichText::new(format!("Distance: {dist:.2} mm"))
+                        .color(theme::TEAL)
+                        .small(),
+                );
             } else {
-                ui.label(RichText::new("Click two points on canvas to measure").small().color(theme::SUBTEXT));
+                ui.label(
+                    RichText::new("Click two points on canvas to measure")
+                        .small()
+                        .color(theme::SUBTEXT),
+                );
             }
         }
 
@@ -2687,7 +2950,10 @@ impl All4LaserApp {
 
             ui.horizontal(|ui| {
                 ui.label("Simplify tol:");
-                ui.add(egui::Slider::new(&mut self.path_simplify_tolerance, 0.01..=2.0));
+                ui.add(egui::Slider::new(
+                    &mut self.path_simplify_tolerance,
+                    0.01..=2.0,
+                ));
                 ui.label("Path smooth:");
                 ui.add(egui::Slider::new(&mut self.path_smooth_strength, 0.0..=1.0));
                 ui.label("iter:");
@@ -2708,9 +2974,17 @@ impl All4LaserApp {
                 }
 
                 ui.horizontal(|ui| {
-                    if ui.button("➕ Node").on_hover_text("Insert midpoint after selected node").clicked() {
+                    if ui
+                        .button("➕ Node")
+                        .on_hover_text("Insert midpoint after selected node")
+                        .clicked()
+                    {
                         self.push_node_undo_snapshot();
-                        match ui::vector_edit::insert_midpoint_after(&mut self.drawing_state, shape_idx, node_idx) {
+                        match ui::vector_edit::insert_midpoint_after(
+                            &mut self.drawing_state,
+                            shape_idx,
+                            node_idx,
+                        ) {
                             Ok(new_idx) => {
                                 self.renderer.selected_node = Some((shape_idx, new_idx));
                                 self.renderer.selected_nodes.clear();
@@ -2720,9 +2994,17 @@ impl All4LaserApp {
                             Err(e) => self.log(format!("Insert node failed: {e}")),
                         }
                     }
-                    if ui.button("✂ Split").on_hover_text("Split path at selected node").clicked() {
+                    if ui
+                        .button("✂ Split")
+                        .on_hover_text("Split path at selected node")
+                        .clicked()
+                    {
                         self.push_node_undo_snapshot();
-                        match ui::vector_edit::split_path_at_node(&mut self.drawing_state, shape_idx, node_idx) {
+                        match ui::vector_edit::split_path_at_node(
+                            &mut self.drawing_state,
+                            shape_idx,
+                            node_idx,
+                        ) {
                             Ok(other_idx) => {
                                 self.renderer.selected_shape_idx.clear();
                                 self.renderer.selected_shape_idx.insert(shape_idx);
@@ -2734,7 +3016,11 @@ impl All4LaserApp {
                             Err(e) => self.log(format!("Split path failed: {e}")),
                         }
                     }
-                    if ui.button("🧼 Smooth").on_hover_text("Soften selected node").clicked() {
+                    if ui
+                        .button("🧼 Smooth")
+                        .on_hover_text("Soften selected node")
+                        .clicked()
+                    {
                         self.push_node_undo_snapshot();
                         match ui::vector_edit::smooth_nodes_weighted(
                             &mut self.drawing_state,
@@ -2746,7 +3032,11 @@ impl All4LaserApp {
                             Err(e) => self.log(format!("Smooth node failed: {e}")),
                         }
                     }
-                    if ui.button("📐 Corner").on_hover_text("Sharpen selected node").clicked() {
+                    if ui
+                        .button("📐 Corner")
+                        .on_hover_text("Sharpen selected node")
+                        .clicked()
+                    {
                         self.push_node_undo_snapshot();
                         match ui::vector_edit::corner_nodes_weighted(
                             &mut self.drawing_state,
@@ -2758,7 +3048,11 @@ impl All4LaserApp {
                             Err(e) => self.log(format!("Corner node failed: {e}")),
                         }
                     }
-                    if ui.button("🧹 Simplify").on_hover_text("Simplify path with quality guard").clicked() {
+                    if ui
+                        .button("🧹 Simplify")
+                        .on_hover_text("Simplify path with quality guard")
+                        .clicked()
+                    {
                         self.push_node_undo_snapshot();
                         match ui::vector_edit::simplify_path(
                             &mut self.drawing_state,
@@ -2772,7 +3066,11 @@ impl All4LaserApp {
                             Err(e) => self.log(format!("Simplify path failed: {e}")),
                         }
                     }
-                    if ui.button("〰 Smooth Path").on_hover_text("Smooth entire path with iterations").clicked() {
+                    if ui
+                        .button("〰 Smooth Path")
+                        .on_hover_text("Smooth entire path with iterations")
+                        .clicked()
+                    {
                         self.push_node_undo_snapshot();
                         match ui::vector_edit::smooth_path(
                             &mut self.drawing_state,
@@ -2787,14 +3085,23 @@ impl All4LaserApp {
                     if ui.button("🗑 Delete Node").clicked() {
                         self.push_node_undo_snapshot();
                         let result = if selected_nodes.len() > 1 {
-                            ui::vector_edit::delete_nodes(&mut self.drawing_state, shape_idx, &selected_nodes)
+                            ui::vector_edit::delete_nodes(
+                                &mut self.drawing_state,
+                                shape_idx,
+                                &selected_nodes,
+                            )
                         } else {
-                            ui::vector_edit::delete_node(&mut self.drawing_state, shape_idx, node_idx)
+                            ui::vector_edit::delete_node(
+                                &mut self.drawing_state,
+                                shape_idx,
+                                node_idx,
+                            )
                         };
                         match result {
                             Ok(()) => {
                                 self.renderer.selected_nodes.clear();
-                                self.renderer.selected_node = Some((shape_idx, node_idx.saturating_sub(1)));
+                                self.renderer.selected_node =
+                                    Some((shape_idx, node_idx.saturating_sub(1)));
                                 self.regenerate_drawing_gcode();
                             }
                             Err(e) => self.log(format!("Delete node failed: {e}")),
@@ -2810,7 +3117,11 @@ impl All4LaserApp {
                     );
                 }
             } else {
-                ui.label(RichText::new("Node mode: click a node to edit, click a segment to add.").small().color(theme::SUBTEXT));
+                ui.label(
+                    RichText::new("Node mode: click a node to edit, click a segment to add.")
+                        .small()
+                        .color(theme::SUBTEXT),
+                );
             }
         }
 
@@ -2821,7 +3132,10 @@ impl All4LaserApp {
                     if ui.button("🛤 Convert to Path").clicked() {
                         if let Some(poly) = ui::offset::shape_to_polygon(shape) {
                             let exterior = poly.exterior();
-                            let pts: Vec<(f32, f32)> = exterior.coords().map(|c| (c.x as f32, c.y as f32)).collect();
+                            let pts: Vec<(f32, f32)> = exterior
+                                .coords()
+                                .map(|c| (c.x as f32, c.y as f32))
+                                .collect();
                             let mut new_shape = shape.clone();
                             new_shape.shape = ShapeKind::Path(pts);
                             new_shape.x = 0.0;
@@ -2841,8 +3155,8 @@ impl All4LaserApp {
                 .color(theme::LAVENDER)
                 .strong(),
         )
-            .default_open(false)
-            .show(ui, |ui| {
+        .default_open(false)
+        .show(ui, |ui| {
             ui.add_space(6.0);
 
             let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
@@ -2852,7 +3166,11 @@ impl All4LaserApp {
 
             ui.add_space(6.0);
 
-            let console_action = ui::console::show(ui, self.console_log.make_contiguous(), &mut self.console_input);
+            let console_action = ui::console::show(
+                ui,
+                self.console_log.make_contiguous(),
+                &mut self.console_input,
+            );
             if let Some(cmd) = console_action.send_command {
                 self.send_command(&cmd);
             }
@@ -2860,7 +3178,8 @@ impl All4LaserApp {
             ui.add_space(6.0);
 
             let mat_context = self.materials_ui_context();
-            let mat_action = ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
+            let mat_action =
+                ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
             self.apply_material_action(mat_action);
 
             ui.add_space(6.0);
@@ -2870,12 +3189,16 @@ impl All4LaserApp {
             ui.add_space(6.0);
 
             self.ui_z_probe_tools(ui);
-            });
+        });
     }
 
     fn ui_alignment_tools(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
-            ui.label(RichText::new("📐 Align / Distribute").color(theme::LAVENDER).strong());
+            ui.label(
+                RichText::new("📐 Align / Distribute")
+                    .color(theme::LAVENDER)
+                    .strong(),
+            );
             let sel: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
             let has_sel = sel.len() >= 2;
             ui.horizontal(|ui| {
@@ -2884,10 +3207,18 @@ impl All4LaserApp {
                     ("➡", "Align Right", crate::ui::drawing::AlignOp::Right),
                     ("⬆", "Align Top", crate::ui::drawing::AlignOp::Top),
                     ("⬇", "Align Bottom", crate::ui::drawing::AlignOp::Bottom),
-                    ("⬌", "Center Horizontal", crate::ui::drawing::AlignOp::CenterH),
+                    (
+                        "⬌",
+                        "Center Horizontal",
+                        crate::ui::drawing::AlignOp::CenterH,
+                    ),
                     ("⬍", "Center Vertical", crate::ui::drawing::AlignOp::CenterV),
                 ] {
-                    if ui.add_enabled(has_sel, egui::Button::new(label).small()).on_hover_text(hint).clicked() {
+                    if ui
+                        .add_enabled(has_sel, egui::Button::new(label).small())
+                        .on_hover_text(hint)
+                        .clicked()
+                    {
                         self.push_node_undo_snapshot();
                         crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, op);
                         self.regenerate_drawing_gcode();
@@ -2896,14 +3227,28 @@ impl All4LaserApp {
             });
             let has_3 = sel.len() >= 3;
             ui.horizontal(|ui| {
-                if ui.add_enabled(has_3, egui::Button::new("⇔ Distribute H").small()).clicked() {
+                if ui
+                    .add_enabled(has_3, egui::Button::new("⇔ Distribute H").small())
+                    .clicked()
+                {
                     self.push_node_undo_snapshot();
-                    crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::DistributeH);
+                    crate::ui::drawing::align_shapes(
+                        &mut self.drawing_state.shapes,
+                        &sel,
+                        crate::ui::drawing::AlignOp::DistributeH,
+                    );
                     self.regenerate_drawing_gcode();
                 }
-                if ui.add_enabled(has_3, egui::Button::new("⇕ Distribute V").small()).clicked() {
+                if ui
+                    .add_enabled(has_3, egui::Button::new("⇕ Distribute V").small())
+                    .clicked()
+                {
                     self.push_node_undo_snapshot();
-                    crate::ui::drawing::align_shapes(&mut self.drawing_state.shapes, &sel, crate::ui::drawing::AlignOp::DistributeV);
+                    crate::ui::drawing::align_shapes(
+                        &mut self.drawing_state.shapes,
+                        &sel,
+                        crate::ui::drawing::AlignOp::DistributeV,
+                    );
                     self.regenerate_drawing_gcode();
                 }
             });
@@ -2913,23 +3258,39 @@ impl All4LaserApp {
     fn ui_z_probe_tools(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
+                ui.label(
+                    RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe")))
+                        .color(theme::LAVENDER)
+                        .strong(),
+                );
             });
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.button("⇊ Run Z-Probe").on_hover_text("Search for surface using G38.2 and set Z0").clicked() {
+                if ui
+                    .button("⇊ Run Z-Probe")
+                    .on_hover_text("Search for surface using G38.2 and set Z0")
+                    .clicked()
+                {
                     self.send_command("G38.2 Z-50 F100");
                     self.send_command("G4 P0.5");
                     self.send_command("G92 Z0");
                     self.send_command("G0 Z5 F500");
                     self.log("Probing complete. Z set to 5mm above surface.".into());
                 }
-                if ui.button("🎯 Focus Point").on_hover_text("Move to Z focusing position (e.g. 20mm)").clicked() {
+                if ui
+                    .button("🎯 Focus Point")
+                    .on_hover_text("Move to Z focusing position (e.g. 20mm)")
+                    .clicked()
+                {
                     self.send_command("G0 Z20 F1000");
                 }
             });
             ui.add_space(4.0);
-            if ui.button("🔍 Generate Z Focus Test").on_hover_text("Generate lines at different Z heights to find focus").clicked() {
+            if ui
+                .button("🔍 Generate Z Focus Test")
+                .on_hover_text("Generate lines at different Z heights to find focus")
+                .clicked()
+            {
                 let lines = ui::power_speed_test::generate_z_focus_test(
                     0.0, 10.0, 10, 40.0, 1000.0, 500.0, 5.0, 5.0,
                 );
@@ -2943,7 +3304,11 @@ impl All4LaserApp {
     fn ui_right_content(&mut self, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.add_space(4.0);
-            ui.label(RichText::new("📜 GCode Lines").color(theme::LAVENDER).strong());
+            ui.label(
+                RichText::new("📜 GCode Lines")
+                    .color(theme::LAVENDER)
+                    .strong(),
+            );
             ui.separator();
 
             let text_style = egui::TextStyle::Monospace;
@@ -2957,11 +3322,11 @@ impl All4LaserApp {
                     for i in row_range {
                         let is_current = i == self.program_index && self.running;
                         let line = &self.program_lines[i];
-                        
+
                         let mut text = RichText::new(format!("{: >4} | {}", i + 1, line))
                             .monospace()
                             .size(12.0);
-                        
+
                         if is_current {
                             text = text.color(theme::GREEN).strong();
                         } else if self.running && i < self.program_index {
@@ -2986,17 +3351,45 @@ impl All4LaserApp {
             if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
                 let mut changed = false;
                 ui.horizontal(|ui| {
-                    ui.label("X:"); if ui.add(egui::DragValue::new(&mut shape.x).speed(1.0)).changed() { changed = true; }
-                    ui.label("Y:"); if ui.add(egui::DragValue::new(&mut shape.y).speed(1.0)).changed() { changed = true; }
+                    ui.label("X:");
+                    if ui
+                        .add(egui::DragValue::new(&mut shape.x).speed(1.0))
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                    ui.label("Y:");
+                    if ui
+                        .add(egui::DragValue::new(&mut shape.y).speed(1.0))
+                        .changed()
+                    {
+                        changed = true;
+                    }
                 });
-                ui.horizontal(|ui| {
-                    match &shape.shape {
-                        ShapeKind::Circle => {
-                            ui.label("R:"); if ui.add(egui::DragValue::new(&mut shape.radius).speed(1.0)).changed() { changed = true; }
+                ui.horizontal(|ui| match &shape.shape {
+                    ShapeKind::Circle => {
+                        ui.label("R:");
+                        if ui
+                            .add(egui::DragValue::new(&mut shape.radius).speed(1.0))
+                            .changed()
+                        {
+                            changed = true;
                         }
-                        _ => {
-                            ui.label("W:"); if ui.add(egui::DragValue::new(&mut shape.width).speed(1.0)).changed() { changed = true; }
-                            ui.label("H:"); if ui.add(egui::DragValue::new(&mut shape.height).speed(1.0)).changed() { changed = true; }
+                    }
+                    _ => {
+                        ui.label("W:");
+                        if ui
+                            .add(egui::DragValue::new(&mut shape.width).speed(1.0))
+                            .changed()
+                        {
+                            changed = true;
+                        }
+                        ui.label("H:");
+                        if ui
+                            .add(egui::DragValue::new(&mut shape.height).speed(1.0))
+                            .changed()
+                        {
+                            changed = true;
                         }
                     }
                 });
@@ -3015,7 +3408,14 @@ impl All4LaserApp {
                 });
                 ui.horizontal(|ui| {
                     ui.label("Rotation:");
-                    if ui.add(egui::DragValue::new(&mut shape.rotation).suffix("°").range(0.0..=360.0)).changed() {
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut shape.rotation)
+                                .suffix("°")
+                                .range(0.0..=360.0),
+                        )
+                        .changed()
+                    {
                         changed = true;
                     }
                 });
@@ -3029,23 +3429,43 @@ impl All4LaserApp {
                 ui.label(RichText::new("Outline Settings").strong());
                 ui.horizontal(|ui| {
                     ui.label("Dist:");
-                    ui.add(egui::DragValue::new(&mut self.offset_state.distance).speed(0.1).range(0.1..=100.0));
+                    ui.add(
+                        egui::DragValue::new(&mut self.offset_state.distance)
+                            .speed(0.1)
+                            .range(0.1..=100.0),
+                    );
                 });
                 ui.horizontal(|ui| {
                     ui.label("Join:");
                     egui::ComboBox::from_id_salt("sel_join")
                         .selected_text(format!("{:?}", self.offset_state.join_style))
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.offset_state.join_style, JoinStyle::Round, "Round");
-                            ui.selectable_value(&mut self.offset_state.join_style, JoinStyle::Miter, "Miter");
-                            ui.selectable_value(&mut self.offset_state.join_style, JoinStyle::Bevel, "Bevel");
+                            ui.selectable_value(
+                                &mut self.offset_state.join_style,
+                                JoinStyle::Round,
+                                "Round",
+                            );
+                            ui.selectable_value(
+                                &mut self.offset_state.join_style,
+                                JoinStyle::Miter,
+                                "Miter",
+                            );
+                            ui.selectable_value(
+                                &mut self.offset_state.join_style,
+                                JoinStyle::Bevel,
+                                "Bevel",
+                            );
                         });
                 });
 
                 ui.add_space(4.0);
                 if ui.button("🔳 Create Outline (Cut)").clicked() {
                     let selection = vec![idx];
-                    ui::offset::apply_offset(&self.offset_state, &mut self.drawing_state, &selection);
+                    ui::offset::apply_offset(
+                        &self.offset_state,
+                        &mut self.drawing_state,
+                        &selection,
+                    );
                     changed = true;
                 }
 
@@ -3069,178 +3489,255 @@ impl All4LaserApp {
         }
 
         ui.horizontal(|ui| {
-            if ui.selectable_value(&mut self.active_tab, RightPanelTab::Cuts, tr("Cuts")).changed() { self.sync_settings(); }
-            if ui.selectable_value(&mut self.active_tab, RightPanelTab::Move, tr("Move")).changed() { self.sync_settings(); }
-            if ui.selectable_value(&mut self.active_tab, RightPanelTab::Console, tr("Console")).changed() { self.sync_settings(); }
-            if ui.selectable_value(&mut self.active_tab, RightPanelTab::Laser, tr("Laser")).changed() { self.sync_settings(); }
-            if ui.selectable_value(&mut self.active_tab, RightPanelTab::Notes, "📝").changed() { self.sync_settings(); }
+            if ui
+                .selectable_value(&mut self.active_tab, RightPanelTab::Cuts, tr("Cuts"))
+                .changed()
+            {
+                self.sync_settings();
+            }
+            if ui
+                .selectable_value(&mut self.active_tab, RightPanelTab::Move, tr("Move"))
+                .changed()
+            {
+                self.sync_settings();
+            }
+            if ui
+                .selectable_value(&mut self.active_tab, RightPanelTab::Console, tr("Console"))
+                .changed()
+            {
+                self.sync_settings();
+            }
+            if ui
+                .selectable_value(&mut self.active_tab, RightPanelTab::Laser, tr("Laser"))
+                .changed()
+            {
+                self.sync_settings();
+            }
+            if ui
+                .selectable_value(&mut self.active_tab, RightPanelTab::Notes, "📝")
+                .changed()
+            {
+                self.sync_settings();
+            }
         });
         ui.separator();
 
-        egui::ScrollArea::vertical().id_salt("tab_scroll").show(ui, |ui| {
-            match self.active_tab {
-                RightPanelTab::Cuts => {
-                    // Layer List Table (to be implemented more fully)
-                    ui.label(RichText::new(tr("Layers")).strong());
-                    // Reuse palette for now, but vertical?
-                    // We need a list view.
-                    // For now, I'll put Materials here too.
-                    ui.add_space(8.0);
-                    let mat_context = self.materials_ui_context();
-                    let mat_action = ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
-                    self.apply_material_action(mat_action);
-
-                    ui.separator();
-                    // Show full layers list with details
-                    let used_layers = self.preview_used_layer_indices();
-                    let list_action = ui::cut_list::show(
-                        ui,
-                        &mut self.layers,
-                        self.active_layer_idx,
-                        &used_layers,
-                    );
-                    if let Some(idx) = list_action.select_layer {
-                        self.active_layer_idx = idx;
-                        self.drawing_state.current.layer_idx = idx;
-                    }
-                    if let Some(idx) = list_action.open_settings {
-                        self.cut_settings_state.editing_layer_idx = Some(idx);
-                        self.cut_settings_state.is_open = true;
-                    }
-                    if list_action.layers_changed && !self.drawing_state.shapes.is_empty() {
-                        self.regenerate_drawing_gcode();
-                    }
-                }
-                RightPanelTab::Move => {
-                    // Machine State + Jog
-                    let ms_action = ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected);
-                    if ms_action.toggle_focus && connected {
-                        self.is_focus_on = !self.is_focus_on;
-                        if self.is_focus_on { self.send_command("M3 S10"); } else { self.send_command("M5"); }
-                    }
-                    if let Some(pos) = ms_action.quick_pos { self.quick_move_to(pos); }
-
-                    ui.add_space(8.0);
-                    let jog_action = ui::jog::show(
-                        ui,
-                        &mut self.jog_step,
-                        &mut self.jog_feed,
-                        caps.supports_jog,
-                        caps.supports_home,
-                    );
-                    if let Some(dir) = jog_action.direction { self.jog(dir); }
-
-                    ui.add_space(8.0);
-                    // Z-Probe & Focus
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
-                        });
-                        ui.add_space(4.0);
-                        ui.horizontal(|ui| {
-                            if ui.button("⇊ Run Z-Probe").clicked() {
-                                self.send_command("G38.2 Z-50 F100");
-                                self.send_command("G92 Z0");
-                                self.send_command("G0 Z5 F500");
-                            }
-                            if ui.button("🎯 Focus Point").clicked() {
-                                self.send_command("G0 Z20 F1000");
-                            }
-                        });
-                    });
-                }
-                RightPanelTab::Console => {
-                     let console_action = ui::console::show(ui, self.console_log.make_contiguous(), &mut self.console_input);
-                     if let Some(cmd) = console_action.send_command { self.send_command(&cmd); }
-
-                     ui.separator();
-                     // Show GCode here too?
-                     self.ui_right_content(ui); // The GCode list
-                }
-                RightPanelTab::Art => {}
-                RightPanelTab::Notes => {
-                    ui.label(RichText::new(format!("📝 {}", tr("Project Notes"))).strong());
-                    ui.add_space(4.0);
-                    ui.add(
-                        egui::TextEdit::multiline(&mut self.project_notes)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(12)
-                            .hint_text("Add notes about this project..."),
-                    );
-                }
-                RightPanelTab::Laser => {
-                     // Connection
-                    let conn_action = ui::connection::show(ui, &self.ports, &mut self.selected_port, &self.baud_rates, &mut self.selected_baud, connected);
-                    if conn_action.connect { self.connect(); }
-                    if conn_action.disconnect { self.disconnect(); }
-                    if conn_action.refresh_ports { self.ports = connection::list_ports(); }
-
-                    ui.add_space(8.0);
-                    self.ui_machine_profile_editor(ui);
-
-                    ui.add_space(8.0);
-                    // Macros
-                    let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
-                    if let Some(mac) = macros_action.execute_macro {
-                        self.execute_macro_script(&mac.label, &mac.gcode);
-                    }
-
-                    ui.add_space(8.0);
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new("Preflight QA").color(theme::LAVENDER).strong());
-                            if ui.button("🧪 Run Preflight").clicked() {
-                                self.run_preflight("manual", false);
-                            }
-                        });
-                        ui.checkbox(
-                            &mut self.preflight_block_critical,
-                            "Block launch when critical issues are present",
+        egui::ScrollArea::vertical()
+            .id_salt("tab_scroll")
+            .show(ui, |ui| {
+                match self.active_tab {
+                    RightPanelTab::Cuts => {
+                        // Layer List Table (to be implemented more fully)
+                        ui.label(RichText::new(tr("Layers")).strong());
+                        // Reuse palette for now, but vertical?
+                        // We need a list view.
+                        // For now, I'll put Materials here too.
+                        ui.add_space(8.0);
+                        let mat_context = self.materials_ui_context();
+                        let mat_action = ui::materials::show_with_context(
+                            ui,
+                            &mut self.materials_state,
+                            &mat_context,
                         );
+                        self.apply_material_action(mat_action);
 
-                        if let Some(report) = &self.preflight_report {
-                            let critical = report.critical_count();
-                            let warning = report.warning_count();
-                            let head_color = if critical > 0 { theme::PEACH } else { theme::GREEN };
-                            ui.label(
-                                RichText::new(format!(
-                                    "Last report: {critical} critical, {warning} warning"
-                                ))
-                                .small()
-                                .color(head_color),
-                            );
+                        ui.separator();
+                        // Show full layers list with details
+                        let used_layers = self.preview_used_layer_indices();
+                        let list_action = ui::cut_list::show(
+                            ui,
+                            &mut self.layers,
+                            self.active_layer_idx,
+                            &used_layers,
+                        );
+                        if let Some(idx) = list_action.select_layer {
+                            self.active_layer_idx = idx;
+                            self.drawing_state.current.layer_idx = idx;
+                        }
+                        if let Some(idx) = list_action.open_settings {
+                            self.cut_settings_state.editing_layer_idx = Some(idx);
+                            self.cut_settings_state.is_open = true;
+                        }
+                        if list_action.layers_changed && !self.drawing_state.shapes.is_empty() {
+                            self.regenerate_drawing_gcode();
+                        }
+                    }
+                    RightPanelTab::Move => {
+                        // Machine State + Jog
+                        let ms_action = ui::machine_state::show(
+                            ui,
+                            &self.grbl_state,
+                            self.is_focus_on,
+                            connected,
+                        );
+                        if ms_action.toggle_focus && connected {
+                            self.is_focus_on = !self.is_focus_on;
+                            if self.is_focus_on {
+                                self.send_command("M3 S10");
+                            } else {
+                                self.send_command("M5");
+                            }
+                        }
+                        if let Some(pos) = ms_action.quick_pos {
+                            self.quick_move_to(pos);
+                        }
 
-                            egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
-                                for issue in &report.issues {
-                                    let (icon, color) = match issue.severity {
-                                        PreflightSeverity::Critical => ("⛔", theme::RED),
-                                        PreflightSeverity::Warning => ("⚠", theme::PEACH),
-                                    };
-                                    ui.label(
-                                        RichText::new(format!("{icon} {}", issue.message))
-                                            .small()
-                                            .color(color),
-                                    );
+                        ui.add_space(8.0);
+                        let jog_action = ui::jog::show(
+                            ui,
+                            &mut self.jog_step,
+                            &mut self.jog_feed,
+                            caps.supports_jog,
+                            caps.supports_home,
+                        );
+                        if let Some(dir) = jog_action.direction {
+                            self.jog(dir);
+                        }
+
+                        ui.add_space(8.0);
+                        // Z-Probe & Focus
+                        ui.group(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe")))
+                                        .color(theme::LAVENDER)
+                                        .strong(),
+                                );
+                            });
+                            ui.add_space(4.0);
+                            ui.horizontal(|ui| {
+                                if ui.button("⇊ Run Z-Probe").clicked() {
+                                    self.send_command("G38.2 Z-50 F100");
+                                    self.send_command("G92 Z0");
+                                    self.send_command("G0 Z5 F500");
                                 }
-                                if report.issues.is_empty() {
-                                    ui.label(
-                                        RichText::new("✅ No preflight issues detected.")
-                                            .small()
-                                            .color(theme::GREEN),
-                                    );
+                                if ui.button("🎯 Focus Point").clicked() {
+                                    self.send_command("G0 Z20 F1000");
                                 }
                             });
-                        } else {
-                            ui.label(
-                                RichText::new("No preflight report yet.")
-                                    .small()
-                                    .color(theme::SUBTEXT),
-                            );
+                        });
+                    }
+                    RightPanelTab::Console => {
+                        let console_action = ui::console::show(
+                            ui,
+                            self.console_log.make_contiguous(),
+                            &mut self.console_input,
+                        );
+                        if let Some(cmd) = console_action.send_command {
+                            self.send_command(&cmd);
                         }
-                    });
+
+                        ui.separator();
+                        // Show GCode here too?
+                        self.ui_right_content(ui); // The GCode list
+                    }
+                    RightPanelTab::Art => {}
+                    RightPanelTab::Notes => {
+                        ui.label(RichText::new(format!("📝 {}", tr("Project Notes"))).strong());
+                        ui.add_space(4.0);
+                        ui.add(
+                            egui::TextEdit::multiline(&mut self.project_notes)
+                                .desired_width(f32::INFINITY)
+                                .desired_rows(12)
+                                .hint_text("Add notes about this project..."),
+                        );
+                    }
+                    RightPanelTab::Laser => {
+                        // Connection
+                        let conn_action = ui::connection::show(
+                            ui,
+                            &self.ports,
+                            &mut self.selected_port,
+                            &self.baud_rates,
+                            &mut self.selected_baud,
+                            connected,
+                        );
+                        if conn_action.connect {
+                            self.connect();
+                        }
+                        if conn_action.disconnect {
+                            self.disconnect();
+                        }
+                        if conn_action.refresh_ports {
+                            self.ports = connection::list_ports();
+                        }
+
+                        ui.add_space(8.0);
+                        self.ui_machine_profile_editor(ui);
+
+                        ui.add_space(8.0);
+                        // Macros
+                        let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
+                        if let Some(mac) = macros_action.execute_macro {
+                            self.execute_macro_script(&mac.label, &mac.gcode);
+                        }
+
+                        ui.add_space(8.0);
+                        ui.group(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new("Preflight QA")
+                                        .color(theme::LAVENDER)
+                                        .strong(),
+                                );
+                                if ui.button("🧪 Run Preflight").clicked() {
+                                    self.run_preflight("manual", false);
+                                }
+                            });
+                            ui.checkbox(
+                                &mut self.preflight_block_critical,
+                                "Block launch when critical issues are present",
+                            );
+
+                            if let Some(report) = &self.preflight_report {
+                                let critical = report.critical_count();
+                                let warning = report.warning_count();
+                                let head_color = if critical > 0 {
+                                    theme::PEACH
+                                } else {
+                                    theme::GREEN
+                                };
+                                ui.label(
+                                    RichText::new(format!(
+                                        "Last report: {critical} critical, {warning} warning"
+                                    ))
+                                    .small()
+                                    .color(head_color),
+                                );
+
+                                egui::ScrollArea::vertical()
+                                    .max_height(120.0)
+                                    .show(ui, |ui| {
+                                        for issue in &report.issues {
+                                            let (icon, color) = match issue.severity {
+                                                PreflightSeverity::Critical => ("⛔", theme::RED),
+                                                PreflightSeverity::Warning => ("⚠", theme::PEACH),
+                                            };
+                                            ui.label(
+                                                RichText::new(format!("{icon} {}", issue.message))
+                                                    .small()
+                                                    .color(color),
+                                            );
+                                        }
+                                        if report.issues.is_empty() {
+                                            ui.label(
+                                                RichText::new("✅ No preflight issues detected.")
+                                                    .small()
+                                                    .color(theme::GREEN),
+                                            );
+                                        }
+                                    });
+                            } else {
+                                ui.label(
+                                    RichText::new("No preflight report yet.")
+                                        .small()
+                                        .color(theme::SUBTEXT),
+                                );
+                            }
+                        });
+                    }
                 }
-            }
-        });
+            });
     }
 
     fn update_modals(&mut self, ctx: &egui::Context) {
@@ -3298,11 +3795,21 @@ impl All4LaserApp {
     fn handle_toolbar_actions(&mut self, ctx: &egui::Context, actions: ui::toolbar::ToolbarAction) {
         let is_connected = self.is_connected();
         if actions.connect_toggle {
-            if is_connected { self.disconnect(); } else { self.connect(); }
+            if is_connected {
+                self.disconnect();
+            } else {
+                self.connect();
+            }
         }
-        if actions.open_file { self.open_file(); }
-        if let Some(path) = actions.open_recent { self.load_file_path(&path); }
-        if actions.save_file { self.save_file(); }
+        if actions.open_file {
+            self.open_file();
+        }
+        if let Some(path) = actions.open_recent {
+            self.load_file_path(&path);
+        }
+        if actions.save_file {
+            self.save_file();
+        }
         if actions.save_file && !self.drawing_state.shapes.is_empty() {
             if let Some(path) = rfd::FileDialog::new()
                 .add_filter("SVG", &["svg"])
@@ -3325,7 +3832,9 @@ impl All4LaserApp {
                 self.run_program();
             }
         }
-        if actions.frame_bbox { self.frame_bbox(); }
+        if actions.frame_bbox {
+            self.frame_bbox();
+        }
         if actions.dry_run {
             self.is_dry_run = true;
             if self.run_preflight("dry-run", true) {
@@ -3334,16 +3843,24 @@ impl All4LaserApp {
                 self.is_dry_run = false;
             }
         }
-        if actions.abort_program { self.abort_program(); }
+        if actions.abort_program {
+            self.abort_program();
+        }
         if actions.hold {
             self.send_realtime_or_warn(RealtimeCommand::FeedHold, "Feed hold");
         }
         if actions.resume {
             self.send_realtime_or_warn(RealtimeCommand::CycleStart, "Cycle start");
         }
-        if actions.home { self.send_command("$H"); }
-        if actions.unlock { self.send_command("$X"); }
-        if actions.set_zero { self.send_command("G92X0Y0Z0"); }
+        if actions.home {
+            self.send_command("$H");
+        }
+        if actions.unlock {
+            self.send_command("$X");
+        }
+        if actions.set_zero {
+            self.send_command("G92X0Y0Z0");
+        }
         if actions.reset {
             self.send_realtime_or_warn(RealtimeCommand::Reset, "Reset");
         }
@@ -3370,15 +3887,33 @@ impl All4LaserApp {
             self.beginner_mode = !self.beginner_mode;
             self.sync_settings();
         }
-        if actions.open_power_speed_test { self.power_speed_test.is_open = true; }
-        if actions.open_gcode_editor { self.gcode_editor.is_open = true; }
-        if actions.open_shortcuts { self.shortcuts.is_open = true; }
-        if actions.open_tiling { self.tiling.is_open = true; }
-        if actions.open_nesting { self.nesting_state.is_open = true; }
-        if actions.open_job_queue { self.job_queue_state.is_open = true; }
-        if actions.open_test_fire { self.test_fire.is_open = true; }
-        if actions.open_project { self.handle_open_project(ctx); }
-        if actions.save_project { self.handle_save_project(); }
+        if actions.open_power_speed_test {
+            self.power_speed_test.is_open = true;
+        }
+        if actions.open_gcode_editor {
+            self.gcode_editor.is_open = true;
+        }
+        if actions.open_shortcuts {
+            self.shortcuts.is_open = true;
+        }
+        if actions.open_tiling {
+            self.tiling.is_open = true;
+        }
+        if actions.open_nesting {
+            self.nesting_state.is_open = true;
+        }
+        if actions.open_job_queue {
+            self.job_queue_state.is_open = true;
+        }
+        if actions.open_test_fire {
+            self.test_fire.is_open = true;
+        }
+        if actions.open_project {
+            self.handle_open_project(ctx);
+        }
+        if actions.save_project {
+            self.handle_save_project();
+        }
         if actions.open_settings {
             if self.settings_state.is_none() {
                 let mut state = ui::settings_dialog::SettingsDialogState::default();
@@ -3475,12 +4010,17 @@ impl All4LaserApp {
 
     fn update_preview(&mut self, ctx: &egui::Context) {
         CentralPanel::default().show(ctx, |ui| {
-            let segments = self.loaded_file
+            let segments = self
+                .loaded_file
                 .as_ref()
                 .map(|f| {
-                    f.segments.iter()
+                    f.segments
+                        .iter()
                         .filter(|seg| {
-                            f.layers.get(seg.layer_id).map(|l| l.visible).unwrap_or(true)
+                            f.layers
+                                .get(seg.layer_id)
+                                .map(|l| l.visible)
+                                .unwrap_or(true)
                         })
                         .cloned()
                         .collect::<Vec<_>>()
@@ -3498,16 +4038,21 @@ impl All4LaserApp {
                 self.light_mode,
                 offset,
                 self.job_transform.rotation,
-                &mut self.camera_state
+                &mut self.camera_state,
             );
 
-            if preview_action.zoom_in { self.renderer.zoom_in(); }
-            if preview_action.zoom_out { self.renderer.zoom_out(); }
+            if preview_action.zoom_in {
+                self.renderer.zoom_in();
+            }
+            if preview_action.zoom_out {
+                self.renderer.zoom_out();
+            }
             if preview_action.auto_fit {
                 if let Some(file) = self.loaded_file.as_ref() {
                     let segments = file.segments.clone();
                     let rect = ui.max_rect();
-                    self.renderer.auto_fit(&segments, rect, offset, self.job_transform.rotation);
+                    self.renderer
+                        .auto_fit(&segments, rect, offset, self.job_transform.rotation);
                 }
             }
 
@@ -3529,10 +4074,8 @@ impl All4LaserApp {
 
             self.handle_interactive_action(preview_action.interactive_action);
 
-            self.renderer.machine_pos = egui::Pos2::new(
-                self.grbl_state.wpos.x,
-                self.grbl_state.wpos.y,
-            );
+            self.renderer.machine_pos =
+                egui::Pos2::new(self.grbl_state.wpos.x, self.grbl_state.wpos.y);
         });
     }
 
@@ -3558,7 +4101,10 @@ impl All4LaserApp {
                 }
                 self.regenerate_drawing_gcode();
             }
-            InteractiveAction::RotateSelection { shape_idx, delta_deg } => {
+            InteractiveAction::RotateSelection {
+                shape_idx,
+                delta_deg,
+            } => {
                 if self.shape_transform_undo_armed {
                     self.push_node_undo_snapshot();
                     self.shape_transform_undo_armed = false;
@@ -3574,7 +4120,11 @@ impl All4LaserApp {
                     self.regenerate_drawing_gcode();
                 }
             }
-            InteractiveAction::MoveNode { shape_idx, node_idx, new_pos } => {
+            InteractiveAction::MoveNode {
+                shape_idx,
+                node_idx,
+                new_pos,
+            } => {
                 if self.node_move_undo_armed {
                     self.push_node_undo_snapshot();
                     self.node_move_undo_armed = false;
@@ -3617,7 +4167,12 @@ impl All4LaserApp {
                     }
                 }
             }
-            InteractiveAction::MoveNodeHandle { shape_idx, node_idx, handle, new_pos } => {
+            InteractiveAction::MoveNodeHandle {
+                shape_idx,
+                node_idx,
+                handle,
+                new_pos,
+            } => {
                 if self.node_move_undo_armed {
                     self.push_node_undo_snapshot();
                     self.node_move_undo_armed = false;
@@ -3627,8 +4182,12 @@ impl All4LaserApp {
                     if let Some(shape_rw) = self.drawing_state.shapes.get_mut(shape_idx) {
                         if let ShapeKind::Path(pts) = &mut shape_rw.shape {
                             let target_idx = match handle {
-                                crate::preview::renderer::NodeHandleKind::In => node_idx.saturating_sub(1),
-                                crate::preview::renderer::NodeHandleKind::Out => node_idx.saturating_add(1),
+                                crate::preview::renderer::NodeHandleKind::In => {
+                                    node_idx.saturating_sub(1)
+                                }
+                                crate::preview::renderer::NodeHandleKind::Out => {
+                                    node_idx.saturating_add(1)
+                                }
                             };
                             if target_idx < pts.len() {
                                 if let Some(p) = pts.get_mut(target_idx) {
@@ -3641,7 +4200,11 @@ impl All4LaserApp {
                     }
                 }
             }
-            InteractiveAction::AddNode { shape_idx, insert_after, new_pos } => {
+            InteractiveAction::AddNode {
+                shape_idx,
+                insert_after,
+                new_pos,
+            } => {
                 self.push_node_undo_snapshot();
                 if let Some(shape) = self.drawing_state.shapes.get(shape_idx) {
                     let (lx, ly) = Self::world_to_shape_local(shape, new_pos.x, new_pos.y);
@@ -3674,17 +4237,15 @@ impl All4LaserApp {
         if let Some(mut state) = self.import_state.take() {
             if state.needs_texture_update {
                 if let ui::image_dialog::ImportType::Raster(base_img) = &state.import_type {
-                    let processed = imaging::raster::preprocess_image(base_img, &state.raster_params);
+                    let processed =
+                        imaging::raster::preprocess_image(base_img, &state.raster_params);
                     let rgba = processed.to_rgba8();
                     let color_image = egui::ColorImage::from_rgba_unmultiplied(
                         [rgba.width() as _, rgba.height() as _],
                         rgba.as_flat_samples().as_slice(),
                     );
-                    state.texture = Some(ctx.load_texture(
-                        &state.filename,
-                        color_image,
-                        Default::default(),
-                    ));
+                    state.texture =
+                        Some(ctx.load_texture(&state.filename, color_image, Default::default()));
                     state.needs_texture_update = false;
                 }
             }
@@ -3700,8 +4261,12 @@ impl All4LaserApp {
                 .default_width(600.0)
                 .show(ctx, |ui| {
                     let res = ui::image_dialog::show(ui, &mut state);
-                    if res.imported { import_triggered = true; }
-                    if res.cancel { cancel_triggered = true; }
+                    if res.imported {
+                        import_triggered = true;
+                    }
+                    if res.cancel {
+                        cancel_triggered = true;
+                    }
                 });
 
             if !open || cancel_triggered {
@@ -3710,7 +4275,8 @@ impl All4LaserApp {
                 match &state.import_type {
                     ui::image_dialog::ImportType::Raster(img) => {
                         if state.vectorize {
-                            let mut vector_shapes = crate::imaging::tracing::trace_image(img, &state.raster_params);
+                            let mut vector_shapes =
+                                crate::imaging::tracing::trace_image(img, &state.raster_params);
                             for shape in vector_shapes.iter_mut() {
                                 shape.layer_idx = self.active_layer_idx;
                             }
@@ -3718,7 +4284,9 @@ impl All4LaserApp {
                         } else {
                             let shape = crate::ui::drawing::ShapeParams {
                                 shape: crate::ui::drawing::ShapeKind::RasterImage {
-                                    data: crate::ui::drawing::ImageData(std::sync::Arc::new(img.clone())),
+                                    data: crate::ui::drawing::ImageData(std::sync::Arc::new(
+                                        img.clone(),
+                                    )),
                                     params: state.raster_params.clone(),
                                 },
                                 x: 0.0,
@@ -3832,7 +4400,9 @@ impl All4LaserApp {
                         result.placed, result.skipped, result.used_rotation
                     ));
                 } else {
-                    self.show_error("Nesting could not place any shape in current workspace/margins.".into());
+                    self.show_error(
+                        "Nesting could not place any shape in current workspace/margins.".into(),
+                    );
                 }
             }
         }
@@ -3867,7 +4437,11 @@ impl All4LaserApp {
             let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
             let ca_action = ui::circular_array::show(ctx, &mut self.circular_array_state);
             if ca_action.apply {
-                ui::circular_array::apply_array(&self.circular_array_state, &mut self.drawing_state, &selection);
+                ui::circular_array::apply_array(
+                    &self.circular_array_state,
+                    &mut self.drawing_state,
+                    &selection,
+                );
                 self.regenerate_drawing_gcode();
                 self.log("Circular array applied.".into());
             }
@@ -3889,7 +4463,11 @@ impl All4LaserApp {
             let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
             let bool_action = ui::boolean_ops::show(ctx, &mut self.boolean_ops_state);
             if bool_action.apply {
-                ui::boolean_ops::apply_boolean(&self.boolean_ops_state, &mut self.drawing_state, &selection);
+                ui::boolean_ops::apply_boolean(
+                    &self.boolean_ops_state,
+                    &mut self.drawing_state,
+                    &selection,
+                );
                 self.regenerate_drawing_gcode();
                 self.log("Boolean operation applied.".into());
             }
@@ -3903,28 +4481,49 @@ impl All4LaserApp {
                 .resizable(false)
                 .collapsible(false)
                 .show(ctx, |ui| {
-                    egui::Grid::new("tf_grid").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-                        ui.label("Power (S):");
-                        ui.add(egui::DragValue::new(&mut self.test_fire.power).range(1.0..=1000.0).speed(5.0));
-                        ui.end_row();
-                        ui.label("Duration (ms):");
-                        ui.add(egui::DragValue::new(&mut self.test_fire.duration_ms).range(10.0..=5000.0).speed(10.0));
-                        ui.end_row();
-                    });
+                    egui::Grid::new("tf_grid")
+                        .num_columns(2)
+                        .spacing([8.0, 4.0])
+                        .show(ui, |ui| {
+                            ui.label("Power (S):");
+                            ui.add(
+                                egui::DragValue::new(&mut self.test_fire.power)
+                                    .range(1.0..=1000.0)
+                                    .speed(5.0),
+                            );
+                            ui.end_row();
+                            ui.label("Duration (ms):");
+                            ui.add(
+                                egui::DragValue::new(&mut self.test_fire.duration_ms)
+                                    .range(10.0..=5000.0)
+                                    .speed(10.0),
+                            );
+                            ui.end_row();
+                        });
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(connected, egui::Button::new(
-                            egui::RichText::new("🔥 Fire").color(theme::RED).strong()
-                        )).clicked() {
+                        if ui
+                            .add_enabled(
+                                connected,
+                                egui::Button::new(
+                                    egui::RichText::new("🔥 Fire").color(theme::RED).strong(),
+                                ),
+                            )
+                            .clicked()
+                        {
                             let pow = self.test_fire.power;
                             let secs = self.test_fire.duration_ms / 1000.0;
                             self.send_command(&format!("M3 S{:.0}", pow));
                             self.send_command(&format!("G4 P{:.3}", secs));
                             self.send_command("M5");
                         }
-                        if ui.button("Close").clicked() { close_tf = true; }
+                        if ui.button("Close").clicked() {
+                            close_tf = true;
+                        }
                     });
                 });
-            if close_tf { self.test_fire.is_open = false; }
+            if close_tf {
+                self.test_fire.is_open = false;
+            }
         }
 
         // === Feed/Spindle Override Window ===
@@ -3935,12 +4534,24 @@ impl All4LaserApp {
                 .collapsible(false)
                 .show(ctx, |ui| {
                     ui.label(egui::RichText::new("Feed Override").small());
-                    if ui.add(egui::Slider::new(&mut self.feed_override_pct, 10.0..=200.0).suffix("%")).drag_stopped() {
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut self.feed_override_pct, 10.0..=200.0)
+                                .suffix("%"),
+                        )
+                        .drag_stopped()
+                    {
                         let val = self.feed_override_pct as u8;
                         self.send_feed_override(val);
                     }
                     ui.label(egui::RichText::new("Spindle Override").small());
-                    if ui.add(egui::Slider::new(&mut self.spindle_override_pct, 10.0..=200.0).suffix("%")).drag_stopped() {
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut self.spindle_override_pct, 10.0..=200.0)
+                                .suffix("%"),
+                        )
+                        .drag_stopped()
+                    {
                         let val = self.spindle_override_pct as u8;
                         self.send_spindle_override(val);
                     }
@@ -4019,7 +4630,11 @@ impl eframe::App for All4LaserApp {
             }
             if wresult.finished {
                 self.settings.first_run_done = true;
-                if let Some(p) = self.profile_store.profiles.get_mut(self.profile_store.active_index) {
+                if let Some(p) = self
+                    .profile_store
+                    .profiles
+                    .get_mut(self.profile_store.active_index)
+                {
                     *p = self.machine_profile.clone();
                 }
                 self.profile_store.save();
@@ -4036,7 +4651,8 @@ impl eframe::App for All4LaserApp {
             if let Some(file) = &self.loaded_file {
                 let rect = ctx.available_rect();
                 let offset = egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y);
-                self.renderer.auto_fit(&file.segments, rect, offset, self.job_transform.rotation);
+                self.renderer
+                    .auto_fit(&file.segments, rect, offset, self.job_transform.rotation);
                 self.needs_auto_fit = false;
             }
         }
@@ -4051,8 +4667,8 @@ impl eframe::App for All4LaserApp {
         // We clone the error first to avoid borrowing `self` in the closure
         let error_to_show = self.last_error.clone();
         if let Some(err) = error_to_show {
-             let mut open = true;
-             egui::Window::new("❌ Error")
+            let mut open = true;
+            egui::Window::new("❌ Error")
                 .open(&mut open)
                 .collapsible(false)
                 .resizable(false)
@@ -4064,9 +4680,9 @@ impl eframe::App for All4LaserApp {
                         self.last_error = None;
                     }
                 });
-             if !open {
-                 self.last_error = None;
-             }
+            if !open {
+                self.last_error = None;
+            }
         }
 
         // === Job Done Notification ===
@@ -4132,15 +4748,19 @@ impl eframe::App for All4LaserApp {
         TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             if self.running && !self.program_lines.is_empty() {
                 let progress = self.program_index as f32 / self.program_lines.len() as f32;
-                let bar = egui::ProgressBar::new(progress)
-                    .text(format!("{}/{}", self.program_index, self.program_lines.len()));
+                let bar = egui::ProgressBar::new(progress).text(format!(
+                    "{}/{}",
+                    self.program_index,
+                    self.program_lines.len()
+                ));
                 ui.add(bar);
                 ui.add_space(4.0);
             }
 
-            let file_info = self.loaded_file.as_ref().map(|f| {
-                (f.filename.as_str(), f.line_count(), f.estimated_time)
-            });
+            let file_info = self
+                .loaded_file
+                .as_ref()
+                .map(|f| (f.filename.as_str(), f.line_count(), f.estimated_time));
             let progress = if self.running {
                 Some((self.program_index, self.program_lines.len()))
             } else {
@@ -4149,14 +4769,27 @@ impl eframe::App for All4LaserApp {
 
             ui.add_space(4.0);
             let cost = if self.estimation.total_burn_mm > 0.0 {
-                let time_hours = self.loaded_file.as_ref()
+                let time_hours = self
+                    .loaded_file
+                    .as_ref()
                     .map(|f| f.estimated_time.as_secs_f32() / 3600.0)
                     .unwrap_or(0.0);
-                Some((time_hours * self.settings.cost_per_hour, self.settings.cost_currency.as_str()))
+                Some((
+                    time_hours * self.settings.cost_per_hour,
+                    self.settings.cost_currency.as_str(),
+                ))
             } else {
                 None
             };
-            let sb_actions = ui::status_bar::show(ui, &self.grbl_state, file_info, progress, caps, self.display_unit, cost);
+            let sb_actions = ui::status_bar::show(
+                ui,
+                &self.grbl_state,
+                file_info,
+                progress,
+                caps,
+                self.display_unit,
+                cost,
+            );
             ui.add_space(4.0);
             ui.separator();
             ui.add_space(4.0);
@@ -4187,10 +4820,16 @@ impl eframe::App for All4LaserApp {
                 self.send_realtime_or_warn(RealtimeCommand::RapidOverride25, "Rapid override");
             }
             if sb_actions.spindle_up {
-                self.send_realtime_or_warn(RealtimeCommand::SpindleOverridePlus10, "Laser power override");
+                self.send_realtime_or_warn(
+                    RealtimeCommand::SpindleOverridePlus10,
+                    "Laser power override",
+                );
             }
             if sb_actions.spindle_down {
-                self.send_realtime_or_warn(RealtimeCommand::SpindleOverrideMinus10, "Laser power override");
+                self.send_realtime_or_warn(
+                    RealtimeCommand::SpindleOverrideMinus10,
+                    "Laser power override",
+                );
             }
             if sb_actions.toggle_unit {
                 use crate::config::settings::DisplayUnit;
@@ -4214,9 +4853,11 @@ impl eframe::App for All4LaserApp {
             .resizable(true)
             .default_width(left_panel_width)
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().id_salt("left_scroll").show(ui, |ui| {
-                    self.ui_left_content(ui, connected);
-                });
+                egui::ScrollArea::vertical()
+                    .id_salt("left_scroll")
+                    .show(ui, |ui| {
+                        self.ui_left_content(ui, connected);
+                    });
             });
 
         // === RIGHT SIDEBAR ===
@@ -4268,7 +4909,11 @@ fn chrono_lite() -> String {
 mod tests {
     use super::*;
 
-    fn snapshot(id: f32, node: Option<(usize, usize)>, selected_nodes: Vec<(usize, usize)>) -> NodeEditSnapshot {
+    fn snapshot(
+        id: f32,
+        node: Option<(usize, usize)>,
+        selected_nodes: Vec<(usize, usize)>,
+    ) -> NodeEditSnapshot {
         let shape = ShapeParams {
             shape: ShapeKind::Path(vec![(id, 0.0), (id + 1.0, 1.0)]),
             ..ShapeParams::default()
@@ -4287,12 +4932,14 @@ mod tests {
         let mut redo = VecDeque::new();
         let current = snapshot(2.0, Some((0, 1)), vec![(0, 0), (0, 1)]);
 
-        let prev = undo_history_step(&mut undo, &mut redo, current.clone()).expect("undo should produce previous state");
+        let prev = undo_history_step(&mut undo, &mut redo, current.clone())
+            .expect("undo should produce previous state");
         assert_eq!(prev.selected_node, Some((0, 0)));
         assert_eq!(redo.len(), 1);
         assert_eq!(redo[0].selected_nodes.len(), 2);
 
-        let next = redo_history_step(&mut undo, &mut redo, prev.clone()).expect("redo should restore current state");
+        let next = redo_history_step(&mut undo, &mut redo, prev.clone())
+            .expect("redo should restore current state");
         assert_eq!(next.selected_node, Some((0, 1)));
         assert_eq!(next.selected_nodes.len(), 2);
     }
@@ -4345,7 +4992,10 @@ mod tests {
         layers[0].mode = ui::layers_new::CutMode::Fill;
 
         let warning = shape_fill_warning(&shape, &layers);
-        assert_eq!(warning, Some("Fill ignored: open path. Close contour to enable fill."));
+        assert_eq!(
+            warning,
+            Some("Fill ignored: open path. Close contour to enable fill.")
+        );
     }
 
     #[test]

@@ -9,7 +9,10 @@ use crate::controller::{ControllerBackend, ControllerResponse};
 /// Messages from serial reader thread to the main app
 #[derive(Debug, Clone)]
 pub enum SerialMsg {
-    Parsed { raw: String, response: ControllerResponse },
+    Parsed {
+        raw: String,
+        response: ControllerResponse,
+    },
     Connected(String),
     Disconnected(String),
     Error(String),
@@ -61,7 +64,10 @@ impl SerialConnection {
                             continue;
                         }
                         let response = parse_backend.parse_response(&trimmed);
-                        let _ = reader_tx.send(SerialMsg::Parsed { raw: trimmed, response });
+                        let _ = reader_tx.send(SerialMsg::Parsed {
+                            raw: trimmed,
+                            response,
+                        });
                     }
                     Err(e) => {
                         if e.kind() == std::io::ErrorKind::TimedOut {
@@ -92,17 +98,15 @@ impl SerialConnection {
                             Err(_) => break, // Exit if poisoned
                         }
                     }
-                    Ok(SerialCmd::SendByte(byte)) => {
-                        match port_for_writer.lock() {
-                            Ok(mut guard) => {
-                                if let Some(ref mut port) = *guard {
-                                    let _ = port.write_all(&[byte]);
-                                    let _ = port.flush();
-                                }
+                    Ok(SerialCmd::SendByte(byte)) => match port_for_writer.lock() {
+                        Ok(mut guard) => {
+                            if let Some(ref mut port) = *guard {
+                                let _ = port.write_all(&[byte]);
+                                let _ = port.flush();
                             }
-                            Err(_) => break,
                         }
-                    }
+                        Err(_) => break,
+                    },
                     Ok(SerialCmd::Disconnect) | Err(_) => {
                         match port_for_writer.lock() {
                             Ok(mut guard) => {
