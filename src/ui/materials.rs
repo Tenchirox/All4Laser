@@ -252,9 +252,13 @@ impl MaterialsState {
     }
 
     pub fn save(&self) {
-        if let Ok(json) = serde_json::to_string_pretty(&self.presets) {
-            let _ = std::fs::write(Self::json_path(), json);
-        }
+        let presets_clone = self.presets.clone();
+        let path = Self::json_path();
+        std::thread::spawn(move || {
+            if let Ok(json) = serde_json::to_string_pretty(&presets_clone) {
+                let _ = std::fs::write(path, json);
+            }
+        });
     }
 
     pub fn selected_preset_name(&self) -> Option<&str> {
