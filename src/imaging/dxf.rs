@@ -288,9 +288,9 @@ fn read_flat_pairs<'a>(
             break;
         }
         if let Some(code_line) = iter.next() {
-            flat.push(code_line.trim().to_string());
+            flat.push(code_line.trim());
             if let Some(val_line) = iter.next() {
-                flat.push(val_line.trim().to_string());
+                flat.push(val_line.trim());
             }
         } else {
             break;

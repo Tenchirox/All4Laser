@@ -116,6 +116,12 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
     let mut last_x = cur_x;
     let mut last_y = cur_y;
 
+    while !remaining.is_empty() {
+        // Find max nesting level remaining
+        let max_nesting = remaining.iter().map(|p| p.nesting_level).max().unwrap_or(0);
+
+        let mut best_index = None;
+        let mut min_dist_sq = f32::MAX;
     while let Some((_, mut level_paths)) = paths_by_level.pop_last() {
         while !level_paths.is_empty() {
             let mut best_index = 0;
