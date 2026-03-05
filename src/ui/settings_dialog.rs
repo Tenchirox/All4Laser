@@ -1,6 +1,6 @@
-use std::collections::BTreeMap;
-use egui::{Context, RichText, Grid, ScrollArea, Window};
 use crate::theme;
+use egui::{Context, Grid, RichText, ScrollArea, Window};
+use std::collections::BTreeMap;
 
 #[derive(Default, Clone)]
 pub struct SettingsDialogState {
@@ -21,9 +21,13 @@ pub fn show(ctx: &Context, state: &mut SettingsDialogState) {
         .default_width(500.0)
         .default_height(400.0)
         .show(ctx, |ui| {
-            ui.label(RichText::new("Machine Firmware Settings").color(theme::LAVENDER).strong());
+            ui.label(
+                RichText::new("Machine Firmware Settings")
+                    .color(theme::LAVENDER)
+                    .strong(),
+            );
             ui.add_space(8.0);
-            
+
             ScrollArea::vertical().show(ui, |ui| {
                 Grid::new("grbl_settings_grid")
                     .num_columns(3)
@@ -38,16 +42,16 @@ pub fn show(ctx: &Context, state: &mut SettingsDialogState) {
                         let mut updates = Vec::new();
                         for (&id, val) in &state.settings {
                             ui.label(format!("${id}"));
-                            
+
                             let mut edit_val = val.clone();
                             if ui.text_edit_singleline(&mut edit_val).changed() {
                                 updates.push((id, edit_val));
                             }
-                            
+
                             ui.label(get_setting_description(id));
                             ui.end_row();
                         }
-                        
+
                         for (id, val) in updates {
                             state.settings.insert(id, val);
                         }
@@ -60,9 +64,12 @@ pub fn show(ctx: &Context, state: &mut SettingsDialogState) {
             });
 
             ui.add_space(8.0);
-            
+
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("Save to Board").color(theme::GREEN)).clicked() {
+                if ui
+                    .button(RichText::new("Save to Board").color(theme::GREEN))
+                    .clicked()
+                {
                     state.pending_writes.clear();
                     for (&id, val) in &state.settings {
                         state.pending_writes.push((id, val.clone()));

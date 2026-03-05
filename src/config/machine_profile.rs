@@ -67,7 +67,7 @@ pub struct MachineProfile {
     #[serde(default)]
     pub interlock_water_enabled: bool,
     #[serde(default)]
-    pub interlock_lid_pin: String,   // M-code or input pin to check
+    pub interlock_lid_pin: String, // M-code or input pin to check
     #[serde(default)]
     pub interlock_water_pin: String,
 }
@@ -75,13 +75,27 @@ pub struct MachineProfile {
 fn default_controller_kind() -> ControllerKind {
     ControllerKind::Grbl
 }
-fn default_tube_life() -> f64 { 2000.0 }
-fn default_lens_clean_interval() -> u32 { 20 }
-fn default_belt_check_interval() -> u32 { 100 }
-fn default_steps_per_mm() -> f32 { 80.0 }
-fn default_probe_feed() -> f32 { 100.0 }
-fn default_probe_max_depth() -> f32 { 50.0 }
-fn default_focus_offset() -> f32 { 0.0 }
+fn default_tube_life() -> f64 {
+    2000.0
+}
+fn default_lens_clean_interval() -> u32 {
+    20
+}
+fn default_belt_check_interval() -> u32 {
+    100
+}
+fn default_steps_per_mm() -> f32 {
+    80.0
+}
+fn default_probe_feed() -> f32 {
+    100.0
+}
+fn default_probe_max_depth() -> f32 {
+    50.0
+}
+fn default_focus_offset() -> f32 {
+    0.0
+}
 
 impl Default for MachineProfile {
     fn default() -> Self {
@@ -132,7 +146,9 @@ impl MachineProfile {
 
     /// Tube wear percentage (0..100+)
     pub fn tube_wear_pct(&self) -> f64 {
-        if self.tube_life_hours <= 0.0 { return 0.0; }
+        if self.tube_life_hours <= 0.0 {
+            return 0.0;
+        }
         (self.tube_hours_total / self.tube_life_hours * 100.0).min(999.0)
     }
 
@@ -249,7 +265,9 @@ impl MachineProfileStore {
     }
 
     pub fn active(&self) -> &MachineProfile {
-        self.profiles.get(self.active_index).unwrap_or_else(|| &self.profiles[0])
+        self.profiles
+            .get(self.active_index)
+            .unwrap_or_else(|| &self.profiles[0])
     }
 
     pub fn active_mut(&mut self) -> &mut MachineProfile {

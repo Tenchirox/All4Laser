@@ -1,9 +1,9 @@
-use egui::{Ui, RichText};
 use crate::config::recent_files::RecentFiles;
 use crate::controller::ControllerCapabilities;
 use crate::theme;
+use egui::{RichText, Ui};
 
-use crate::i18n::{self, tr, Language};
+use crate::i18n::{self, Language, tr};
 
 pub struct ToolbarAction {
     pub connect_toggle: bool,
@@ -91,17 +91,31 @@ pub fn show(
         ui.spacing_mut().item_spacing.x = 4.0;
 
         // Connect / Disconnect
-        let conn_label = if connected { tr("Disconnect") } else { tr("Connect") };
-        let conn_text = if connected { format!("⏏ {}", conn_label) } else { format!("🔌 {}", conn_label) };
+        let conn_label = if connected {
+            tr("Disconnect")
+        } else {
+            tr("Connect")
+        };
+        let conn_text = if connected {
+            format!("⏏ {}", conn_label)
+        } else {
+            format!("🔌 {}", conn_label)
+        };
         let conn_color = if connected { theme::RED } else { theme::GREEN };
-        if ui.button(RichText::new(conn_text).color(conn_color).size(13.0)).clicked() {
+        if ui
+            .button(RichText::new(conn_text).color(conn_color).size(13.0))
+            .clicked()
+        {
             action.connect_toggle = true;
         }
 
         ui.separator();
 
         // File group
-        if ui.button(RichText::new(format!("📂 {}", tr("Open"))).size(13.0)).clicked() {
+        if ui
+            .button(RichText::new(format!("📂 {}", tr("Open"))).size(13.0))
+            .clicked()
+        {
             action.open_file = true;
         }
         // Recent files dropdown
@@ -125,7 +139,10 @@ pub fn show(
         .response
         .on_hover_text("Recent files");
 
-        if ui.button(RichText::new(format!("💾 {}", tr("Save"))).size(13.0)).clicked() {
+        if ui
+            .button(RichText::new(format!("💾 {}", tr("Save"))).size(13.0))
+            .clicked()
+        {
             action.save_file = true;
         }
 
@@ -135,7 +152,10 @@ pub fn show(
                 action.open_project = true;
                 ui.close_menu();
             }
-            if ui.add_enabled(has_file, egui::Button::new("💾 Save Project (.a4l)")).clicked() {
+            if ui
+                .add_enabled(has_file, egui::Button::new("💾 Save Project (.a4l)"))
+                .clicked()
+            {
                 action.save_project = true;
                 ui.close_menu();
             }
@@ -145,24 +165,58 @@ pub fn show(
 
         // Run / Abort toggle
         if running {
-            if ui.button(RichText::new(format!("⛔ {}", tr("Stop"))).color(theme::RED).size(13.0)).clicked() {
+            if ui
+                .button(
+                    RichText::new(format!("⛔ {}", tr("Stop")))
+                        .color(theme::RED)
+                        .size(13.0),
+                )
+                .clicked()
+            {
                 action.abort_program = true;
             }
         } else {
             let run_btn = ui.add_enabled(
                 connected,
-                egui::Button::new(RichText::new(format!("▶ {}", tr("Run"))).color(theme::GREEN).size(13.0)),
+                egui::Button::new(
+                    RichText::new(format!("▶ {}", tr("Run")))
+                        .color(theme::GREEN)
+                        .size(13.0),
+                ),
             );
-            if run_btn.clicked() { action.run_program = true; }
+            if run_btn.clicked() {
+                action.run_program = true;
+            }
 
-            let frame_lbl = if framing_active { format!("⏹ {}", tr("Stop")) } else { "⛶ Frame".to_string() };
-            let frame_col = if framing_active { theme::RED } else { theme::SUBTEXT };
-            if ui.add_enabled(connected, egui::Button::new(RichText::new(frame_lbl).color(frame_col).size(13.0))).clicked() {
+            let frame_lbl = if framing_active {
+                format!("⏹ {}", tr("Stop"))
+            } else {
+                "⛶ Frame".to_string()
+            };
+            let frame_col = if framing_active {
+                theme::RED
+            } else {
+                theme::SUBTEXT
+            };
+            if ui
+                .add_enabled(
+                    connected,
+                    egui::Button::new(RichText::new(frame_lbl).color(frame_col).size(13.0)),
+                )
+                .clicked()
+            {
                 action.frame_bbox = true;
             }
 
             // Dry Run
-             if ui.add_enabled(connected && has_file, egui::Button::new(RichText::new("🛡 Dry Run").color(theme::BLUE).size(13.0))).on_hover_text("Run job with Laser OFF (M5)").clicked() {
+            if ui
+                .add_enabled(
+                    connected && has_file,
+                    egui::Button::new(RichText::new("🛡 Dry Run").color(theme::BLUE).size(13.0)),
+                )
+                .on_hover_text("Run job with Laser OFF (M5)")
+                .clicked()
+            {
                 action.dry_run = true;
             }
         }
@@ -206,14 +260,26 @@ pub fn show(
         {
             action.unlock = true;
         }
-        if ui.add_enabled(connected, egui::Button::new(RichText::new("⊙ Zero").size(13.0))).clicked() { action.set_zero = true; }
+        if ui
+            .add_enabled(
+                connected,
+                egui::Button::new(RichText::new("⊙ Zero").size(13.0)),
+            )
+            .clicked()
+        {
+            action.set_zero = true;
+        }
 
         ui.separator();
 
         if ui
             .add_enabled(
                 connected && caps.supports_reset,
-                egui::Button::new(RichText::new(format!("↻ {}", tr("Reset"))).color(theme::PEACH).size(13.0)),
+                egui::Button::new(
+                    RichText::new(format!("↻ {}", tr("Reset")))
+                        .color(theme::PEACH)
+                        .size(13.0),
+                ),
             )
             .clicked()
         {
@@ -223,7 +289,10 @@ pub fn show(
         // View menu
         egui::menu::menu_button(ui, format!("👁 {}", tr("View")), |ui| {
             ui.label(RichText::new(format!("{}:", tr("Theme"))).strong());
-            if ui.selectable_label(false, tr("Modern (recommended)")).clicked() {
+            if ui
+                .selectable_label(false, tr("Modern (recommended)"))
+                .clicked()
+            {
                 action.set_theme = Some(theme::UiTheme::Modern);
                 ui.close_menu();
             }
@@ -231,22 +300,34 @@ pub fn show(
                 action.set_theme = Some(theme::UiTheme::Pro);
                 ui.close_menu();
             }
-            if ui.selectable_label(false, tr("Industrial (advanced)")).clicked() {
+            if ui
+                .selectable_label(false, tr("Industrial (advanced)"))
+                .clicked()
+            {
                 action.set_theme = Some(theme::UiTheme::Industrial);
                 ui.close_menu();
             }
-            
+
             ui.separator();
             ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());
-            if ui.selectable_label(false, tr("Modern layout (simple)")).clicked() {
+            if ui
+                .selectable_label(false, tr("Modern layout (simple)"))
+                .clicked()
+            {
                 action.set_layout = Some(theme::UiLayout::Modern);
                 ui.close_menu();
             }
-            if ui.selectable_label(false, tr("Pro layout (aesthetic & practical)")).clicked() {
+            if ui
+                .selectable_label(false, tr("Pro layout (aesthetic & practical)"))
+                .clicked()
+            {
                 action.set_layout = Some(theme::UiLayout::Pro);
                 ui.close_menu();
             }
-            if ui.selectable_label(false, tr("Classic layout (expert)")).clicked() {
+            if ui
+                .selectable_label(false, tr("Classic layout (expert)"))
+                .clicked()
+            {
                 action.set_layout = Some(theme::UiLayout::Classic);
                 ui.close_menu();
             }
@@ -266,12 +347,20 @@ pub fn show(
             ui.label(RichText::new(format!("{}:", tr("Language"))).strong());
             let current_lang = i18n::get_language();
             let langs = [
-                Language::English, Language::French, Language::Japanese,
-                Language::German, Language::Italian, Language::Arabic,
-                Language::Spanish, Language::Portuguese
+                Language::English,
+                Language::French,
+                Language::Japanese,
+                Language::German,
+                Language::Italian,
+                Language::Arabic,
+                Language::Spanish,
+                Language::Portuguese,
             ];
             for lang in langs {
-                if ui.selectable_label(current_lang == lang, lang.name()).clicked() {
+                if ui
+                    .selectable_label(current_lang == lang, lang.name())
+                    .clicked()
+                {
                     action.set_language = Some(lang);
                     ui.close_menu();
                 }
@@ -289,19 +378,31 @@ pub fn show(
                 ui.close_menu();
             }
             ui.separator();
-            if ui.add_enabled(has_file, egui::Button::new("📝 GCode Editor")).clicked() {
+            if ui
+                .add_enabled(has_file, egui::Button::new("📝 GCode Editor"))
+                .clicked()
+            {
                 action.open_gcode_editor = true;
                 ui.close_menu();
             }
-            if ui.add_enabled(has_file, egui::Button::new("⊟ Tiling")).clicked() {
+            if ui
+                .add_enabled(has_file, egui::Button::new("⊟ Tiling"))
+                .clicked()
+            {
                 action.open_tiling = true;
                 ui.close_menu();
             }
-            if ui.add_enabled(has_shapes, egui::Button::new("🧩 Auto Nesting")).clicked() {
+            if ui
+                .add_enabled(has_shapes, egui::Button::new("🧩 Auto Nesting"))
+                .clicked()
+            {
                 action.open_nesting = true;
                 ui.close_menu();
             }
-            if ui.add_enabled(has_file, egui::Button::new("📚 Job Queue")).clicked() {
+            if ui
+                .add_enabled(has_file, egui::Button::new("📚 Job Queue"))
+                .clicked()
+            {
                 action.open_job_queue = true;
                 ui.close_menu();
             }
@@ -312,13 +413,17 @@ pub fn show(
         });
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let theme_toggle_label = if light_mode { "🌙 Dark UI" } else { "☀ Light UI" };
+            let theme_toggle_label = if light_mode {
+                "🌙 Dark UI"
+            } else {
+                "☀ Light UI"
+            };
             if ui
                 .button(RichText::new(theme_toggle_label).size(13.0))
                 .on_hover_text("Toggle light/dark interface")
                 .clicked()
             {
-                action.toggle_light_mode = true; 
+                action.toggle_light_mode = true;
             }
             ui.add_space(8.0);
             if ui

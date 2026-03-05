@@ -111,7 +111,11 @@ pub fn detect_marker_components(rgba: &[u8], width: usize, height: usize) -> Vec
     out
 }
 
-pub fn detect_cross_and_circle_markers(rgba: &[u8], width: usize, height: usize) -> Option<((f32, f32), (f32, f32))> {
+pub fn detect_cross_and_circle_markers(
+    rgba: &[u8],
+    width: usize,
+    height: usize,
+) -> Option<((f32, f32), (f32, f32))> {
     let mut comps = detect_marker_components(rgba, width, height)
         .into_iter()
         .filter(|c| c.aspect_ratio > 0.55 && c.aspect_ratio < 1.8)
@@ -122,9 +126,11 @@ pub fn detect_cross_and_circle_markers(rgba: &[u8], width: usize, height: usize)
     }
 
     comps.sort_by(|a, b| {
-        b.area
-            .cmp(&a.area)
-            .then_with(|| a.fill_ratio.partial_cmp(&b.fill_ratio).unwrap_or(std::cmp::Ordering::Equal))
+        b.area.cmp(&a.area).then_with(|| {
+            a.fill_ratio
+                .partial_cmp(&b.fill_ratio)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
 
     let candidates = comps.into_iter().take(12).collect::<Vec<_>>();
@@ -152,5 +158,8 @@ pub fn detect_cross_and_circle_markers(rgba: &[u8], width: usize, height: usize)
     }
 
     let (cross, circle, _) = best_pair?;
-    Some(((cross.center_x, cross.center_y), (circle.center_x, circle.center_y)))
+    Some((
+        (cross.center_x, cross.center_y),
+        (circle.center_x, circle.center_y),
+    ))
 }

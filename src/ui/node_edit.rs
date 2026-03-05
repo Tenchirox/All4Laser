@@ -1,8 +1,7 @@
+use crate::ui::drawing::ShapeParams;
 /// Node editing undo/redo helpers and snapshot types.
 /// Extracted from app.rs for maintainability.
-
 use std::collections::VecDeque;
-use crate::ui::drawing::ShapeParams;
 
 pub const MAX_NODE_HISTORY: usize = 128;
 

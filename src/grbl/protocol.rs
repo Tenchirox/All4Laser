@@ -16,10 +16,7 @@ pub fn jog_command(dir: JogDirection, step: f32, speed: f32) -> String {
 /// Build a legacy jog command for GRBL v0.9
 pub fn jog_command_legacy(dir: JogDirection, step: f32, speed: f32) -> Vec<String> {
     match dir {
-        JogDirection::Home => vec![
-            "G90".to_string(),
-            format!("G1X0Y0F{speed}"),
-        ],
+        JogDirection::Home => vec!["G90".to_string(), format!("G1X0Y0F{speed}")],
         _ => {
             let (dx, dy) = direction_delta(dir);
             let dz = match dir {
@@ -28,9 +25,15 @@ pub fn jog_command_legacy(dir: JogDirection, step: f32, speed: f32) -> Vec<Strin
                 _ => 0.0,
             };
             let mut cmd = "G1".to_string();
-            if dx != 0.0 { cmd += &format!("X{:.1}", dx * step); }
-            if dy != 0.0 { cmd += &format!("Y{:.1}", dy * step); }
-            if dz != 0.0 { cmd += &format!("Z{dz:.1}"); }
+            if dx != 0.0 {
+                cmd += &format!("X{:.1}", dx * step);
+            }
+            if dy != 0.0 {
+                cmd += &format!("Y{:.1}", dy * step);
+            }
+            if dz != 0.0 {
+                cmd += &format!("Z{dz:.1}");
+            }
             cmd += &format!("F{speed}");
 
             vec!["G91".to_string(), cmd, "G90".to_string()]

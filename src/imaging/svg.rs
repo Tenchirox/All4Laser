@@ -35,7 +35,7 @@ impl Default for SvgParams {
 pub fn extract_layers(svg_data: &[u8]) -> Vec<SvgLayer> {
     let opts = usvg::Options::default();
     let mut colors = std::collections::HashSet::new();
-    
+
     if let Ok(tree) = usvg::Tree::from_data(svg_data, &opts) {
         fn walk(node: &usvg::Node, colors: &mut std::collections::HashSet<String>) {
             match node {
@@ -64,13 +64,16 @@ pub fn extract_layers(svg_data: &[u8]) -> Vec<SvgLayer> {
         }
     }
 
-    let mut layers: Vec<SvgLayer> = colors.into_iter().map(|color_ha| SvgLayer {
-        color_ha,
-        speed: 1000.0,
-        power: 1000.0,
-        enabled: true,
-    }).collect();
-    
+    let mut layers: Vec<SvgLayer> = colors
+        .into_iter()
+        .map(|color_ha| SvgLayer {
+            color_ha,
+            speed: 1000.0,
+            power: 1000.0,
+            enabled: true,
+        })
+        .collect();
+
     // Sort layers by color hex to keep UI stable
     layers.sort_by(|a, b| a.color_ha.cmp(&b.color_ha));
 
@@ -89,32 +92,37 @@ pub fn extract_layers(svg_data: &[u8]) -> Vec<SvgLayer> {
 /// Convert an SVG file to GCode
 pub fn svg_to_gcode(svg_data: &[u8], params: &SvgParams) -> Result<Vec<String>, String> {
     let opts = usvg::Options::default();
-    let _tree = usvg::Tree::from_data(svg_data, &opts)
-        .map_err(|e| format!("SVG parse error: {e}"))?;
+    let _tree =
+        usvg::Tree::from_data(svg_data, &opts).map_err(|e| format!("SVG parse error: {e}"))?;
 
     let _ = params;
 
     let gcode = Vec::new();
     // ... (rest of old svg_to_gcode logic if still needed, but we'll use paths now)
     // Actually, let's keep it for compatibility if needed, but the main goal is svg_to_paths.
-    Ok(gcode) 
+    Ok(gcode)
 }
 
-pub fn svg_to_paths(svg_data: &[u8], params: &SvgParams) -> Result<Vec<(Vec<(f32, f32)>, usize)>, String> {
+pub fn svg_to_paths(
+    svg_data: &[u8],
+    params: &SvgParams,
+) -> Result<Vec<(Vec<(f32, f32)>, usize)>, String> {
     let opts = usvg::Options::default();
-    let tree = usvg::Tree::from_data(svg_data, &opts)
-        .map_err(|e| format!("SVG parse error: {e}"))?;
+    let tree =
+        usvg::Tree::from_data(svg_data, &opts).map_err(|e| format!("SVG parse error: {e}"))?;
 
     let mut out_paths = Vec::new();
 
     for (layer_idx, layer) in params.layers.iter().enumerate() {
-        if !layer.enabled { continue; }
-        
+        if !layer.enabled {
+            continue;
+        }
+
         let mut layer_paths = Vec::new();
         for node in tree.root().children() {
             collect_paths(&node, params, layer, &mut layer_paths);
         }
-        
+
         for p in layer_paths {
             out_paths.push((p, layer_idx));
         }
@@ -123,7 +131,12 @@ pub fn svg_to_paths(svg_data: &[u8], params: &SvgParams) -> Result<Vec<(Vec<(f32
     Ok(out_paths)
 }
 
-fn collect_paths(node: &usvg::Node, params: &SvgParams, layer: &SvgLayer, out: &mut Vec<Vec<(f32, f32)>>) {
+fn collect_paths(
+    node: &usvg::Node,
+    params: &SvgParams,
+    layer: &SvgLayer,
+    out: &mut Vec<Vec<(f32, f32)>>,
+) {
     match node {
         usvg::Node::Group(group) => {
             for child in group.children() {
@@ -138,13 +151,17 @@ fn collect_paths(node: &usvg::Node, params: &SvgParams, layer: &SvgLayer, out: &
                 if let Some(stroke) = path.stroke() {
                     if let usvg::Paint::Color(c) = stroke.paint() {
                         let hex = format!("#{:02X}{:02X}{:02X}", c.red, c.green, c.blue);
-                        if hex == layer.color_ha { matches_layer = true; }
+                        if hex == layer.color_ha {
+                            matches_layer = true;
+                        }
                     }
                 }
                 if let Some(fill) = path.fill() {
                     if let usvg::Paint::Color(c) = fill.paint() {
                         let hex = format!("#{:02X}{:02X}{:02X}", c.red, c.green, c.blue);
-                        if hex == layer.color_ha { matches_layer = true; }
+                        if hex == layer.color_ha {
+                            matches_layer = true;
+                        }
                     }
                 }
             }
@@ -160,9 +177,9 @@ fn collect_paths(node: &usvg::Node, params: &SvgParams, layer: &SvgLayer, out: &
                             }
                             current_path.push((pt.x * params.scale, pt.y * params.scale));
                         }
-                        tiny_skia::PathSegment::LineTo(pt) |
-                        tiny_skia::PathSegment::QuadTo(_, pt) |
-                        tiny_skia::PathSegment::CubicTo(_, _, pt) => {
+                        tiny_skia::PathSegment::LineTo(pt)
+                        | tiny_skia::PathSegment::QuadTo(_, pt)
+                        | tiny_skia::PathSegment::CubicTo(_, _, pt) => {
                             current_path.push((pt.x * params.scale, pt.y * params.scale));
                         }
                         tiny_skia::PathSegment::Close => {
@@ -170,7 +187,9 @@ fn collect_paths(node: &usvg::Node, params: &SvgParams, layer: &SvgLayer, out: &
                                 if let (Some(first), Some(last)) =
                                     (current_path.first().copied(), current_path.last().copied())
                                 {
-                                    if (first.0 - last.0).abs() > 0.0001 || (first.1 - last.1).abs() > 0.0001 {
+                                    if (first.0 - last.0).abs() > 0.0001
+                                        || (first.1 - last.1).abs() > 0.0001
+                                    {
                                         current_path.push(first);
                                     }
                                 }
@@ -198,20 +217,24 @@ fn process_node(node: &usvg::Node, params: &SvgParams, layer: &SvgLayer, gcode: 
         }
         usvg::Node::Path(path) => {
             let mut matches_layer = false;
-            
+
             if layer.color_ha == "Default" {
                 matches_layer = true;
             } else {
                 if let Some(stroke) = path.stroke() {
                     if let usvg::Paint::Color(c) = stroke.paint() {
                         let hex = format!("#{:02X}{:02X}{:02X}", c.red, c.green, c.blue);
-                        if hex == layer.color_ha { matches_layer = true; }
+                        if hex == layer.color_ha {
+                            matches_layer = true;
+                        }
                     }
                 }
                 if let Some(fill) = path.fill() {
                     if let usvg::Paint::Color(c) = fill.paint() {
                         let hex = format!("#{:02X}{:02X}{:02X}", c.red, c.green, c.blue);
-                        if hex == layer.color_ha { matches_layer = true; }
+                        if hex == layer.color_ha {
+                            matches_layer = true;
+                        }
                     }
                 }
             }
@@ -262,8 +285,8 @@ fn process_path(path: &usvg::Path, params: &SvgParams, layer: &SvgLayer, gcode: 
                     "G1X{:.3}Y{:.3}S{:.0}F{:.0}",
                     pt2.x * params.scale,
                     pt2.y * params.scale,
-                        layer.power,
-                        layer.speed,
+                    layer.power,
+                    layer.speed,
                 ));
             }
             tiny_skia::PathSegment::CubicTo(_pt1, _pt2, pt3) => {
@@ -271,8 +294,8 @@ fn process_path(path: &usvg::Path, params: &SvgParams, layer: &SvgLayer, gcode: 
                     "G1X{:.3}Y{:.3}S{:.0}F{:.0}",
                     pt3.x * params.scale,
                     pt3.y * params.scale,
-                        layer.power,
-                        layer.speed,
+                    layer.power,
+                    layer.speed,
                 ));
             }
             tiny_skia::PathSegment::Close => {

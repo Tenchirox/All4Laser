@@ -2,17 +2,17 @@
 
 mod app;
 mod app_types;
-mod theme;
-mod controller;
-mod grbl;
-mod serial;
-mod gcode;
-mod preview;
-mod imaging;
 mod camera_stream;
-mod ui;
 mod config;
+mod controller;
+mod gcode;
+mod grbl;
 mod i18n;
+mod imaging;
+mod preview;
+mod serial;
+mod theme;
+mod ui;
 
 fn main() -> eframe::Result {
     env_logger::init();

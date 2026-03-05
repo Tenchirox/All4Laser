@@ -3,14 +3,14 @@ use egui::{Color32, Context};
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum UiTheme {
-    Modern,    // Catppuccin
+    Modern,     // Catppuccin
     Industrial, // LightBurn-style
     Pro,        // Clean, High-contrast, Modern Professional
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum UiLayout {
-    Modern, // sidebar left
+    Modern,  // sidebar left
     Classic, // LightBurn style (sidebar left/right, console right)
     Pro,     // High-end workspace: wider panels, robust layout
 }
@@ -95,19 +95,19 @@ pub const LIGHT_TEXT: Color32 = Color32::from_rgb(43, 49, 65);
 pub const LIGHT_SUBTEXT: Color32 = Color32::from_rgb(80, 88, 109);
 
 // Accents (approximate for both, but usually vivid enough)
-pub const RED: Color32 = Color32::from_rgb(243, 139, 168);     // #F38BA8
-pub const PEACH: Color32 = Color32::from_rgb(250, 179, 135);   // #FAB387
-pub const YELLOW: Color32 = Color32::from_rgb(249, 226, 175);  // #F9E2AF
-pub const GREEN: Color32 = Color32::from_rgb(166, 227, 161);   // #A6E3A1
+pub const RED: Color32 = Color32::from_rgb(243, 139, 168); // #F38BA8
+pub const PEACH: Color32 = Color32::from_rgb(250, 179, 135); // #FAB387
+pub const YELLOW: Color32 = Color32::from_rgb(249, 226, 175); // #F9E2AF
+pub const GREEN: Color32 = Color32::from_rgb(166, 227, 161); // #A6E3A1
 pub const BLUE: Color32 = Color32::from_rgb(82, 134, 214);
-pub const LAVENDER: Color32 = Color32::from_rgb(180, 190, 254);// #B4BEFE
-pub const MAUVE: Color32 = Color32::from_rgb(203, 166, 247);   // #CBA6F7
-pub const TEAL: Color32 = Color32::from_rgb(148, 226, 213);    // #94E2D5
+pub const LAVENDER: Color32 = Color32::from_rgb(180, 190, 254); // #B4BEFE
+pub const MAUVE: Color32 = Color32::from_rgb(203, 166, 247); // #CBA6F7
+pub const TEAL: Color32 = Color32::from_rgb(148, 226, 213); // #94E2D5
 
 // Generic exports for backwards compatibility (used by other modules directly)
-// We will alias these to the currently active theme in `apply_theme` using context, 
-// but since they are consts used directly, we can't easily swap them at runtime without 
-// passing the theme state everywhere. 
+// We will alias these to the currently active theme in `apply_theme` using context,
+// but since they are consts used directly, we can't easily swap them at runtime without
+// passing the theme state everywhere.
 // For now, let's just make the background/surfaces change correctly.
 // The constants exported here are the DARK defaults used in other files.
 pub const BASE: Color32 = DARK_BASE;
@@ -123,22 +123,40 @@ pub const SUBTEXT: Color32 = DARK_SUBTEXT;
 
 pub fn apply_theme(ctx: &Context, state: &AppTheme) {
     let mut style = (*ctx.style()).clone();
-    
+
     // Industrial Palette (LightBurn-style - plus fidèle à l'original)
-    let iron = Color32::from_rgb(48, 49, 52);      // Background principal
-    let steel = Color32::from_rgb(58, 59, 63);     // Surface panels
-    let coal = Color32::from_rgb(39, 40, 43);      // Fond sombre
-    let cobalt = Color32::from_rgb(0, 122, 204);   // Accent Blue LightBurn
-    let mercury = Color32::from_rgb(230, 231, 234);// Texte principal
+    let iron = Color32::from_rgb(48, 49, 52); // Background principal
+    let steel = Color32::from_rgb(58, 59, 63); // Surface panels
+    let coal = Color32::from_rgb(39, 40, 43); // Fond sombre
+    let cobalt = Color32::from_rgb(0, 122, 204); // Accent Blue LightBurn
+    let mercury = Color32::from_rgb(230, 231, 234); // Texte principal
     let light_gray = Color32::from_rgb(186, 188, 194); // Texte secondaire
     let dark_steel = Color32::from_rgb(71, 72, 77); // Surface active
 
     let (base, mantle, crust, surface0, surface1, surface2, text, accent) = match state.ui_theme {
         UiTheme::Modern => {
             if state.is_light {
-                (LIGHT_BASE, LIGHT_MANTLE, LIGHT_CRUST, LIGHT_SURFACE0, LIGHT_SURFACE1, LIGHT_SURFACE2, LIGHT_TEXT, BLUE)
+                (
+                    LIGHT_BASE,
+                    LIGHT_MANTLE,
+                    LIGHT_CRUST,
+                    LIGHT_SURFACE0,
+                    LIGHT_SURFACE1,
+                    LIGHT_SURFACE2,
+                    LIGHT_TEXT,
+                    BLUE,
+                )
             } else {
-                (DARK_BASE, DARK_MANTLE, DARK_CRUST, DARK_SURFACE0, DARK_SURFACE1, DARK_SURFACE2, DARK_TEXT, BLUE)
+                (
+                    DARK_BASE,
+                    DARK_MANTLE,
+                    DARK_CRUST,
+                    DARK_SURFACE0,
+                    DARK_SURFACE1,
+                    DARK_SURFACE2,
+                    DARK_TEXT,
+                    BLUE,
+                )
             }
         }
         UiTheme::Pro => {
@@ -182,7 +200,16 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
                 )
             } else {
                 // Version sombre - couleurs LightBurn authentiques
-                (iron, steel, coal, steel, dark_steel, Color32::from_rgb(86, 88, 94), mercury, cobalt)
+                (
+                    iron,
+                    steel,
+                    coal,
+                    steel,
+                    dark_steel,
+                    Color32::from_rgb(86, 88, 94),
+                    mercury,
+                    cobalt,
+                )
             }
         }
     };
@@ -238,42 +265,78 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
     style.visuals.widgets.inactive.weak_bg_fill = if state.ui_theme == UiTheme::Industrial {
         mantle
     } else if state.is_light {
-        if state.ui_theme == UiTheme::Pro { Color32::from_rgb(241, 245, 249) } else { Color32::from_rgb(225, 228, 238) }
+        if state.ui_theme == UiTheme::Pro {
+            Color32::from_rgb(241, 245, 249)
+        } else {
+            Color32::from_rgb(225, 228, 238)
+        }
     } else {
         surface0
     };
     style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, border_color);
-    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(if state.ui_theme == UiTheme::Industrial { 1.2 } else { 1.5 }, text);
+    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(
+        if state.ui_theme == UiTheme::Industrial {
+            1.2
+        } else {
+            1.5
+        },
+        text,
+    );
     style.visuals.widgets.inactive.corner_radius = rounding;
 
     // Hovered
     style.visuals.widgets.hovered.bg_fill = surface1;
     style.visuals.widgets.hovered.weak_bg_fill = surface1;
-    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(if state.ui_theme == UiTheme::Industrial { 1.2 } else { 1.5 }, accent);
+    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(
+        if state.ui_theme == UiTheme::Industrial {
+            1.2
+        } else {
+            1.5
+        },
+        accent,
+    );
     style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, text);
     style.visuals.widgets.hovered.corner_radius = rounding;
 
     // Active (clicked)
     style.visuals.widgets.active.bg_fill = surface2;
     style.visuals.widgets.active.weak_bg_fill = surface2;
-    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(if state.ui_theme == UiTheme::Industrial { 1.6 } else { 2.0 }, accent);
+    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(
+        if state.ui_theme == UiTheme::Industrial {
+            1.6
+        } else {
+            2.0
+        },
+        accent,
+    );
     style.visuals.widgets.active.fg_stroke = egui::Stroke::new(2.0, text);
     style.visuals.widgets.active.corner_radius = rounding;
 
     // Open (combo boxes, menus)
     style.visuals.widgets.open.bg_fill = surface1;
     style.visuals.widgets.open.weak_bg_fill = surface1;
-    style.visuals.widgets.open.bg_stroke = egui::Stroke::new(if state.ui_theme == UiTheme::Industrial { 1.2 } else { 1.5 }, accent);
+    style.visuals.widgets.open.bg_stroke = egui::Stroke::new(
+        if state.ui_theme == UiTheme::Industrial {
+            1.2
+        } else {
+            1.5
+        },
+        accent,
+    );
     style.visuals.widgets.open.fg_stroke = egui::Stroke::new(1.5, text);
     style.visuals.widgets.open.corner_radius = rounding;
 
     style.visuals.selection.bg_fill = accent;
     style.visuals.selection.stroke.color = if state.ui_theme == UiTheme::Industrial {
-        if state.is_light { Color32::from_rgb(250, 250, 252) } else { light_gray }
+        if state.is_light {
+            Color32::from_rgb(250, 250, 252)
+        } else {
+            light_gray
+        }
     } else {
         crust
     };
-    
+
     match state.ui_theme {
         UiTheme::Industrial => {
             style.spacing.button_padding = egui::vec2(5.5, 3.0);
@@ -291,6 +354,6 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
             style.spacing.item_spacing = egui::vec2(8.0, 7.0);
         }
     }
-    
+
     ctx.set_style(style);
 }

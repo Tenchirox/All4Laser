@@ -1,9 +1,9 @@
-use egui::{Ui, RichText};
-use rusttype::{Font, Scale, point, OutlineBuilder};
-use font_kit::source::SystemSource;
+use crate::ui::drawing::{ShapeKind, ShapeParams};
+use egui::{RichText, Ui};
 use font_kit::family_name::FamilyName;
 use font_kit::properties::Properties;
-use crate::ui::drawing::{ShapeKind, ShapeParams};
+use font_kit::source::SystemSource;
+use rusttype::{Font, OutlineBuilder, Scale, point};
 
 const LIBERATION_SANS_REGULAR: &[u8] =
     include_bytes!("../../assets/fonts/LiberationSans-Regular.ttf");
@@ -11,12 +11,9 @@ const LIBERATION_SERIF_REGULAR: &[u8] =
     include_bytes!("../../assets/fonts/LiberationSerif-Regular.ttf");
 const LIBERATION_MONO_REGULAR: &[u8] =
     include_bytes!("../../assets/fonts/LiberationMono-Regular.ttf");
-const NOTO_SANS_REGULAR: &[u8] =
-    include_bytes!("../../assets/fonts/NotoSans-Regular.ttf");
-const NOTO_SERIF_REGULAR: &[u8] =
-    include_bytes!("../../assets/fonts/NotoSerif-Regular.ttf");
-const NOTO_SANS_MONO_REGULAR: &[u8] =
-    include_bytes!("../../assets/fonts/NotoSansMono-Regular.ttf");
+const NOTO_SANS_REGULAR: &[u8] = include_bytes!("../../assets/fonts/NotoSans-Regular.ttf");
+const NOTO_SERIF_REGULAR: &[u8] = include_bytes!("../../assets/fonts/NotoSerif-Regular.ttf");
+const NOTO_SANS_MONO_REGULAR: &[u8] = include_bytes!("../../assets/fonts/NotoSansMono-Regular.ttf");
 const NOTO_SANS_ARABIC_REGULAR: &[u8] =
     include_bytes!("../../assets/fonts/NotoSansArabic-Regular.ttf");
 
@@ -89,14 +86,14 @@ impl Default for TextToolState {
         // Initialize with system fonts
         let mut fonts = Vec::new();
         if let Ok(handles) = SystemSource::new().all_fonts() {
-             for handle in handles {
-                 if let Ok(font) = handle.load() {
+            for handle in handles {
+                if let Ok(font) = handle.load() {
                     let family = font.family_name();
                     if !fonts.contains(&family) {
                         fonts.push(family);
                     }
-                 }
-             }
+                }
+            }
         }
         fonts.sort();
 
@@ -160,7 +157,12 @@ fn split_csv_line(line: &str, delimiter: char) -> Vec<String> {
     out
 }
 
-fn collect_csv_column(content: &str, column: usize, has_header: bool, delimiter: char) -> Vec<String> {
+fn collect_csv_column(
+    content: &str,
+    column: usize,
+    has_header: bool,
+    delimiter: char,
+) -> Vec<String> {
     let mut values = Vec::new();
 
     for (idx, raw) in content.lines().enumerate() {
@@ -184,9 +186,13 @@ fn collect_csv_column(content: &str, column: usize, has_header: bool, delimiter:
     values
 }
 
-fn load_csv_column(path: &std::path::Path, column: usize, has_header: bool, delimiter: char) -> Result<Vec<String>, String> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("Failed to read CSV: {e}"))?;
+fn load_csv_column(
+    path: &std::path::Path,
+    column: usize,
+    has_header: bool,
+    delimiter: char,
+) -> Result<Vec<String>, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| format!("Failed to read CSV: {e}"))?;
     let values = collect_csv_column(&content, column, has_header, delimiter);
     if values.is_empty() {
         return Err("No values found in selected CSV column.".to_string());
@@ -250,7 +256,11 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("✍ Text Tool").color(crate::theme::LAVENDER).strong());
+            ui.label(
+                RichText::new("✍ Text Tool")
+                    .color(crate::theme::LAVENDER)
+                    .strong(),
+            );
         });
         ui.add_space(4.0);
 
@@ -289,10 +299,16 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                     let mut reload_csv = false;
                     ui.horizontal(|ui| {
                         ui.label("Column:");
-                        if ui.add(egui::DragValue::new(&mut state.csv_column).range(0..=100)).changed() {
+                        if ui
+                            .add(egui::DragValue::new(&mut state.csv_column).range(0..=100))
+                            .changed()
+                        {
                             reload_csv = true;
                         }
-                        if ui.checkbox(&mut state.csv_has_header, "Header row").changed() {
+                        if ui
+                            .checkbox(&mut state.csv_has_header, "Header row")
+                            .changed()
+                        {
                             reload_csv = true;
                         }
                     });
@@ -307,7 +323,10 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                             }
                         }
                         if ui.button("📁 Load CSV").clicked() {
-                            if let Some(path) = rfd::FileDialog::new().add_filter("CSV", &["csv", "txt"]).pick_file() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter("CSV", &["csv", "txt"])
+                                .pick_file()
+                            {
                                 state.csv_path_display = path.display().to_string();
                                 match load_csv_column(
                                     &path,
@@ -358,7 +377,11 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
 
         ui.horizontal(|ui| {
             ui.label("Size:");
-            ui.add(egui::DragValue::new(&mut state.font_size).range(1.0..=300.0).suffix(" pt"));
+            ui.add(
+                egui::DragValue::new(&mut state.font_size)
+                    .range(1.0..=300.0)
+                    .suffix(" pt"),
+            );
         });
 
         ui.horizontal(|ui| {
@@ -386,10 +409,14 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                         }
                     });
             });
-            ui.label(RichText::new("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).").small());
+            ui.label(
+                RichText::new(
+                    "Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).",
+                )
+                .small(),
+            );
         } else if state.font_source == FontSource::System {
-            if !state.system_fonts.contains(&state.selected_font)
-                && !state.system_fonts.is_empty()
+            if !state.system_fonts.contains(&state.selected_font) && !state.system_fonts.is_empty()
             {
                 state.selected_font = state.system_fonts[0].clone();
             }
@@ -406,7 +433,9 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                     });
             });
             if state.system_fonts.is_empty() {
-                ui.label(RichText::new("No system fonts detected. Use Bundled or File source.").small());
+                ui.label(
+                    RichText::new("No system fonts detected. Use Bundled or File source.").small(),
+                );
             }
         } else {
             ui.horizontal(|ui| {
@@ -417,7 +446,11 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                     {
                         if let Ok(data) = std::fs::read(&path) {
                             state.font_data = Some(data);
-                            state.selected_font = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                            state.selected_font = path
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string();
                         }
                     }
                 }
@@ -440,7 +473,9 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                         }
                     }
                     if loaded.is_none() {
-                        if let Ok(handle) = SystemSource::new().select_by_postscript_name(&state.selected_font) {
+                        if let Ok(handle) =
+                            SystemSource::new().select_by_postscript_name(&state.selected_font)
+                        {
                             if let Ok(font) = handle.load() {
                                 loaded = Some(font.copy_font_data().unwrap_or_default().to_vec());
                             }
@@ -461,8 +496,12 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                             let mut v = Vec::new();
                             for i in 0..state.var_count {
                                 let val = state.var_start + (i * state.var_inc);
-                                let val_str = format!("{:0>width$}", val, width = state.var_padding);
-                                v.push(format!("{}{}{}", state.var_prefix, val_str, state.var_suffix));
+                                let val_str =
+                                    format!("{:0>width$}", val, width = state.var_padding);
+                                v.push(format!(
+                                    "{}{}{}",
+                                    state.var_prefix, val_str, state.var_suffix
+                                ));
                             }
                             v
                         } else {

@@ -9,7 +9,12 @@ pub struct DxfParams {
 
 impl Default for DxfParams {
     fn default() -> Self {
-        Self { speed: 800.0, power: 800.0, scale: 1.0, passes: 1 }
+        Self {
+            speed: 800.0,
+            power: 800.0,
+            scale: 1.0,
+            passes: 1,
+        }
     }
 }
 
@@ -24,7 +29,12 @@ pub fn dxf_to_gcode(data: &str, params: &DxfParams) -> Result<Vec<String>, Strin
         for entity in &entities {
             match entity {
                 DxfEntity::Line { x1, y1, x2, y2 } => {
-                    let (x1, y1, x2, y2) = (x1 * params.scale, y1 * params.scale, x2 * params.scale, y2 * params.scale);
+                    let (x1, y1, x2, y2) = (
+                        x1 * params.scale,
+                        y1 * params.scale,
+                        x2 * params.scale,
+                        y2 * params.scale,
+                    );
                     lines.push("M5".into());
                     lines.push(format!("G0 X{:.3} Y{:.3} F3000", x1, y1));
                     lines.push(format!("M3 S{:.0}", params.power));
@@ -49,17 +59,34 @@ pub fn dxf_to_gcode(data: &str, params: &DxfParams) -> Result<Vec<String>, Strin
                 DxfEntity::Polyline(pts) if pts.len() >= 2 => {
                     let (sx, sy) = pts[0];
                     lines.push("M5".into());
-                    lines.push(format!("G0 X{:.3} Y{:.3} F3000", sx * params.scale, sy * params.scale));
+                    lines.push(format!(
+                        "G0 X{:.3} Y{:.3} F3000",
+                        sx * params.scale,
+                        sy * params.scale
+                    ));
                     lines.push(format!("M3 S{:.0}", params.power));
                     for &(px, py) in pts.iter().skip(1) {
-                        lines.push(format!("G1 X{:.3} Y{:.3} F{:.0}", px * params.scale, py * params.scale, params.speed));
+                        lines.push(format!(
+                            "G1 X{:.3} Y{:.3} F{:.0}",
+                            px * params.scale,
+                            py * params.scale,
+                            params.speed
+                        ));
                     }
                 }
-                DxfEntity::Arc { cx, cy, r, start_angle, end_angle } => {
+                DxfEntity::Arc {
+                    cx,
+                    cy,
+                    r,
+                    start_angle,
+                    end_angle,
+                } => {
                     let (cx, cy, r) = (cx * params.scale, cy * params.scale, r * params.scale);
                     let sa = start_angle.to_radians();
                     let mut ea = end_angle.to_radians();
-                    if ea <= sa { ea += 2.0 * std::f32::consts::PI; }
+                    if ea <= sa {
+                        ea += 2.0 * std::f32::consts::PI;
+                    }
                     let sx = cx + r * sa.cos();
                     let sy = cy + r * sa.sin();
                     lines.push("M5".into());
@@ -85,9 +112,24 @@ pub fn dxf_to_gcode(data: &str, params: &DxfParams) -> Result<Vec<String>, Strin
 
 #[derive(Debug)]
 enum DxfEntity {
-    Line { x1: f32, y1: f32, x2: f32, y2: f32 },
-    Circle { cx: f32, cy: f32, r: f32 },
-    Arc { cx: f32, cy: f32, r: f32, start_angle: f32, end_angle: f32 },
+    Line {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+    },
+    Circle {
+        cx: f32,
+        cy: f32,
+        r: f32,
+    },
+    Arc {
+        cx: f32,
+        cy: f32,
+        r: f32,
+        start_angle: f32,
+        end_angle: f32,
+    },
     Polyline(Vec<(f32, f32)>),
 }
 
@@ -97,26 +139,40 @@ fn parse_entities(data: &str) -> Vec<DxfEntity> {
 
     // Fast scan: find ENTITIES section
     while let Some(line) = lines_iter.next() {
-        if line.trim() == "ENTITIES" { break; }
+        if line.trim() == "ENTITIES" {
+            break;
+        }
     }
 
     while let Some(code_line) = lines_iter.next() {
         let code = code_line.trim().parse::<i32>().unwrap_or(-1);
-        let value = lines_iter.next().map(|l| l.trim()).unwrap_or("").to_string();
+        let value = lines_iter
+            .next()
+            .map(|l| l.trim())
+            .unwrap_or("")
+            .to_string();
 
         if code == 0 {
             match value.as_str() {
                 "LINE" => {
-                    if let Some(e) = read_line(&mut lines_iter) { entities.push(e); }
+                    if let Some(e) = read_line(&mut lines_iter) {
+                        entities.push(e);
+                    }
                 }
                 "CIRCLE" => {
-                    if let Some(e) = read_circle(&mut lines_iter) { entities.push(e); }
+                    if let Some(e) = read_circle(&mut lines_iter) {
+                        entities.push(e);
+                    }
                 }
                 "ARC" => {
-                    if let Some(e) = read_arc(&mut lines_iter) { entities.push(e); }
+                    if let Some(e) = read_arc(&mut lines_iter) {
+                        entities.push(e);
+                    }
                 }
                 "LWPOLYLINE" | "POLYLINE" => {
-                    if let Some(e) = read_polyline(&mut lines_iter) { entities.push(e); }
+                    if let Some(e) = read_polyline(&mut lines_iter) {
+                        entities.push(e);
+                    }
                 }
                 "ENDSEC" | "EOF" => break,
                 _ => {}
@@ -130,74 +186,111 @@ fn parse_entities(data: &str) -> Vec<DxfEntity> {
 fn read_pairs<'a>(iter: &mut impl Iterator<Item = &'a str>) -> Vec<(i32, String)> {
     let mut pairs = Vec::new();
     loop {
-        let code_str = match iter.next() { Some(s) => s.trim().to_string(), None => break };
-        let val_str = match iter.next() { Some(s) => s.trim().to_string(), None => break };
+        let code_str = match iter.next() {
+            Some(s) => s.trim().to_string(),
+            None => break,
+        };
+        let val_str = match iter.next() {
+            Some(s) => s.trim().to_string(),
+            None => break,
+        };
         let code: i32 = code_str.parse().unwrap_or(-1);
-        if code == 0 { break; } // next entity
+        if code == 0 {
+            break;
+        } // next entity
         pairs.push((code, val_str));
     }
     pairs
 }
 
 fn parse_f<'a>(pairs: &[(i32, String)], group: i32) -> f32 {
-    pairs.iter().find(|(c, _)| *c == group).and_then(|(_, v)| v.parse::<f32>().ok()).unwrap_or(0.0)
+    pairs
+        .iter()
+        .find(|(c, _)| *c == group)
+        .and_then(|(_, v)| v.parse::<f32>().ok())
+        .unwrap_or(0.0)
 }
 
-fn read_line<'a>(iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>) -> Option<DxfEntity> {
+fn read_line<'a>(
+    iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
+) -> Option<DxfEntity> {
     let flat: Vec<String> = read_flat_pairs(iter);
     let pairs = parse_flat(&flat);
     Some(DxfEntity::Line {
-        x1: parse_f(&pairs, 10), y1: parse_f(&pairs, 20),
-        x2: parse_f(&pairs, 11), y2: parse_f(&pairs, 21),
+        x1: parse_f(&pairs, 10),
+        y1: parse_f(&pairs, 20),
+        x2: parse_f(&pairs, 11),
+        y2: parse_f(&pairs, 21),
     })
 }
 
-fn read_circle<'a>(iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>) -> Option<DxfEntity> {
+fn read_circle<'a>(
+    iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
+) -> Option<DxfEntity> {
     let flat = read_flat_pairs(iter);
     let pairs = parse_flat(&flat);
-    Some(DxfEntity::Circle { cx: parse_f(&pairs, 10), cy: parse_f(&pairs, 20), r: parse_f(&pairs, 40) })
+    Some(DxfEntity::Circle {
+        cx: parse_f(&pairs, 10),
+        cy: parse_f(&pairs, 20),
+        r: parse_f(&pairs, 40),
+    })
 }
 
-fn read_arc<'a>(iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>) -> Option<DxfEntity> {
+fn read_arc<'a>(
+    iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
+) -> Option<DxfEntity> {
     let flat = read_flat_pairs(iter);
     let pairs = parse_flat(&flat);
     Some(DxfEntity::Arc {
-        cx: parse_f(&pairs, 10), cy: parse_f(&pairs, 20),
+        cx: parse_f(&pairs, 10),
+        cy: parse_f(&pairs, 20),
         r: parse_f(&pairs, 40),
         start_angle: parse_f(&pairs, 50),
         end_angle: parse_f(&pairs, 51),
     })
 }
 
-fn read_polyline<'a>(iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>) -> Option<DxfEntity> {
+fn read_polyline<'a>(
+    iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
+) -> Option<DxfEntity> {
     let flat = read_flat_pairs(iter);
     let pairs = parse_flat(&flat);
-    
+
     // Collect sequential x/y pairs (group 10 and 20 repeat)
     let mut pts = Vec::new();
     let mut x_acc: Vec<f32> = Vec::new();
     let mut y_acc: Vec<f32> = Vec::new();
     for (code, val) in &pairs {
-        if *code == 10 { x_acc.push(val.parse().unwrap_or(0.0)); }
-        if *code == 20 { y_acc.push(val.parse().unwrap_or(0.0)); }
+        if *code == 10 {
+            x_acc.push(val.parse().unwrap_or(0.0));
+        }
+        if *code == 20 {
+            y_acc.push(val.parse().unwrap_or(0.0));
+        }
     }
     for (x, y) in x_acc.into_iter().zip(y_acc.into_iter()) {
         pts.push((x, y));
     }
-    if pts.len() < 2 { return None; }
+    if pts.len() < 2 {
+        return None;
+    }
     Some(DxfEntity::Polyline(pts))
 }
 
-fn read_flat_pairs<'a>(iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>) -> Vec<String> {
+fn read_flat_pairs<'a>(
+    iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
+) -> Vec<String> {
     let mut flat = Vec::new();
     loop {
         let peeked = iter.peek().copied().unwrap_or("").trim();
         let code: i32 = peeked.parse().unwrap_or(-1);
-        if code == 0 { break; }
+        if code == 0 {
+            break;
+        }
         if let Some(code_line) = iter.next() {
-            flat.push(code_line.trim().to_string());
+            flat.push(code_line.trim());
             if let Some(val_line) = iter.next() {
-                flat.push(val_line.trim().to_string());
+                flat.push(val_line.trim());
             }
         } else {
             break;
@@ -208,6 +301,14 @@ fn read_flat_pairs<'a>(iter: &mut std::iter::Peekable<impl Iterator<Item = &'a s
 
 fn parse_flat(flat: &[String]) -> Vec<(i32, String)> {
     flat.chunks(2)
-        .filter_map(|c| if c.len() == 2 { Some((c[0].parse().unwrap_or(-1), c[1].clone())) } else { None })
+        .filter_map(|c| {
+            if c.len() == 2 {
+                Some((c[0].parse().unwrap_or(-1), c[1].clone()))
+            } else {
+                None
+            }
+        })
+    flat.chunks_exact(2)
+        .map(|c| (c[0].parse().unwrap_or(-1), c[1].clone()))
         .collect()
 }

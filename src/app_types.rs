@@ -1,6 +1,5 @@
 /// Sub-struct definitions for All4LaserApp fields.
 /// Extracted from app.rs to reduce file size and improve modularity.
-
 use std::time::Instant;
 
 /// Grouped job transform state
@@ -14,7 +13,12 @@ pub struct JobTransform {
 
 impl Default for JobTransform {
     fn default() -> Self {
-        Self { offset_x: 0.0, offset_y: 0.0, rotation: 0.0, center: None }
+        Self {
+            offset_x: 0.0,
+            offset_y: 0.0,
+            rotation: 0.0,
+            center: None,
+        }
     }
 }
 
@@ -50,7 +54,11 @@ pub struct TestFireState {
 
 impl Default for TestFireState {
     fn default() -> Self {
-        Self { is_open: false, power: 10.0, duration_ms: 1000.0 }
+        Self {
+            is_open: false,
+            power: 10.0,
+            duration_ms: 1000.0,
+        }
     }
 }
 
@@ -62,7 +70,10 @@ pub struct WizardState {
 
 impl Default for WizardState {
     fn default() -> Self {
-        Self { show: false, step: 0 }
+        Self {
+            show: false,
+            step: 0,
+        }
     }
 }
 

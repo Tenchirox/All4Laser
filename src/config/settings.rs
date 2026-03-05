@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use crate::theme::{UiTheme, UiLayout};
-use crate::i18n::Language;
 use crate::app::RightPanelTab;
+use crate::i18n::Language;
+use crate::theme::{UiLayout, UiTheme};
 use crate::ui::camera::CameraCalibration;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DisplayUnit {
@@ -11,7 +11,9 @@ pub enum DisplayUnit {
 }
 
 impl Default for DisplayUnit {
-    fn default() -> Self { DisplayUnit::Millimeters }
+    fn default() -> Self {
+        DisplayUnit::Millimeters
+    }
 }
 
 impl DisplayUnit {
@@ -157,7 +159,9 @@ pub enum ColorblindMode {
 }
 
 impl Default for ColorblindMode {
-    fn default() -> Self { ColorblindMode::None }
+    fn default() -> Self {
+        ColorblindMode::None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -170,21 +174,47 @@ pub enum DitherAlgorithm {
 }
 
 impl Default for DitherAlgorithm {
-    fn default() -> Self { DitherAlgorithm::FloydSteinberg }
+    fn default() -> Self {
+        DitherAlgorithm::FloydSteinberg
+    }
 }
 
-fn default_theme() -> UiTheme { UiTheme::Modern }
-fn default_layout() -> UiLayout { UiLayout::Modern }
-fn default_light_mode() -> bool { true }
-fn default_beginner_mode() -> bool { true }
-fn default_active_tab() -> RightPanelTab { RightPanelTab::Art }
-fn default_camera_opacity() -> f32 { 0.5 }
-fn default_cost_per_hour() -> f32 { 15.0 }
-fn default_max_undo() -> usize { 50 }
-fn default_network_port() -> u16 { 23 }
-fn default_dashboard_port() -> u16 { 8080 }
-fn default_timelapse_interval() -> f32 { 5.0 }
-fn default_api_port() -> u16 { 8081 }
+fn default_theme() -> UiTheme {
+    UiTheme::Modern
+}
+fn default_layout() -> UiLayout {
+    UiLayout::Modern
+}
+fn default_light_mode() -> bool {
+    true
+}
+fn default_beginner_mode() -> bool {
+    true
+}
+fn default_active_tab() -> RightPanelTab {
+    RightPanelTab::Art
+}
+fn default_camera_opacity() -> f32 {
+    0.5
+}
+fn default_cost_per_hour() -> f32 {
+    15.0
+}
+fn default_max_undo() -> usize {
+    50
+}
+fn default_network_port() -> u16 {
+    23
+}
+fn default_dashboard_port() -> u16 {
+    8080
+}
+fn default_timelapse_interval() -> f32 {
+    5.0
+}
+fn default_api_port() -> u16 {
+    8081
+}
 pub fn lightburn_shortcuts() -> std::collections::HashMap<String, String> {
     let mut m = std::collections::HashMap::new();
     m.insert("run".into(), "Ctrl+Shift+R".into());
@@ -278,7 +308,8 @@ mod tests {
     #[test]
     fn legacy_settings_without_camera_fields_still_load() {
         let legacy = r#"{"theme":"Modern","layout":"Modern","language":"English","light_mode":true,"beginner_mode":true,"active_tab":"Art"}"#;
-        let parsed: AppSettings = serde_json::from_str(legacy).expect("legacy settings should deserialize");
+        let parsed: AppSettings =
+            serde_json::from_str(legacy).expect("legacy settings should deserialize");
         assert!(!parsed.camera_enabled);
         assert_eq!(parsed.camera_opacity, 0.5);
         assert_eq!(parsed.camera_device_index, 0);
@@ -306,7 +337,10 @@ mod tests {
         assert_eq!(back.camera_device_index, 3);
         assert!(back.camera_live_streaming);
         assert_eq!(back.camera_snapshot_path.as_deref(), Some("/tmp/cam.png"));
-        assert_eq!(back.material_selected_preset.as_deref(), Some("Plywood 3mm"));
+        assert_eq!(
+            back.material_selected_preset.as_deref(),
+            Some("Plywood 3mm")
+        );
         assert!((back.camera_calibration.scale - 1.25).abs() < f32::EPSILON);
     }
 }

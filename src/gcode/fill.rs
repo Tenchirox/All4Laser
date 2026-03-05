@@ -1,9 +1,8 @@
+use crate::gcode::generator::GCodeBuilder;
 /// Scanline Fill Generator
 /// Generates a raster-style hatch fill for closed shapes (Rectangle, Circle, etc.)
-
-use crate::ui::drawing::{ShapeParams, ShapeKind};
+use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::ui::layers_new::CutLayer;
-use crate::gcode::generator::GCodeBuilder;
 
 pub fn generate_fill(lines: &mut Vec<String>, shape: &ShapeParams, layer: &CutLayer) {
     generate_fill_group(lines, &[shape], layer);
@@ -22,8 +21,7 @@ pub fn generate_fill_group(lines: &mut Vec<String>, shapes: &[&ShapeParams], lay
     let mut builder = GCodeBuilder::new();
     builder.comment(&format!(
         "Fill Scan (Layer C{:02}, angle {:.1}°)",
-        layer.id,
-        layer.fill_angle_deg
+        layer.id, layer.fill_angle_deg
     ));
     builder.laser_off();
 
@@ -155,7 +153,8 @@ fn fill_components(paths: &[Vec<(f32, f32)>]) -> Vec<Vec<Vec<(f32, f32)>>> {
     for root in roots {
         let mut indices = Vec::new();
         collect_subtree(root, &children, &mut indices);
-        let component_paths: Vec<Vec<(f32, f32)>> = indices.into_iter().map(|i| paths[i].clone()).collect();
+        let component_paths: Vec<Vec<(f32, f32)>> =
+            indices.into_iter().map(|i| paths[i].clone()).collect();
         if !component_paths.is_empty() {
             components.push(component_paths);
         }
@@ -208,8 +207,8 @@ fn point_in_polygon(point: (f32, f32), path: &[(f32, f32)]) -> bool {
     for edge in path.windows(2) {
         let (x1, y1) = edge[0];
         let (x2, y2) = edge[1];
-        let intersects = ((y1 > py) != (y2 > py))
-            && (px < (x2 - x1) * (py - y1) / (y2 - y1 + 1e-12) + x1);
+        let intersects =
+            ((y1 > py) != (y2 > py)) && (px < (x2 - x1) * (py - y1) / (y2 - y1 + 1e-12) + x1);
         if intersects {
             inside = !inside;
         }
@@ -236,7 +235,15 @@ fn fill_paths_world(
     min_power: f32,
     angle_rad: f32,
 ) {
-    fill_paths_world_angle(builder, paths, layer, interval_mm, overscan_mm, min_power, angle_rad);
+    fill_paths_world_angle(
+        builder,
+        paths,
+        layer,
+        interval_mm,
+        overscan_mm,
+        min_power,
+        angle_rad,
+    );
 }
 
 fn fill_paths_world_angle(
@@ -260,14 +267,14 @@ fn fill_paths_world_angle(
     let rotated_paths: Vec<Vec<(f32, f32)>> = paths
         .iter()
         .map(|path| {
-            path
-                .iter()
+            path.iter()
                 .map(|(x, y)| rotate_around(*x, *y, center.0, center.1, -angle_rad))
                 .collect()
         })
         .collect();
 
-    let Some((_scan_min_x, _scan_min_y, _scan_max_x, _scan_max_y)) = paths_bounds(&rotated_paths) else {
+    let Some((_scan_min_x, _scan_min_y, _scan_max_x, _scan_max_y)) = paths_bounds(&rotated_paths)
+    else {
         return;
     };
     let segments = collect_fill_segments_rotated(
@@ -303,8 +310,7 @@ fn collect_fill_segments_world_angle(
     let rotated_paths: Vec<Vec<(f32, f32)>> = paths
         .iter()
         .map(|path| {
-            path
-                .iter()
+            path.iter()
                 .map(|(x, y)| rotate_around(*x, *y, center.0, center.1, -angle_rad))
                 .collect()
         })
@@ -434,7 +440,10 @@ fn circle_world_path(shape: &ShapeParams, steps: usize) -> Vec<(f32, f32)> {
     for i in 0..=steps {
         let t = (i as f32) / (steps as f32);
         let a = std::f32::consts::TAU * t;
-        out.push((shape.x + shape.radius * a.cos(), shape.y + shape.radius * a.sin()));
+        out.push((
+            shape.x + shape.radius * a.cos(),
+            shape.y + shape.radius * a.sin(),
+        ));
     }
     out
 }
@@ -444,7 +453,10 @@ fn closed_world_path(points: &[(f32, f32)], shape: &ShapeParams) -> Option<Vec<(
         return None;
     }
 
-    let mut out: Vec<(f32, f32)> = points.iter().map(|(x, y)| rotate_point(*x, *y, shape)).collect();
+    let mut out: Vec<(f32, f32)> = points
+        .iter()
+        .map(|(x, y)| rotate_point(*x, *y, shape))
+        .collect();
     if let (Some(first), Some(last)) = (out.first().copied(), out.last().copied()) {
         let dx = first.0 - last.0;
         let dy = first.1 - last.1;
@@ -596,13 +608,7 @@ mod tests {
             (0.0, 10.0),
             (0.0, 0.0),
         ];
-        let inner = vec![
-            (3.0, 3.0),
-            (7.0, 3.0),
-            (7.0, 7.0),
-            (3.0, 7.0),
-            (3.0, 3.0),
-        ];
+        let inner = vec![(3.0, 3.0), (7.0, 3.0), (7.0, 7.0), (3.0, 7.0), (3.0, 3.0)];
 
         let spans = multi_polygon_scanline_spans(&[outer, inner], 5.0);
         assert_eq!(spans.len(), 2);
@@ -630,7 +636,11 @@ mod tests {
         ];
 
         let components = fill_components(&[a, b]);
-        assert_eq!(components.len(), 2, "overlapping independent outers must not be XOR-grouped");
+        assert_eq!(
+            components.len(),
+            2,
+            "overlapping independent outers must not be XOR-grouped"
+        );
     }
 
     #[test]
@@ -730,6 +740,9 @@ mod tests {
             }
         }
 
-        assert!(has_diagonal, "expected angled fill to emit diagonal scan segments");
+        assert!(
+            has_diagonal,
+            "expected angled fill to emit diagonal scan segments"
+        );
     }
 }
