@@ -300,6 +300,14 @@ fn read_flat_pairs<'a>(
 }
 
 fn parse_flat(flat: &[String]) -> Vec<(i32, String)> {
+    flat.chunks(2)
+        .filter_map(|c| {
+            if c.len() == 2 {
+                Some((c[0].parse().unwrap_or(-1), c[1].clone()))
+            } else {
+                None
+            }
+        })
     flat.chunks_exact(2)
         .map(|c| (c[0].parse().unwrap_or(-1), c[1].clone()))
         .collect()

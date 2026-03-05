@@ -331,7 +331,7 @@ pub fn preprocess_image(img: &image::DynamicImage, params: &RasterParams) -> ima
     let mut processed = img.clone();
 
     // Grayscale first to make processing faster and consistent
-    processed = image::DynamicImage::ImageLuma8(processed.to_luma8());
+    let mut processed = image::DynamicImage::ImageLuma8(img.to_luma8());
 
     if params.brightness != 0.0 {
         // brightness(f32) where 0.0 is no change, -1.0 is black, 1.0 is white
