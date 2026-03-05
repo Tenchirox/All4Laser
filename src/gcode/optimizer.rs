@@ -59,7 +59,6 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
 
         if let Some(path) = current_path.as_mut() {
             path.lines.push(line);
-            path.lines.push(line.clone());
             if let Some(x) = line.x {
                 path.end_x = x;
                 cur_x = x;
@@ -78,10 +77,6 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
         } else {
             // Header logic: everything before the first M3
             header.push(line);
-            footer.push(line.clone());
-        } else {
-            // Header logic: everything before the first M3
-            header.push(line.clone());
             if let Some(x) = line.x {
                 cur_x = x;
             }
@@ -124,12 +119,6 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
     let mut last_x = cur_x;
     let mut last_y = cur_y;
 
-    while !remaining.is_empty() {
-        // Find max nesting level remaining
-        let max_nesting = remaining.iter().map(|p| p.nesting_level).max().unwrap_or(0);
-
-        let mut best_index = None;
-        let mut min_dist_sq = f32::MAX;
     while let Some((_, mut level_paths)) = paths_by_level.pop_last() {
         while !level_paths.is_empty() {
             let mut best_index = 0;
@@ -143,15 +132,12 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
                 }
             }
 
-        if let Some(idx) = best_index {
-            let best_path = remaining.remove(idx);
-            optimized.extend(best_path.lines.into_iter().cloned());
             // Remove the nearest path and process it
             // swap_remove is O(1) compared to remove which is O(N).
             let best_path = level_paths.swap_remove(best_index);
             last_x = best_path.end_x;
             last_y = best_path.end_y;
-            optimized.extend(best_path.lines);
+            optimized.extend(best_path.lines.iter().copied().cloned());
         }
     }
 
