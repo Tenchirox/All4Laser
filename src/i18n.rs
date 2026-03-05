@@ -78,6 +78,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     fr.insert("Language", "Langue");
     fr.insert("Controller", "Contrôleur");
     fr.insert("Modern (recommended)", "Moderne (recommandé)");
+    fr.insert("Pro (new)", "Pro (nouveau)");
     fr.insert("Industrial (advanced)", "Industriel (avancé)");
     fr.insert("Modern layout (simple)", "Disposition moderne (simple)");
     fr.insert("Classic layout (expert)", "Disposition classique (expert)");
@@ -137,6 +138,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     ja.insert("Language", "言語");
     ja.insert("Controller", "コントローラー");
     ja.insert("Modern (recommended)", "モダン（推奨）");
+    ja.insert("Pro (new)", "プロ (新規)");
     ja.insert("Industrial (advanced)", "インダストリアル（上級者向け）");
     ja.insert("Modern layout (simple)", "モダンレイアウト（シンプル）");
     ja.insert("Classic layout (expert)", "クラシックレイアウト（上級者向け）");
@@ -196,6 +198,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     de.insert("Language", "Sprache");
     de.insert("Controller", "Controller");
     de.insert("Modern (recommended)", "Modern (empfohlen)");
+    de.insert("Pro (new)", "Pro (neu)");
     de.insert("Industrial (advanced)", "Industriell (erweitert)");
     de.insert("Modern layout (simple)", "Modernes Layout (einfach)");
     de.insert("Classic layout (expert)", "Klassisches Layout (Experte)");
@@ -255,6 +258,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     it.insert("Language", "Lingua");
     it.insert("Controller", "Controller");
     it.insert("Modern (recommended)", "Moderno (consigliato)");
+    it.insert("Pro (new)", "Pro (nuovo)");
     it.insert("Industrial (advanced)", "Industriale (avanzato)");
     it.insert("Modern layout (simple)", "Layout moderno (semplice)");
     it.insert("Classic layout (expert)", "Layout classico (esperto)");
@@ -314,6 +318,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     es.insert("Language", "Idioma");
     es.insert("Controller", "Controlador");
     es.insert("Modern (recommended)", "Moderno (recomendado)");
+    es.insert("Pro (new)", "Pro (nuevo)");
     es.insert("Industrial (advanced)", "Industrial (avanzado)");
     es.insert("Modern layout (simple)", "Diseño moderno (simple)");
     es.insert("Classic layout (expert)", "Diseño clásico (experto)");
@@ -373,6 +378,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     pt.insert("Language", "Idioma");
     pt.insert("Controller", "Controlador");
     pt.insert("Modern (recommended)", "Moderno (recomendado)");
+    pt.insert("Pro (new)", "Pro (novo)");
     pt.insert("Industrial (advanced)", "Industrial (avançado)");
     pt.insert("Modern layout (simple)", "Layout moderno (simples)");
     pt.insert("Classic layout (expert)", "Layout clássico (especialista)");
@@ -432,6 +438,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     ar.insert("Language", "اللغة");
     ar.insert("Controller", "المتحكم");
     ar.insert("Modern (recommended)", "حديث (موصى به)");
+    ar.insert("Pro (new)", "احترافي (جديد)");
     ar.insert("Industrial (advanced)", "صناعي (متقدم)");
     ar.insert("Modern layout (simple)", "تخطيط حديث (بسيط)");
     ar.insert("Classic layout (expert)", "تخطيط كلاسيكي (خبير)");
@@ -509,6 +516,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     zh.insert("Export SVG", "导出SVG");
     zh.insert("Startup Wizard", "启动向导");
     zh.insert("Modern (recommended)", "现代（推荐）");
+    zh.insert("Pro (new)", "专业 (新)");
     zh.insert("Industrial (advanced)", "工业（高级）");
     zh.insert("Modern layout (simple)", "现代布局（简单）");
     zh.insert("Classic layout (expert)", "经典布局（专家）");
@@ -565,6 +573,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     ru.insert("Export SVG", "Экспорт SVG");
     ru.insert("Startup Wizard", "Мастер настройки");
     ru.insert("Modern (recommended)", "Современный (рекомендуется)");
+    ru.insert("Pro (new)", "Про (новый)");
     ru.insert("Industrial (advanced)", "Промышленный (продвинутый)");
     ru.insert("Modern layout (simple)", "Современный макет (простой)");
     ru.insert("Classic layout (expert)", "Классический макет (эксперт)");
@@ -621,6 +630,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     tr_lang.insert("Export SVG", "SVG Dışa Aktar");
     tr_lang.insert("Startup Wizard", "Başlangıç Sihirbazı");
     tr_lang.insert("Modern (recommended)", "Modern (önerilen)");
+    tr_lang.insert("Pro (new)", "Pro (yeni)");
     tr_lang.insert("Industrial (advanced)", "Endüstriyel (gelişmiş)");
     tr_lang.insert("Modern layout (simple)", "Modern düzen (basit)");
     tr_lang.insert("Classic layout (expert)", "Klasik düzen (uzman)");
@@ -677,6 +687,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     ko.insert("Export SVG", "SVG 내보내기");
     ko.insert("Startup Wizard", "시작 마법사");
     ko.insert("Modern (recommended)", "현대적 (권장)");
+    ko.insert("Pro (new)", "프로 (신규)");
     ko.insert("Industrial (advanced)", "산업용 (고급)");
     ko.insert("Modern layout (simple)", "현대적 레이아웃 (간단)");
     ko.insert("Classic layout (expert)", "클래식 레이아웃 (전문가)");
@@ -733,6 +744,7 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
     pl.insert("Export SVG", "Eksport SVG");
     pl.insert("Startup Wizard", "Kreator uruchamiania");
     pl.insert("Modern (recommended)", "Nowoczesny (zalecany)");
+    pl.insert("Pro (new)", "Pro (nowy)");
     pl.insert("Industrial (advanced)", "Przemysłowy (zaawansowany)");
     pl.insert("Modern layout (simple)", "Nowoczesny układ (prosty)");
     pl.insert("Classic layout (expert)", "Klasyczny układ (ekspert)");
