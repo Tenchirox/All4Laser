@@ -3,6 +3,7 @@ pub mod boolean_ops;
 pub mod camera;
 pub mod circular_array;
 pub mod connection;
+pub mod grid_array;
 pub mod console;
 pub mod cut_list;
 pub mod cut_palette;
