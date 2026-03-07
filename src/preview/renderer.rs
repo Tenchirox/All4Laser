@@ -127,6 +127,8 @@ pub enum InteractiveAction {
     ContextGroupSelection,
     ContextUngroupSelection,
     ContextSelectAll,
+    GroupSelection,
+    UngroupSelection,
 }
 
 impl PreviewRenderer {

@@ -116,6 +116,11 @@ pub fn show_wizard(ctx: &egui::Context, wctx: &mut WizardContext) -> WizardResul
                     );
                     ui.selectable_value(
                         &mut wctx.machine_profile.controller_kind,
+                        ControllerKind::Marlin,
+                        "Marlin",
+                    );
+                    ui.selectable_value(
+                        &mut wctx.machine_profile.controller_kind,
                         ControllerKind::Ruida,
                         "Ruida (beta)",
                     );
