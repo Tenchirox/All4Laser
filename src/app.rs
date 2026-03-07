@@ -217,6 +217,7 @@ pub struct All4LaserApp {
 
     // Timing
     last_poll: Instant,
+    about_open: bool,
 }
 
 impl All4LaserApp {
@@ -309,6 +310,7 @@ impl All4LaserApp {
             project_notes: String::new(),
             wizard: WizardState::default(),
             autosave: AutosaveState::default(),
+            about_open: false,
         };
 
         // Apply loaded settings
@@ -3989,6 +3991,25 @@ impl All4LaserApp {
                 self.settings_state = Some(state);
             }
         }
+        if actions.zoom_in {
+            self.renderer.zoom_in();
+        }
+        if actions.zoom_out {
+            self.renderer.zoom_out();
+        }
+        if actions.undo {
+            if !self.undo_node_edit() {
+                self.log("Nothing to undo.".into());
+            }
+        }
+        if actions.redo {
+            if !self.redo_node_edit() {
+                self.log("Nothing to redo.".into());
+            }
+        }
+        if actions.open_about {
+            self.about_open = true;
+        }
     }
 
     fn handle_open_project(&mut self, ctx: &egui::Context) {
@@ -4296,6 +4317,10 @@ impl All4LaserApp {
             InteractiveAction::CameraPickPoint(pos) => {
                 self.handle_camera_pick_point(pos);
             }
+            InteractiveAction::GroupSelection => {
+                let selected_indices: Vec<usize> =
+                    self.renderer.selected_shape_idx.iter().copied().collect();
+                crate::ui::drawing::group_shapes(&mut self.drawing_state.shapes, &selected_indices);
             InteractiveAction::ContextDeleteSelection => {
                 self.push_node_undo_snapshot();
                 let mut indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
@@ -4310,6 +4335,13 @@ impl All4LaserApp {
                 self.renderer.selected_nodes.clear();
                 self.regenerate_drawing_gcode();
             }
+            InteractiveAction::UngroupSelection => {
+                let selected_indices: Vec<usize> =
+                    self.renderer.selected_shape_idx.iter().copied().collect();
+                crate::ui::drawing::ungroup_shapes(
+                    &mut self.drawing_state.shapes,
+                    &selected_indices,
+                );
             InteractiveAction::ContextDuplicateSelection => {
                 self.push_node_undo_snapshot();
                 let indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
@@ -4961,6 +4993,26 @@ impl eframe::App for All4LaserApp {
             self.notify_job_done = false;
         }
 
+        if self.about_open {
+            let mut open = true;
+            let mut close_clicked = false;
+            egui::Window::new("About All4Laser")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label(egui::RichText::new("All4Laser").strong().size(20.0));
+                    ui.label("Advanced Laser Control Software");
+                    ui.add_space(8.0);
+                    if ui.button("OK").clicked() {
+                        close_clicked = true;
+                    }
+                });
+            if !open || close_clicked {
+                self.about_open = false;
+            }
+        }
+
         // Tool windows dispatch
         self.update_tool_windows(ctx);
 
@@ -4976,11 +5028,26 @@ impl eframe::App for All4LaserApp {
         let is_light = self.light_mode;
         let caps = self.controller_capabilities();
 
+        let mut menu_actions = ui::toolbar::ToolbarAction::default();
+        if self.ui_theme == theme::UiTheme::Industrial || self.ui_theme == theme::UiTheme::Pro {
+            TopBottomPanel::top("menu_bar_panel").show(ctx, |ui| {
+                menu_actions = ui::toolbar::show_menu_bar(
+                    ui,
+                    &self.recent_files,
+                    self.loaded_file.is_some(),
+                    !self.drawing_state.shapes.is_empty(),
+                    self.beginner_mode,
+                    self.light_mode,
+                    caps,
+                );
+            });
+        }
+
         TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.add_space(4.0);
             let has_file = self.loaded_file.is_some();
             let has_shapes = !self.drawing_state.shapes.is_empty();
-            let actions = ui::toolbar::show(
+            let mut actions = ui::toolbar::show(
                 ui,
                 is_connected,
                 is_running,
@@ -4992,6 +5059,7 @@ impl eframe::App for All4LaserApp {
                 has_shapes,
                 caps,
             );
+            actions.merge(menu_actions);
             ui.add_space(4.0);
 
             self.handle_toolbar_actions(ctx, actions);
