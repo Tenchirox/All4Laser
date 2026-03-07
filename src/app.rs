@@ -218,6 +218,10 @@ pub struct All4LaserApp {
     // Timing
     last_poll: Instant,
     about_open: bool,
+
+    // Update checker
+    update_available: Option<String>,
+    update_receiver: Option<crossbeam_channel::Receiver<String>>,
 }
 
 impl All4LaserApp {
@@ -311,7 +315,26 @@ impl All4LaserApp {
             wizard: WizardState::default(),
             autosave: AutosaveState::default(),
             about_open: false,
+            update_available: None,
+            update_receiver: None,
         };
+
+        let update_url = "https://api.github.com/repos/arkypita/All4Laser/releases/latest";
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        app.update_receiver = Some(rx);
+
+        std::thread::spawn(move || {
+            if let Ok(res) = ureq::get(update_url).call() {
+                if let Ok(json) = res.into_json::<serde_json::Value>() {
+                    if let Some(tag) = json["tag_name"].as_str() {
+                        let current_version = format!("v{}", env!("CARGO_PKG_VERSION"));
+                        if tag != current_version {
+                            let _ = tx.send(tag.to_string());
+                        }
+                    }
+                }
+            }
+        });
 
         // Apply loaded settings
         app.ui_theme = app.settings.theme;
@@ -772,6 +795,7 @@ impl All4LaserApp {
             .add_filter("GCode", &["nc", "gcode", "ngc", "gc"])
             .add_filter("SVG", &["svg"])
             .add_filter("Images", &["png", "jpg", "jpeg", "bmp"])
+            .add_filter("LightBurn Project", &["lbrn", "lbrn2"])
             .add_filter("All files", &["*"])
             .pick_file()
         {
@@ -857,6 +881,79 @@ impl All4LaserApp {
                         self.log(format!("DXF imported: {filename}"));
                     }
                     Err(e) => self.show_error(format!("DXF import failed: {e}")),
+                }
+            }
+            "lbrn" | "lbrn2" => {
+                let data = match std::fs::read_to_string(path) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        self.show_error(format!("Error reading LightBurn file: {e}"));
+                        return;
+                    }
+                };
+                match crate::gcode::lbrn_import::import_lbrn2(&data) {
+                    Ok((shapes, layer_overrides)) => {
+                        self.drawing_state.shapes = shapes;
+                        for ovr in layer_overrides {
+                            if let Some(mut layer) = self.layers.iter_mut().find(|l| l.id == ovr.index) {
+                                layer.speed = ovr.speed;
+                                layer.power = ovr.power;
+                                layer.mode = ovr.mode;
+                                layer.passes = ovr.passes;
+                            } else {
+                                self.layers.push(crate::ui::layers_new::CutLayer {
+                                    id: ovr.index,
+                                    speed: ovr.speed,
+                                    power: ovr.power,
+                                    mode: ovr.mode,
+                                    passes: ovr.passes,
+                                    visible: true,
+                                    air_assist: false,
+                                    z_offset: 0.0,
+                                    min_power: 0.0,
+                                    fill_interval_mm: 0.1,
+                                    fill_bidirectional: true,
+                                    fill_overscan_mm: 0.0,
+                                    fill_angle_deg: 0.0,
+                                    output_order: ovr.index as i32,
+                                    lead_in_mm: 0.0,
+                                    lead_out_mm: 0.0,
+                                    kerf_mm: 0.0,
+                                    tab_enabled: false,
+                                    tab_spacing: 50.0,
+                                    tab_size: 0.5,
+                                    perforation_enabled: false,
+                                    perforation_cut_mm: 5.0,
+                                    perforation_gap_mm: 2.0,
+                                    fill_pattern: crate::ui::layers_new::FillPattern::Horizontal,
+                                    contour_offset_enabled: false,
+                                    contour_offset_count: 3,
+                                    contour_offset_step_mm: 0.5,
+                                    print_and_cut_marks: false,
+                                    spiral_fill_enabled: false,
+                                    relief_enabled: false,
+                                    relief_max_z_mm: 5.0,
+                                    is_construction: false,
+                                    pass_offset_mm: 0.0,
+                                    exhaust_enabled: false,
+                                    exhaust_post_delay_s: 5.0,
+                                    ramp_enabled: false,
+                                    ramp_length_mm: 5.0,
+                                    ramp_start_pct: 20.0,
+                                    corner_power_enabled: false,
+                                    corner_power_pct: 60.0,
+                                    corner_angle_threshold: 90.0,
+                                    name: format!("Layer {}", ovr.index),
+                                    color: egui::Color32::RED, // Simplified
+                                });
+                            }
+                        }
+                        let lines: Vec<String> = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                        let file = GCodeFile::from_lines(&filename, &lines);
+                        self.set_loaded_file(file, lines);
+                        self.log(format!("LightBurn imported: {filename}"));
+                    }
+                    Err(e) => self.show_error(format!("LightBurn import failed: {e}")),
                 }
             }
             _ => {
@@ -4860,6 +4957,13 @@ impl All4LaserApp {
 
 impl eframe::App for All4LaserApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(rx) = &self.update_receiver {
+            if let Ok(version) = rx.try_recv() {
+                self.update_available = Some(version);
+                self.update_receiver = None; // Stop listening
+            }
+        }
+
         self.poll_camera_stream(ctx);
 
         // Poll serial
@@ -5018,6 +5122,40 @@ impl eframe::App for All4LaserApp {
             if !open || close_clicked {
                 self.about_open = false;
             }
+        }
+
+        // === Update Notification ===
+        let mut close_update = false;
+        let mut log_message = None;
+        if let Some(new_version) = &self.update_available {
+            let new_version_str = new_version.clone();
+            egui::Window::new("🎉 Update Available!")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-10.0, -10.0))
+                .show(ctx, |ui| {
+                    ui.label(format!("A new version ({}) is available.", new_version_str));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Download").clicked() {
+                            if let Err(e) = webbrowser::open("https://github.com/arkypita/All4Laser/releases/latest") {
+                                log_message = Some(format!("Failed to open browser: {}", e));
+                            }
+                            close_update = true;
+                        }
+                        if ui.button("Dismiss").clicked() {
+                            close_update = true;
+                        }
+                    });
+                });
+        }
+
+        if let Some(msg) = log_message {
+            self.log(msg);
+        }
+
+        if close_update {
+            self.update_available = None;
         }
 
         // Tool windows dispatch
