@@ -121,8 +121,12 @@ pub enum InteractiveAction {
         new_pos: Pos2,
     },
     CameraPickPoint(Pos2),
-    GroupSelection,
-    UngroupSelection,
+    // Context menu actions (right-click)
+    ContextDeleteSelection,
+    ContextDuplicateSelection,
+    ContextGroupSelection,
+    ContextUngroupSelection,
+    ContextSelectAll,
 }
 
 impl PreviewRenderer {
@@ -271,6 +275,13 @@ impl PreviewRenderer {
             // If interaction wasn't a selection/drag, proceed standard input handling
         } else {
             action = handled_interaction;
+        }
+
+        // Right-click context menu
+        let has_selection = !self.selected_shape_idx.is_empty();
+        let ctx_action = self.show_context_menu(ui, &response, has_selection);
+        if !matches!(ctx_action, InteractiveAction::None) {
+            action = ctx_action;
         }
 
         // Draw grid
@@ -1122,8 +1133,16 @@ impl PreviewRenderer {
     ) -> InteractiveAction {
         let mut action = InteractiveAction::None;
 
+        // ── Middle mouse button: ALWAYS pan, regardless of selection ──
+        if response.dragged_by(egui::PointerButton::Middle) {
+            let delta = response.drag_delta();
+            self.pan += delta;
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            return action;
+        }
+
         if let Some(hover) = response.hover_pos() {
-            // Zoom logic
+            // Zoom logic (scroll wheel)
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll != 0.0 {
                 let old_zoom = self.zoom;
@@ -1138,7 +1157,10 @@ impl PreviewRenderer {
             let wy = -(hover.y - self.pan.y) / self.zoom;
             let is_multi = ui.input(|i| i.modifiers.ctrl || i.modifiers.shift);
 
-            if response.clicked_by(egui::PointerButton::Primary) && self.dragging_rotation.is_none() && camera_pick_active {
+            if response.clicked_by(egui::PointerButton::Primary)
+                && self.dragging_rotation.is_none()
+                && camera_pick_active
+            {
                 if self.is_point_in_camera_overlay(wx, wy, camera_state) {
                     return InteractiveAction::CameraPickPoint(Pos2::new(wx, wy));
                 }
@@ -1157,7 +1179,7 @@ impl PreviewRenderer {
                 }
             }
 
-            // 2. Click/Drag Selection Logic
+            // 2. Left-click/Drag Selection Logic
             if response.drag_started_by(egui::PointerButton::Primary) {
                 if self.node_edit_mode {
                     if let Some((shape_idx, node_idx)) = self.selected_node {
@@ -1217,7 +1239,8 @@ impl PreviewRenderer {
                 }
             }
 
-            if response.clicked_by(egui::PointerButton::Primary) && self.dragging_rotation.is_none() {
+            if response.clicked_by(egui::PointerButton::Primary) && self.dragging_rotation.is_none()
+            {
                 if let Some(idx) = self.hover_shape_idx {
                     let mut add_node_action: Option<InteractiveAction> = None;
                     if self.node_edit_mode {
@@ -1312,18 +1335,7 @@ impl PreviewRenderer {
             }
         }
 
-        // Context menu
-        response.context_menu(|ui| {
-            if ui.button("Group").clicked() {
-                action = InteractiveAction::GroupSelection;
-                ui.close_menu();
-            }
-            if ui.button("Ungroup").clicked() {
-                action = InteractiveAction::UngroupSelection;
-                ui.close_menu();
-            }
-        });
-
+        // ── Left mouse drag: shape/node operations ──
         if response.dragged_by(egui::PointerButton::Primary) {
             if self.selection_box_start.is_some() {
                 if let Some(pos) = response.interact_pointer_pos() {
@@ -1406,9 +1418,7 @@ impl PreviewRenderer {
                     delta: Vec2::new(delta.x / self.zoom, -delta.y / self.zoom),
                 };
             }
-        } else if response.dragged_by(egui::PointerButton::Middle) {
-            self.pan += response.drag_delta();
-        } else {
+        } else if !response.dragged_by(egui::PointerButton::Middle) {
             if response.drag_stopped_by(egui::PointerButton::Primary) {
                 if let (Some(start), Some(end)) = (
                     self.selection_box_start.take(),
@@ -1442,6 +1452,42 @@ impl PreviewRenderer {
         }
 
         action
+    }
+
+    fn show_context_menu(
+        &self,
+        _ui: &egui::Ui,
+        response: &egui::Response,
+        has_selection: bool,
+    ) -> InteractiveAction {
+        let mut ctx_action = InteractiveAction::None;
+        response.clone().context_menu(|ui| {
+            if has_selection {
+                if ui.button("🗑  Supprimer la sélection").clicked() {
+                    ctx_action = InteractiveAction::ContextDeleteSelection;
+                    ui.close_menu();
+                }
+                if ui.button("📋  Dupliquer").clicked() {
+                    ctx_action = InteractiveAction::ContextDuplicateSelection;
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("🔗  Grouper").clicked() {
+                    ctx_action = InteractiveAction::ContextGroupSelection;
+                    ui.close_menu();
+                }
+                if ui.button("✂  Dégrouper").clicked() {
+                    ctx_action = InteractiveAction::ContextUngroupSelection;
+                    ui.close_menu();
+                }
+                ui.separator();
+            }
+            if ui.button("☑  Tout sélectionner").clicked() {
+                ctx_action = InteractiveAction::ContextSelectAll;
+                ui.close_menu();
+            }
+        });
+        ctx_action
     }
 
     fn is_point_in_shape(&self, wx: f32, wy: f32, shape: &ShapeParams) -> bool {
