@@ -87,6 +87,10 @@ fn parse_rect_shape(line: &str) -> Option<ShapeParams> {
     let h = extract_attr(line, "H")
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(10.0);
+    let layer_idx = extract_attr(line, "Layer")
+        .or_else(|| extract_attr(line, "CutIndex"))
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(0);
     Some(ShapeParams {
         shape: ShapeKind::Rectangle,
         x,
@@ -94,7 +98,7 @@ fn parse_rect_shape(line: &str) -> Option<ShapeParams> {
         width: w,
         height: h,
         radius: 0.0,
-        layer_idx: 0,
+        layer_idx,
         text: String::new(),
         font_size_mm: 0.0,
         rotation: 0.0,
@@ -108,6 +112,10 @@ fn parse_ellipse_shape(line: &str) -> Option<ShapeParams> {
     let rx = extract_attr(line, "Rx")
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(10.0);
+    let layer_idx = extract_attr(line, "Layer")
+        .or_else(|| extract_attr(line, "CutIndex"))
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(0);
     Some(ShapeParams {
         shape: ShapeKind::Circle,
         x: cx,
@@ -115,7 +123,7 @@ fn parse_ellipse_shape(line: &str) -> Option<ShapeParams> {
         width: 0.0,
         height: 0.0,
         radius: rx,
-        layer_idx: 0,
+        layer_idx,
         text: String::new(),
         font_size_mm: 0.0,
         rotation: 0.0,
@@ -125,7 +133,8 @@ fn parse_ellipse_shape(line: &str) -> Option<ShapeParams> {
 
 fn extract_attr(line: &str, attr: &str) -> Option<String> {
     let pattern = format!("{}=\"", attr);
-    let start = line.find(&pattern)? + pattern.len();
+    let start = line.find(&pattern)?;
+    let start = start + pattern.len();
     let rest = &line[start..];
     let end = rest.find('"')?;
     Some(rest[..end].to_string())
