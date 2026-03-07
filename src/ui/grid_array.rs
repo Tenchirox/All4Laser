@@ -53,19 +53,11 @@ pub fn show(ctx: &egui::Context, state: &mut GridArrayState) -> GridArrayAction 
                     ui.end_row();
 
                     ui.label("X Spacing (mm):");
-                    ui.add(
-                        egui::DragValue::new(&mut state.dx)
-                            .speed(1.0)
-                            .suffix(" mm"),
-                    );
+                    ui.add(egui::DragValue::new(&mut state.dx).speed(1.0).suffix(" mm"));
                     ui.end_row();
 
                     ui.label("Y Spacing (mm):");
-                    ui.add(
-                        egui::DragValue::new(&mut state.dy)
-                            .speed(1.0)
-                            .suffix(" mm"),
-                    );
+                    ui.add(egui::DragValue::new(&mut state.dy).speed(1.0).suffix(" mm"));
                     ui.end_row();
                 });
 
@@ -90,11 +82,7 @@ pub fn show(ctx: &egui::Context, state: &mut GridArrayState) -> GridArrayAction 
     action
 }
 
-pub fn apply_array(
-    state: &GridArrayState,
-    drawing: &mut DrawingState,
-    selected_indices: &[usize],
-) {
+pub fn apply_array(state: &GridArrayState, drawing: &mut DrawingState, selected_indices: &[usize]) {
     if selected_indices.is_empty() || (state.columns == 1 && state.rows == 1) {
         return;
     }
