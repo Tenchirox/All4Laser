@@ -99,7 +99,7 @@ impl PostProcessor {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        if !is_valid_name(&self.name) {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
             return Err("Invalid post-processor name".into());
         }
         let dir = Self::postprocessors_dir();
@@ -111,7 +111,7 @@ impl PostProcessor {
     }
 
     pub fn load(name: &str) -> Result<PostProcessor, String> {
-        if !is_valid_name(name) {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
             return Err("Invalid post-processor name".into());
         }
         let dir = Self::postprocessors_dir();
@@ -180,7 +180,10 @@ impl JobTemplate {
     }
 
     pub fn save(template: &JobTemplate) -> Result<(), String> {
-        if !is_valid_name(&template.name) {
+        if template.name.contains('/')
+            || template.name.contains('\\')
+            || template.name.contains("..")
+        {
             return Err("Invalid template name".into());
         }
         let dir = Self::templates_dir();
@@ -205,7 +208,7 @@ impl JobTemplate {
     }
 
     pub fn load(name: &str) -> Result<JobTemplate, String> {
-        if !is_valid_name(name) {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
             return Err("Invalid template name".into());
         }
         let dir = Self::templates_dir();
@@ -215,7 +218,7 @@ impl JobTemplate {
     }
 
     pub fn delete(name: &str) -> Result<(), String> {
-        if !is_valid_name(name) {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
             return Err("Invalid template name".into());
         }
         let dir = Self::templates_dir();
@@ -334,8 +337,8 @@ impl JigTemplate {
     }
 
     pub fn save(&self) -> Result<(), String> {
-        if !is_valid_name(&self.name) {
-            return Err("Invalid jig name".into());
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid jig template name".into());
         }
         let dir = Self::jigs_dir();
         let _ = std::fs::create_dir_all(&dir);
@@ -345,8 +348,8 @@ impl JigTemplate {
     }
 
     pub fn load(name: &str) -> Result<JigTemplate, String> {
-        if !is_valid_name(name) {
-            return Err("Invalid jig name".into());
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid jig template name".into());
         }
         let path = Self::jigs_dir().join(format!("{name}.json"));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
