@@ -2,8 +2,16 @@ use crate::config::machine_profile::MachineProfile;
 use crate::ui::camera::CameraCalibration;
 use serde::{Deserialize, Serialize};
 
-fn is_valid_name(name: &str) -> bool {
-    !name.contains('/') && !name.contains('\\') && !name.contains("..")
+pub fn validate_safe_filename(name: &str) -> Result<(), String> {
+    let path = std::path::Path::new(name);
+    if path.file_name().and_then(|s| s.to_str()) != Some(name)
+        || name.contains("..")
+        || name.contains('/')
+        || name.contains('\\')
+    {
+        return Err("Invalid filename: path traversal detected".to_string());
+    }
+    Ok(())
 }
 
 /// An All4Laser project file (.a4l) – persists everything needed to restore a session
@@ -231,6 +239,7 @@ impl JobTemplate {
     }
 
     pub fn delete(name: &str) -> Result<(), String> {
+        validate_safe_filename(name)?;
         if !is_safe_filename(name) {
             return Err("Invalid template name".into());
         }
@@ -535,6 +544,20 @@ mod tests {
         assert_eq!(parsed.camera_device_index, 0);
         assert!(!parsed.camera_live_streaming);
         assert!(parsed.material_selected_preset.is_none());
+    }
+
+    #[test]
+    fn test_validate_safe_filename() {
+        assert!(validate_safe_filename("valid_name").is_ok());
+        assert!(validate_safe_filename("valid_name_2").is_ok());
+        assert!(validate_safe_filename("template").is_ok());
+
+        assert!(validate_safe_filename("../test").is_err());
+        assert!(validate_safe_filename("test/test").is_err());
+        assert!(validate_safe_filename("/etc/passwd").is_err());
+        assert!(validate_safe_filename("C:\\Windows\\System32").is_err());
+        assert!(validate_safe_filename("..").is_err());
+        assert!(validate_safe_filename("a/b").is_err());
     }
 
     #[test]
