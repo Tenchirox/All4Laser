@@ -46,7 +46,8 @@ impl SerialConnection {
 
         let (msg_tx, msg_rx) = unbounded::<SerialMsg>();
         let (cmd_tx, cmd_rx) = unbounded::<SerialCmd>();
-        let port_handle = Arc::new(Mutex::new(Some(port.try_clone().unwrap())));
+        let cloned_port = port.try_clone().map_err(|e| format!("Failed to clone port {port_name}: {e}"))?;
+        let port_handle = Arc::new(Mutex::new(Some(cloned_port)));
 
         // Reader thread
         let reader_tx = msg_tx.clone();
