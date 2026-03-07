@@ -4958,9 +4958,15 @@ impl All4LaserApp {
 impl eframe::App for All4LaserApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if let Some(rx) = &self.update_receiver {
-            if let Ok(version) = rx.try_recv() {
-                self.update_available = Some(version);
-                self.update_receiver = None; // Stop listening
+            match rx.try_recv() {
+                Ok(version) => {
+                    self.update_available = Some(version);
+                    self.update_receiver = None; // Stop listening
+                }
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.update_receiver = None; // Stop listening
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => {}
             }
         }
 
