@@ -1,7 +1,6 @@
-/// Tiling: repeat a GCode job in an N×M grid
-
-use egui::RichText;
 use crate::theme;
+/// Tiling: repeat a GCode job in an N×M grid
+use egui::RichText;
 
 pub struct TilingState {
     pub is_open: bool,
@@ -41,20 +40,31 @@ pub fn show(ctx: &egui::Context, state: &mut TilingState, source_lines: &[String
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
-            egui::Grid::new("tiling_grid").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                ui.label("Columns:");
-                ui.add(egui::DragValue::new(&mut state.cols).range(1..=20));
-                ui.end_row();
-                ui.label("Rows:");
-                ui.add(egui::DragValue::new(&mut state.rows).range(1..=20));
-                ui.end_row();
-                ui.label("Spacing X (mm):");
-                ui.add(egui::DragValue::new(&mut state.spacing_x).speed(1.0).suffix(" mm"));
-                ui.end_row();
-                ui.label("Spacing Y (mm):");
-                ui.add(egui::DragValue::new(&mut state.spacing_y).speed(1.0).suffix(" mm"));
-                ui.end_row();
-            });
+            egui::Grid::new("tiling_grid")
+                .num_columns(2)
+                .spacing([12.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label("Columns:");
+                    ui.add(egui::DragValue::new(&mut state.cols).range(1..=20));
+                    ui.end_row();
+                    ui.label("Rows:");
+                    ui.add(egui::DragValue::new(&mut state.rows).range(1..=20));
+                    ui.end_row();
+                    ui.label("Spacing X (mm):");
+                    ui.add(
+                        egui::DragValue::new(&mut state.spacing_x)
+                            .speed(1.0)
+                            .suffix(" mm"),
+                    );
+                    ui.end_row();
+                    ui.label("Spacing Y (mm):");
+                    ui.add(
+                        egui::DragValue::new(&mut state.spacing_y)
+                            .speed(1.0)
+                            .suffix(" mm"),
+                    );
+                    ui.end_row();
+                });
 
             ui.label(
                 RichText::new(format!("→ {} copies total", state.cols * state.rows))
@@ -64,7 +74,10 @@ pub fn show(ctx: &egui::Context, state: &mut TilingState, source_lines: &[String
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("⊟ Apply Tiling").color(theme::GREEN).strong()).clicked() {
+                if ui
+                    .button(RichText::new("⊟ Apply Tiling").color(theme::GREEN).strong())
+                    .clicked()
+                {
                     apply_clicked = true;
                 }
                 if ui.button("Close").clicked() {
@@ -92,14 +105,18 @@ fn generate_tiled(s: &TilingState, source: &[String]) -> Vec<String> {
         for col in 0..s.cols {
             let ox = col as f32 * s.spacing_x;
             let oy = row as f32 * s.spacing_y;
-            out.push(format!("; Tile row={} col={} offset=({:.1},{:.1})", row, col, ox, oy));
-            
+            out.push(format!(
+                "; Tile row={} col={} offset=({:.1},{:.1})",
+                row, col, ox, oy
+            ));
+
             // Apply offset via G92 (coordinate system shift) then replay, then restore
             out.push(format!("G92 X{:.3} Y{:.3}", -ox, -oy));
             for line in source {
                 let t = line.trim();
                 // Skip header comments and global setup from source
-                if t.starts_with(';') || t == "G90" || t == "G21" || t == "G90 G21" || t.is_empty() {
+                if t.starts_with(';') || t == "G90" || t == "G21" || t == "G90 G21" || t.is_empty()
+                {
                     continue;
                 }
                 out.push(line.clone());

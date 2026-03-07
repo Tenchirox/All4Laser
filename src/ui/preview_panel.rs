@@ -1,9 +1,9 @@
-use egui::{Ui, RichText};
-use crate::preview::renderer::{PreviewRenderer, InteractiveAction};
 use crate::gcode::types::PreviewSegment;
+use crate::preview::renderer::{InteractiveAction, PreviewRenderer};
+use crate::theme;
 use crate::ui::drawing::ShapeParams;
 use crate::ui::layers_new::CutLayer;
-use crate::theme;
+use egui::{RichText, Ui};
 
 pub struct PreviewAction {
     pub zoom_in: bool,
@@ -38,7 +38,12 @@ pub fn show(
 
     // Zoom toolbar
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Preview").color(theme::LAVENDER).strong().size(14.0));
+        ui.label(
+            RichText::new("Preview")
+                .color(theme::LAVENDER)
+                .strong()
+                .size(14.0),
+        );
         ui.checkbox(&mut renderer.show_rapids, "Rapids");
         ui.checkbox(&mut renderer.show_fill_preview, "Fill");
         ui.checkbox(&mut renderer.show_thermal_risk, "Risk");
@@ -102,25 +107,26 @@ pub fn show(
             {
                 action.auto_fit = true;
             }
-            if ui
-                .button("🔍−")
-                .on_hover_text("Zoom out")
-                .clicked()
-            {
+            if ui.button("🔍−").on_hover_text("Zoom out").clicked() {
                 action.zoom_out = true;
             }
-            if ui
-                .button("🔍+")
-                .on_hover_text("Zoom in")
-                .clicked()
-            {
+            if ui.button("🔍+").on_hover_text("Zoom in").clicked() {
                 action.zoom_in = true;
             }
         });
     });
 
     // Render preview
-    action.interactive_action = renderer.show(ui, segments, shapes, layers, is_light, job_offset, job_rotation_deg, camera_state);
+    action.interactive_action = renderer.show(
+        ui,
+        segments,
+        shapes,
+        layers,
+        is_light,
+        job_offset,
+        job_rotation_deg,
+        camera_state,
+    );
 
     action
 }

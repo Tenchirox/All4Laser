@@ -1,6 +1,6 @@
-use egui::{Ui, RichText, Color32, Grid, Sense, StrokeKind};
-use crate::ui::layers_new::{CutLayer, CutMode};
 use crate::theme;
+use crate::ui::layers_new::{CutLayer, CutMode};
+use egui::{Color32, Grid, RichText, Sense, StrokeKind, Ui};
 
 pub struct CutListAction {
     pub select_layer: Option<usize>,
@@ -8,7 +8,11 @@ pub struct CutListAction {
     pub layers_changed: bool,
 }
 
-fn effective_layer_indices(layers_len: usize, active_idx: usize, used_layers: &[usize]) -> Vec<usize> {
+fn effective_layer_indices(
+    layers_len: usize,
+    active_idx: usize,
+    used_layers: &[usize],
+) -> Vec<usize> {
     let mut indices: Vec<usize> = used_layers
         .iter()
         .copied()
@@ -31,7 +35,11 @@ pub fn show(
     active_idx: usize,
     used_layers: &[usize],
 ) -> CutListAction {
-    let mut action = CutListAction { select_layer: None, open_settings: None, layers_changed: false };
+    let mut action = CutListAction {
+        select_layer: None,
+        open_settings: None,
+        layers_changed: false,
+    };
     let visible_indices = effective_layer_indices(layers.len(), active_idx, used_layers);
 
     ui.group(|ui| {
@@ -60,18 +68,28 @@ pub fn show(
                     // We will just highlight the text or use a button for the first cell.
 
                     // 1. Color Swatch + ID
-                    let (rect, response) = ui.allocate_exact_size(egui::vec2(24.0, 16.0), Sense::click());
+                    let (rect, response) =
+                        ui.allocate_exact_size(egui::vec2(24.0, 16.0), Sense::click());
                     if ui.is_rect_visible(rect) {
                         ui.painter().rect_filled(rect, 2.0, layer.color);
                         if is_active {
-                            ui.painter().rect_stroke(rect, 2.0, egui::Stroke::new(2.0, theme::GREEN), StrokeKind::Inside);
+                            ui.painter().rect_stroke(
+                                rect,
+                                2.0,
+                                egui::Stroke::new(2.0, theme::GREEN),
+                                StrokeKind::Inside,
+                            );
                         }
                         ui.painter().text(
                             rect.center(),
                             egui::Align2::CENTER_CENTER,
                             format!("{:02}", i),
                             egui::FontId::monospace(10.0),
-                            if is_light(layer.color) { Color32::BLACK } else { Color32::WHITE }
+                            if is_light(layer.color) {
+                                Color32::BLACK
+                            } else {
+                                Color32::WHITE
+                            },
                         );
                     }
                     if response.clicked() {

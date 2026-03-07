@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet};
-use crate::ui::drawing::{ShapeKind, ShapeParams};
-use crate::ui::layers_new::{CutLayer, CutMode};
 use crate::config::machine_profile::MachineProfile;
 use crate::gcode::file::GCodeFile;
+use crate::ui::drawing::{ShapeKind, ShapeParams};
+use crate::ui::layers_new::{CutLayer, CutMode};
+use std::collections::{HashMap, HashSet};
 
 type SegmentKey = ((i32, i32), (i32, i32));
 
@@ -17,7 +17,9 @@ pub fn normalized_segment_key(a: (f32, f32), b: (f32, f32)) -> SegmentKey {
 }
 
 fn path_is_closed(pts: &[(f32, f32)]) -> bool {
-    if pts.len() < 3 { return false; }
+    if pts.len() < 3 {
+        return false;
+    }
     let first = pts.first().unwrap();
     let last = pts.last().unwrap();
     (first.0 - last.0).abs() < 0.01 && (first.1 - last.1).abs() < 0.01
@@ -56,11 +58,17 @@ impl PreflightReport {
     }
 
     pub fn critical_count(&self) -> usize {
-        self.issues.iter().filter(|i| i.severity == PreflightSeverity::Critical).count()
+        self.issues
+            .iter()
+            .filter(|i| i.severity == PreflightSeverity::Critical)
+            .count()
     }
 
     pub fn warning_count(&self) -> usize {
-        self.issues.iter().filter(|i| i.severity == PreflightSeverity::Warning).count()
+        self.issues
+            .iter()
+            .filter(|i| i.severity == PreflightSeverity::Warning)
+            .count()
     }
 }
 
@@ -90,7 +98,8 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
             if shape.layer_idx >= ctx.layers.len() {
                 report.add_critical(format!(
                     "Shape #{} uses missing layer index {}.",
-                    idx + 1, shape.layer_idx
+                    idx + 1,
+                    shape.layer_idx
                 ));
             }
 
@@ -115,12 +124,19 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
     }
 
     if open_paths > 0 {
-        report.add_critical(format!("Detected {open_paths} open path(s). Close contours before launch."));
+        report.add_critical(format!(
+            "Detected {open_paths} open path(s). Close contours before launch."
+        ));
     }
 
-    let duplicate_count = duplicate_segments.values().filter(|&&count| count > 1).count();
+    let duplicate_count = duplicate_segments
+        .values()
+        .filter(|&&count| count > 1)
+        .count();
     if duplicate_count > 0 {
-        report.add_critical(format!("Detected {duplicate_count} duplicated path segment group(s)."));
+        report.add_critical(format!(
+            "Detected {duplicate_count} duplicated path segment group(s)."
+        ));
     }
 
     // F84: Detect fully overlapping shapes
@@ -156,23 +172,31 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
         if min_x < -0.1 || min_y < -0.1 || max_x > ws_x + 0.1 || max_y > ws_y + 0.1 {
             report.add_warning(format!(
                 "Shape #{} extends outside workspace bounds ({:.0}x{:.0}mm).",
-                idx + 1, ws_x, ws_y
+                idx + 1,
+                ws_x,
+                ws_y
             ));
         }
     }
 
     // F94: Interlock safety checks
     if ctx.machine_profile.interlock_lid_enabled {
-        report.add_warning("Lid interlock enabled -- ensure lid is closed before running.".to_string());
+        report.add_warning(
+            "Lid interlock enabled -- ensure lid is closed before running.".to_string(),
+        );
     }
     if ctx.machine_profile.interlock_water_enabled {
-        report.add_warning("Water cooling interlock enabled -- ensure water flow is active.".to_string());
+        report.add_warning(
+            "Water cooling interlock enabled -- ensure water flow is active.".to_string(),
+        );
     }
 
     // Layer validation
     for layer_idx in used_layers {
         let Some(layer) = ctx.layers.get(layer_idx) else {
-            report.add_critical(format!("Used layer index {layer_idx} is missing from layer list."));
+            report.add_critical(format!(
+                "Used layer index {layer_idx} is missing from layer list."
+            ));
             continue;
         };
 
@@ -185,14 +209,25 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
         if layer.passes == 0 {
             report.add_critical(format!("Layer {} has invalid passes (= 0).", layer.name));
         }
-        if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine) && layer.fill_interval_mm <= 0.0 {
-            report.add_critical(format!("Layer {} fill interval must be > 0 for fill modes.", layer.name));
+        if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine)
+            && layer.fill_interval_mm <= 0.0
+        {
+            report.add_critical(format!(
+                "Layer {} fill interval must be > 0 for fill modes.",
+                layer.name
+            ));
         }
         if !layer.visible {
-            report.add_warning(format!("Layer {} is disabled but still referenced by current job.", layer.name));
+            report.add_warning(format!(
+                "Layer {} is disabled but still referenced by current job.",
+                layer.name
+            ));
         }
         if layer.power > 1000.0 {
-            report.add_warning(format!("Layer {} power ({:.0}) exceeds nominal GRBL S1000 range.", layer.name, layer.power));
+            report.add_warning(format!(
+                "Layer {} power ({:.0}) exceeds nominal GRBL S1000 range.",
+                layer.name, layer.power
+            ));
         }
     }
 

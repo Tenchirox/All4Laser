@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::grbl::{parser, protocol};
 use crate::grbl::types::{GPoint, GrblResponse, GrblState, JogDirection, MacStatus};
+use crate::grbl::{parser, protocol};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ControllerKind {
@@ -76,7 +76,10 @@ mod tests {
             Some("resume")
         );
         assert_eq!(backend.realtime_line(RealtimeCommand::Reset), Some("stop"));
-        assert_eq!(backend.realtime_line(RealtimeCommand::FeedOverridePlus10), None);
+        assert_eq!(
+            backend.realtime_line(RealtimeCommand::FeedOverridePlus10),
+            None
+        );
     }
 
     #[test]

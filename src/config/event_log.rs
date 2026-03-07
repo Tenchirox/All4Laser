@@ -7,7 +7,9 @@ pub struct EventLog {
 
 impl Default for EventLog {
     fn default() -> Self {
-        Self { entries: Self::load_from_disk() }
+        Self {
+            entries: Self::load_from_disk(),
+        }
     }
 }
 

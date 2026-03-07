@@ -1,6 +1,6 @@
-/// Keyboard shortcuts help panel
-use egui::{Ui, RichText, Key, Modifiers};
 use crate::theme;
+/// Keyboard shortcuts help panel
+use egui::{Key, Modifiers, RichText, Ui};
 
 pub struct ShortcutsState {
     pub is_open: bool,
