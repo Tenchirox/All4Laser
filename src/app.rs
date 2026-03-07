@@ -72,7 +72,7 @@ pub struct All4LaserApp {
 
     // GCode
     loaded_file: Option<GCodeFile>,
-    program_lines: Vec<String>,
+    program_lines: std::sync::Arc<Vec<String>>,
     program_index: usize,
     running: bool,
     is_dry_run: bool, // new flag for dry run
@@ -234,7 +234,7 @@ impl All4LaserApp {
             baud_rates: ui::connection::default_baud_rates(),
             selected_baud: 4, // 115200
             loaded_file: None,
-            program_lines: Vec::new(),
+            program_lines: std::sync::Arc::new(Vec::new()),
             program_index: 0,
             running: false,
             is_dry_run: false,
@@ -881,7 +881,7 @@ impl All4LaserApp {
         // Populate GCode editor text
         self.gcode_editor.text = lines.join("\n");
         self.gcode_editor.dirty = false;
-        self.program_lines = lines;
+        self.program_lines = std::sync::Arc::new(lines);
         self.program_index = 0;
         // Calculate job center for rotation
         if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
@@ -1675,7 +1675,7 @@ impl All4LaserApp {
         // Append return-to-origin if configured
         if self.machine_profile.return_to_origin {
             if self.program_lines.last().map(|l| l.trim()) != Some("G0 X0 Y0") {
-                self.program_lines.push("G0 X0 Y0 F3000".to_string());
+                std::sync::Arc::make_mut(&mut self.program_lines).push("G0 X0 Y0 F3000".to_string());
             }
         }
 
@@ -1748,7 +1748,7 @@ impl All4LaserApp {
         };
 
         let file = GCodeFile::from_lines(&job.name, &job.lines);
-        self.set_loaded_file(file, job.lines.clone());
+        self.set_loaded_file(file, job.lines.to_vec());
         if !self.run_preflight("queue", true) {
             self.job_queue_state
                 .record_failure(job.clone(), "Preflight blocked launch".into());
@@ -4363,7 +4363,7 @@ impl All4LaserApp {
             if let Some(lines) = ed_action.apply {
                 let file = GCodeFile::from_lines("edited", &lines);
                 self.log(format!("GCode editor applied ({} lines)", lines.len()));
-                self.program_lines = lines.clone();
+                self.program_lines = std::sync::Arc::new(lines);
                 self.program_index = 0;
                 self.loaded_file = Some(file);
                 self.needs_auto_fit = true;
