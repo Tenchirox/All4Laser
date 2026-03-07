@@ -1979,6 +1979,37 @@ impl All4LaserApp {
         }
     }
 
+
+    fn handle_keyboard_undo_redo(&mut self, undo_node_edit: bool, redo_node_edit: bool) {
+        if undo_node_edit {
+            self.handle_undo_node_edit();
+        }
+        if redo_node_edit {
+            self.handle_redo_node_edit();
+        }
+    }
+
+    fn handle_keyboard_clipboard(&mut self, copy_selection: bool, cut_selection: bool, paste_selection: bool) {
+        if copy_selection {
+            self.handle_copy_selection();
+        }
+        if cut_selection {
+            self.handle_cut_selection();
+        }
+        if paste_selection {
+            self.handle_paste_selection();
+        }
+    }
+
+    fn handle_keyboard_delete(&mut self, delete_node: bool, delete_selection: bool) {
+        if delete_node {
+            self.handle_delete_node();
+        }
+        if delete_selection {
+            self.handle_delete_selection();
+        }
+    }
+
     fn handle_keyboard(&mut self, ctx: &egui::Context) {
         let mut jog_dir: Option<JogDirection> = None;
         let mut hold = false;
@@ -2055,27 +2086,9 @@ impl All4LaserApp {
             }
         });
 
-        if undo_node_edit {
-            self.handle_undo_node_edit();
-        }
-        if redo_node_edit {
-            self.handle_redo_node_edit();
-        }
-        if copy_selection {
-            self.handle_copy_selection();
-        }
-        if cut_selection {
-            self.handle_cut_selection();
-        }
-        if paste_selection {
-            self.handle_paste_selection();
-        }
-        if delete_node {
-            self.handle_delete_node();
-        }
-        if delete_selection {
-            self.handle_delete_selection();
-        }
+        self.handle_keyboard_undo_redo(undo_node_edit, redo_node_edit);
+        self.handle_keyboard_clipboard(copy_selection, cut_selection, paste_selection);
+        self.handle_keyboard_delete(delete_node, delete_selection);
 
         if let Some(dir) = jog_dir {
             self.jog(dir);
