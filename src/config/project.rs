@@ -97,7 +97,7 @@ impl PostProcessor {
     pub fn save(&self) -> Result<(), String> {
         let dir = Self::postprocessors_dir();
         let _ = std::fs::create_dir_all(&dir);
-        let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
+        let filename = self.name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase() + ".json";
         let path = dir.join(filename);
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(path, json).map_err(|e| e.to_string())
@@ -105,7 +105,7 @@ impl PostProcessor {
 
     pub fn load(name: &str) -> Result<PostProcessor, String> {
         let dir = Self::postprocessors_dir();
-        let path = dir.join(format!("{name}.json"));
+        let path = dir.join(format!("{}.json", name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase()));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
     }
@@ -172,7 +172,7 @@ impl JobTemplate {
     pub fn save(template: &JobTemplate) -> Result<(), String> {
         let dir = Self::templates_dir();
         let _ = std::fs::create_dir_all(&dir);
-        let filename = template.name.replace(' ', "_").to_lowercase() + ".json";
+        let filename = template.name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase() + ".json";
         let path = dir.join(filename);
         let json = serde_json::to_string_pretty(template).map_err(|e| e.to_string())?;
         std::fs::write(path, json).map_err(|e| e.to_string())
@@ -193,14 +193,14 @@ impl JobTemplate {
 
     pub fn load(name: &str) -> Result<JobTemplate, String> {
         let dir = Self::templates_dir();
-        let path = dir.join(format!("{name}.json"));
+        let path = dir.join(format!("{}.json", name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase()));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
     }
 
     pub fn delete(name: &str) -> Result<(), String> {
         let dir = Self::templates_dir();
-        let path = dir.join(format!("{name}.json"));
+        let path = dir.join(format!("{}.json", name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase()));
         std::fs::remove_file(path).map_err(|e| e.to_string())
     }
 }
@@ -317,13 +317,13 @@ impl JigTemplate {
     pub fn save(&self) -> Result<(), String> {
         let dir = Self::jigs_dir();
         let _ = std::fs::create_dir_all(&dir);
-        let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
+        let filename = self.name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase() + ".json";
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(dir.join(filename), json).map_err(|e| e.to_string())
     }
 
     pub fn load(name: &str) -> Result<JigTemplate, String> {
-        let path = Self::jigs_dir().join(format!("{name}.json"));
+        let path = Self::jigs_dir().join(format!("{}.json", name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase()));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
     }
@@ -438,6 +438,43 @@ impl ProjectFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_template_name_sanitization_prevents_path_traversal() {
+        let dangerous_name = "../../../etc/passwd";
+
+        let template = JobTemplate {
+            name: dangerous_name.to_string(),
+            description: "".to_string(),
+            layers: vec![],
+        };
+        let _ = JobTemplate::save(&template);
+        let _ = JobTemplate::load(dangerous_name);
+
+        let pp = PostProcessor {
+            name: dangerous_name.to_string(),
+            header: vec![],
+            footer: vec![],
+            laser_on: "".to_string(),
+            laser_off: "".to_string(),
+            air_on: "".to_string(),
+            air_off: "".to_string(),
+            comment_style: CommentStyle::Semicolon,
+        };
+        let _ = pp.save();
+        let _ = PostProcessor::load(dangerous_name);
+
+        let jig = JigTemplate {
+            name: dangerous_name.to_string(),
+            width_mm: 10.0,
+            height_mm: 10.0,
+            holes: vec![],
+            alignment_pins: vec![],
+            description: "".to_string(),
+        };
+        let _ = jig.save();
+        let _ = JigTemplate::load(dangerous_name);
+    }
 
     #[test]
     fn legacy_project_without_camera_fields_still_loads() {
