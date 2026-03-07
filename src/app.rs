@@ -1979,6 +1979,100 @@ impl All4LaserApp {
         }
     }
 
+
+    fn handle_keyboard_undo_redo(&mut self, undo_node_edit: bool, redo_node_edit: bool) {
+        if undo_node_edit {
+            if !self.undo_node_edit() {
+                self.log("Nothing to undo.".into());
+            }
+        }
+        if redo_node_edit {
+            if !self.redo_node_edit() {
+                self.log("Nothing to redo.".into());
+            }
+        }
+    }
+
+    fn handle_keyboard_clipboard(&mut self, copy_selection: bool, cut_selection: bool, paste_selection: bool) {
+        if copy_selection {
+            let copied = self.copy_selected_shapes_to_clipboard();
+            if copied == 0 {
+                self.log("Copy: no shape selected.".into());
+            } else {
+                self.log(format!("Copied {copied} shape(s)."));
+            }
+        }
+
+        if cut_selection {
+            let copied = self.copy_selected_shapes_to_clipboard();
+            if copied == 0 {
+                self.log("Cut: no shape selected.".into());
+            } else {
+                self.push_node_undo_snapshot();
+                let removed = self.delete_selected_shapes();
+                self.log(format!("Cut {removed} shape(s)."));
+            }
+        }
+
+        if paste_selection {
+            if self.clipboard_shapes.is_empty() {
+                self.log("Paste: clipboard is empty.".into());
+            } else {
+                self.push_node_undo_snapshot();
+                let pasted = self.paste_shapes_from_clipboard();
+                self.log(format!("Pasted {pasted} shape(s)."));
+            }
+        }
+    }
+
+    fn handle_keyboard_delete(&mut self, delete_node: bool, delete_selection: bool) {
+        if delete_node {
+            if let Some((shape_idx, node_idx)) = self.renderer.selected_node {
+                self.push_node_undo_snapshot();
+                let mut selected_in_shape: Vec<usize> = self
+                    .renderer
+                    .selected_nodes
+                    .iter()
+                    .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
+                    .collect();
+                selected_in_shape.sort_unstable();
+                selected_in_shape.dedup();
+                if selected_in_shape.is_empty() {
+                    selected_in_shape.push(node_idx);
+                }
+
+                let result = if selected_in_shape.len() > 1 {
+                    ui::vector_edit::delete_nodes(
+                        &mut self.drawing_state,
+                        shape_idx,
+                        &selected_in_shape,
+                    )
+                } else {
+                    ui::vector_edit::delete_node(&mut self.drawing_state, shape_idx, node_idx)
+                };
+
+                match result {
+                    Ok(()) => {
+                        self.regenerate_drawing_gcode();
+                        self.renderer.selected_nodes.clear();
+                        self.renderer.selected_node = Some((shape_idx, node_idx.saturating_sub(1)));
+                    }
+                    Err(e) => self.log(format!("Node delete failed: {e}")),
+                }
+            }
+        }
+
+        if delete_selection {
+            if !self.renderer.selected_shape_idx.is_empty() {
+                self.push_node_undo_snapshot();
+                let removed = self.delete_selected_shapes();
+                if removed > 0 {
+                    self.log(format!("Deleted {removed} shape(s)."));
+                }
+            }
+        }
+    }
+
     fn handle_keyboard(&mut self, ctx: &egui::Context) {
         let mut jog_dir: Option<JogDirection> = None;
         let mut hold = false;
@@ -2055,92 +2149,9 @@ impl All4LaserApp {
             }
         });
 
-        if undo_node_edit {
-            if !self.undo_node_edit() {
-                self.log("Nothing to undo.".into());
-            }
-        }
-        if redo_node_edit {
-            if !self.redo_node_edit() {
-                self.log("Nothing to redo.".into());
-            }
-        }
-
-        if copy_selection {
-            let copied = self.copy_selected_shapes_to_clipboard();
-            if copied == 0 {
-                self.log("Copy: no shape selected.".into());
-            } else {
-                self.log(format!("Copied {copied} shape(s)."));
-            }
-        }
-
-        if cut_selection {
-            let copied = self.copy_selected_shapes_to_clipboard();
-            if copied == 0 {
-                self.log("Cut: no shape selected.".into());
-            } else {
-                self.push_node_undo_snapshot();
-                let removed = self.delete_selected_shapes();
-                self.log(format!("Cut {removed} shape(s)."));
-            }
-        }
-
-        if paste_selection {
-            if self.clipboard_shapes.is_empty() {
-                self.log("Paste: clipboard is empty.".into());
-            } else {
-                self.push_node_undo_snapshot();
-                let pasted = self.paste_shapes_from_clipboard();
-                self.log(format!("Pasted {pasted} shape(s)."));
-            }
-        }
-
-        if delete_node {
-            if let Some((shape_idx, node_idx)) = self.renderer.selected_node {
-                self.push_node_undo_snapshot();
-                let mut selected_in_shape: Vec<usize> = self
-                    .renderer
-                    .selected_nodes
-                    .iter()
-                    .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
-                    .collect();
-                selected_in_shape.sort_unstable();
-                selected_in_shape.dedup();
-                if selected_in_shape.is_empty() {
-                    selected_in_shape.push(node_idx);
-                }
-
-                let result = if selected_in_shape.len() > 1 {
-                    ui::vector_edit::delete_nodes(
-                        &mut self.drawing_state,
-                        shape_idx,
-                        &selected_in_shape,
-                    )
-                } else {
-                    ui::vector_edit::delete_node(&mut self.drawing_state, shape_idx, node_idx)
-                };
-
-                match result {
-                    Ok(()) => {
-                        self.regenerate_drawing_gcode();
-                        self.renderer.selected_nodes.clear();
-                        self.renderer.selected_node = Some((shape_idx, node_idx.saturating_sub(1)));
-                    }
-                    Err(e) => self.log(format!("Node delete failed: {e}")),
-                }
-            }
-        }
-
-        if delete_selection {
-            if !self.renderer.selected_shape_idx.is_empty() {
-                self.push_node_undo_snapshot();
-                let removed = self.delete_selected_shapes();
-                if removed > 0 {
-                    self.log(format!("Deleted {removed} shape(s)."));
-                }
-            }
-        }
+        self.handle_keyboard_undo_redo(undo_node_edit, redo_node_edit);
+        self.handle_keyboard_clipboard(copy_selection, cut_selection, paste_selection);
+        self.handle_keyboard_delete(delete_node, delete_selection);
 
         if let Some(dir) = jog_dir {
             self.jog(dir);
