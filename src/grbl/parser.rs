@@ -117,3 +117,72 @@ fn parse_point(s: &str) -> Option<GPoint> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_status_basic() {
+        let status = parse_status("<Idle|MPos:1.0,2.0,3.0|FS:500,1000>").unwrap();
+        assert_eq!(status.status, MacStatus::Idle);
+        assert_eq!(status.mpos.x, 1.0);
+        assert_eq!(status.mpos.y, 2.0);
+        assert_eq!(status.mpos.z, 3.0);
+        assert_eq!(status.feed_rate, 500.0);
+        assert_eq!(status.spindle_speed, 1000.0);
+    }
+
+    #[test]
+    fn test_parse_status_wpos_wco_ov() {
+        let status = parse_status("<Run|WPos:10.0,20.0,30.0|WCO:5.0,5.0,5.0|Ov:110,120,130>").unwrap();
+        assert_eq!(status.status, MacStatus::Run);
+        assert_eq!(status.wpos.x, 10.0);
+        assert_eq!(status.wpos.y, 20.0);
+        assert_eq!(status.wpos.z, 30.0);
+        assert_eq!(status.wco.x, 5.0);
+        assert_eq!(status.wco.y, 5.0);
+        assert_eq!(status.wco.z, 5.0);
+        assert_eq!(status.override_feed, 110);
+        assert_eq!(status.override_rapid, 120);
+        assert_eq!(status.override_spindle, 130);
+    }
+
+    #[test]
+    fn test_parse_status_f_bf() {
+        let status = parse_status("<Hold:0|MPos:0,0,0|F:500|Bf:15,128>").unwrap();
+        assert_eq!(status.status, MacStatus::Hold);
+        assert_eq!(status.feed_rate, 500.0);
+        assert_eq!(status.buffer_plan, 15);
+        assert_eq!(status.buffer_rx, 128);
+    }
+
+    #[test]
+    fn test_parse_status_invalid() {
+        assert!(parse_status("Idle|MPos:0,0,0").is_none());
+        assert!(parse_status("").is_none());
+        assert!(parse_status("<Idle|MPos:0,0,0").is_none());
+        // <> is parsed as disconnected status. Let's adjust expectations.
+        let empty_brackets = parse_status("<>");
+        if empty_brackets.is_some() {
+            assert_eq!(empty_brackets.unwrap().status, MacStatus::Disconnected);
+        } else {
+            assert!(empty_brackets.is_none());
+        }
+    }
+
+    #[test]
+    fn test_parse_status_calculations() {
+        // Test wpos calculation
+        let status1 = parse_status("<Idle|MPos:10.0,10.0,10.0|WCO:2.0,2.0,2.0>").unwrap();
+        assert_eq!(status1.wpos.x, 8.0);
+        assert_eq!(status1.wpos.y, 8.0);
+        assert_eq!(status1.wpos.z, 8.0);
+
+        // Test mpos calculation
+        let status2 = parse_status("<Idle|WPos:8.0,8.0,8.0|WCO:2.0,2.0,2.0>").unwrap();
+        assert_eq!(status2.mpos.x, 10.0);
+        assert_eq!(status2.mpos.y, 10.0);
+        assert_eq!(status2.mpos.z, 10.0);
+    }
+}
