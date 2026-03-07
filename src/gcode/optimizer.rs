@@ -111,9 +111,13 @@ pub fn optimize(lines: &[GCodeLine]) -> Vec<GCodeLine> {
     optimized.extend(header.into_iter().cloned());
 
     // Group remaining paths by nesting level using BTreeMap of Vecs
-    let mut paths_by_level: std::collections::BTreeMap<usize, Vec<BurnPath>> = std::collections::BTreeMap::new();
+    let mut paths_by_level: std::collections::BTreeMap<usize, Vec<BurnPath>> =
+        std::collections::BTreeMap::new();
     for path in burn_paths {
-        paths_by_level.entry(path.nesting_level).or_default().push(path);
+        paths_by_level
+            .entry(path.nesting_level)
+            .or_default()
+            .push(path);
     }
 
     let mut last_x = cur_x;
