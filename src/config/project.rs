@@ -2,6 +2,18 @@ use crate::config::machine_profile::MachineProfile;
 use crate::ui::camera::CameraCalibration;
 use serde::{Deserialize, Serialize};
 
+pub fn validate_safe_filename(name: &str) -> Result<(), String> {
+    let path = std::path::Path::new(name);
+    if path.file_name().and_then(|s| s.to_str()) != Some(name)
+        || name.contains("..")
+        || name.contains('/')
+        || name.contains('\\')
+    {
+        return Err("Invalid filename: path traversal detected".to_string());
+    }
+    Ok(())
+}
+
 /// An All4Laser project file (.a4l) – persists everything needed to restore a session
 #[derive(Serialize, Deserialize, Default)]
 pub struct ProjectFile {
@@ -43,9 +55,17 @@ fn default_camera_opacity() -> f32 {
     0.5
 }
 
-/// Helper function to sanitize user-provided names against path traversal
 fn sanitize_filename(name: &str) -> String {
-    name.replace(['/', '\\', '.', ':', ' '], "_").to_lowercase()
+    name.replace(' ', "_")
+        .replace('/', "_")
+        .replace('\\', "_")
+        .replace('.', "_")
+        .replace(':', "_")
+        .to_lowercase()
+}
+
+fn is_safe_filename(name: &str) -> bool {
+    !name.contains('/') && !name.contains('\\') && !name.contains("..") && !name.contains(':')
 }
 
 /// Job template (F106) — stores layer configurations for reuse
@@ -100,6 +120,9 @@ impl PostProcessor {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid post-processor name".into());
+        }
         let dir = Self::postprocessors_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = sanitize_filename(&self.name) + ".json";
@@ -109,9 +132,11 @@ impl PostProcessor {
     }
 
     pub fn load(name: &str) -> Result<PostProcessor, String> {
+        if !is_safe_filename(name) {
+            return Err("Invalid post-processor name".into());
+        }
         let dir = Self::postprocessors_dir();
-        let safe_name = sanitize_filename(name);
-        let path = dir.join(format!("{safe_name}.json"));
+        let path = dir.join(format!("{}.json", name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase()));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
     }
@@ -176,6 +201,12 @@ impl JobTemplate {
     }
 
     pub fn save(template: &JobTemplate) -> Result<(), String> {
+        if template.name.contains('/')
+            || template.name.contains('\\')
+            || template.name.contains("..")
+        {
+            return Err("Invalid template name".into());
+        }
         let dir = Self::templates_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = sanitize_filename(&template.name) + ".json";
@@ -198,17 +229,22 @@ impl JobTemplate {
     }
 
     pub fn load(name: &str) -> Result<JobTemplate, String> {
+        if !is_safe_filename(name) {
+            return Err("Invalid template name".into());
+        }
         let dir = Self::templates_dir();
-        let safe_name = sanitize_filename(name);
-        let path = dir.join(format!("{safe_name}.json"));
+        let path = dir.join(format!("{}.json", name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase()));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
     }
 
     pub fn delete(name: &str) -> Result<(), String> {
+        validate_safe_filename(name)?;
+        if !is_safe_filename(name) {
+            return Err("Invalid template name".into());
+        }
         let dir = Self::templates_dir();
-        let safe_name = sanitize_filename(name);
-        let path = dir.join(format!("{safe_name}.json"));
+        let path = dir.join(format!("{}.json", name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase()));
         std::fs::remove_file(path).map_err(|e| e.to_string())
     }
 }
@@ -323,6 +359,9 @@ impl JigTemplate {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid jig template name".into());
+        }
         let dir = Self::jigs_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = sanitize_filename(&self.name) + ".json";
@@ -331,10 +370,20 @@ impl JigTemplate {
     }
 
     pub fn load(name: &str) -> Result<JigTemplate, String> {
-        let safe_name = sanitize_filename(name);
-        let path = Self::jigs_dir().join(format!("{safe_name}.json"));
+        if !is_safe_filename(name) {
+            return Err("Invalid jig template name".into());
+        }
+        let path = Self::jigs_dir().join(format!("{name}.json"));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+
+    pub fn delete(name: &str) -> Result<(), String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid name".to_string());
+        }
+        let path = Self::jigs_dir().join(format!("{name}.json"));
+        std::fs::remove_file(path).map_err(|e| e.to_string())
     }
 
     pub fn list() -> Vec<String> {
@@ -449,12 +498,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sanitize_filename_prevents_path_traversal() {
-        assert_eq!(sanitize_filename("normal name"), "normal_name");
-        assert_eq!(sanitize_filename("../../../etc/passwd"), "_________etc_passwd");
-        assert_eq!(sanitize_filename("C:\\Windows\\System32\\cmd.exe"), "c__windows_system32_cmd_exe");
-        assert_eq!(sanitize_filename("foo/bar"), "foo_bar");
-        assert_eq!(sanitize_filename("some.name:with_colon"), "some_name_with_colon");
+    fn test_template_name_sanitization_prevents_path_traversal() {
+        let dangerous_name = "../../../etc/passwd";
+
+        let template = JobTemplate {
+            name: dangerous_name.to_string(),
+            description: "".to_string(),
+            layers: vec![],
+        };
+        let _ = JobTemplate::save(&template);
+        let _ = JobTemplate::load(dangerous_name);
+
+        let pp = PostProcessor {
+            name: dangerous_name.to_string(),
+            header: vec![],
+            footer: vec![],
+            laser_on: "".to_string(),
+            laser_off: "".to_string(),
+            air_on: "".to_string(),
+            air_off: "".to_string(),
+            comment_style: CommentStyle::Semicolon,
+        };
+        let _ = pp.save();
+        let _ = PostProcessor::load(dangerous_name);
+
+        let jig = JigTemplate {
+            name: dangerous_name.to_string(),
+            width_mm: 10.0,
+            height_mm: 10.0,
+            holes: vec![],
+            alignment_pins: vec![],
+            description: "".to_string(),
+        };
+        let _ = jig.save();
+        let _ = JigTemplate::load(dangerous_name);
     }
 
     #[test]
@@ -467,6 +544,20 @@ mod tests {
         assert_eq!(parsed.camera_device_index, 0);
         assert!(!parsed.camera_live_streaming);
         assert!(parsed.material_selected_preset.is_none());
+    }
+
+    #[test]
+    fn test_validate_safe_filename() {
+        assert!(validate_safe_filename("valid_name").is_ok());
+        assert!(validate_safe_filename("valid_name_2").is_ok());
+        assert!(validate_safe_filename("template").is_ok());
+
+        assert!(validate_safe_filename("../test").is_err());
+        assert!(validate_safe_filename("test/test").is_err());
+        assert!(validate_safe_filename("/etc/passwd").is_err());
+        assert!(validate_safe_filename("C:\\Windows\\System32").is_err());
+        assert!(validate_safe_filename("..").is_err());
+        assert!(validate_safe_filename("a/b").is_err());
     }
 
     #[test]
@@ -494,5 +585,23 @@ mod tests {
             Some("Acrylic 3mm")
         );
         assert!((back.camera_calibration.offset_x - 4.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_sanitize_filename() {
+        assert_eq!(sanitize_filename("Safe Name"), "safe_name");
+        assert_eq!(sanitize_filename("test/dir\\file.name:yes"), "test_dir_file_name_yes");
+        assert_eq!(sanitize_filename("../../../etc/passwd"), "_________etc_passwd");
+    }
+
+    #[test]
+    fn test_is_safe_filename() {
+        assert!(is_safe_filename("safe_name"));
+        assert!(is_safe_filename("Safe Name"));
+        assert!(!is_safe_filename("test/dir"));
+        assert!(!is_safe_filename("test\\dir"));
+        assert!(!is_safe_filename("../test"));
+        assert!(!is_safe_filename("C:\\test"));
+        assert!(!is_safe_filename("test:name"));
     }
 }
