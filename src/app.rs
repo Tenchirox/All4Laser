@@ -176,6 +176,7 @@ pub struct All4LaserApp {
     camera_state: ui::camera::CameraState,
     camera_live: CameraLiveState,
     circular_array_state: ui::circular_array::CircularArrayState,
+    grid_array_state: ui::grid_array::GridArrayState,
     offset_state: ui::offset::OffsetState,
     boolean_ops_state: ui::boolean_ops::BooleanOpsState,
 
@@ -290,6 +291,7 @@ impl All4LaserApp {
             camera_state: ui::camera::CameraState::default(),
             camera_live: CameraLiveState::default(),
             circular_array_state: ui::circular_array::CircularArrayState::default(),
+            grid_array_state: ui::grid_array::GridArrayState::default(),
             offset_state: ui::offset::OffsetState::default(),
             boolean_ops_state: ui::boolean_ops::BooleanOpsState::default(),
             text_state: ui::text::TextToolState::default(),
@@ -2796,6 +2798,16 @@ impl All4LaserApp {
             }
             if ui
                 .button(
+                    RichText::new("🔲 Grid Array")
+                        .color(theme::LAVENDER)
+                        .strong(),
+                )
+                .clicked()
+            {
+                self.grid_array_state.is_open = true;
+            }
+            if ui
+                .button(
                     RichText::new("📐 Offset Path")
                         .color(theme::LAVENDER)
                         .strong(),
@@ -4625,6 +4637,21 @@ impl All4LaserApp {
                 );
                 self.regenerate_drawing_gcode();
                 self.log("Circular array applied.".into());
+            }
+        }
+
+        // === Grid Array Window ===
+        {
+            let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+            let ga_action = ui::grid_array::show(ctx, &mut self.grid_array_state);
+            if ga_action.apply {
+                ui::grid_array::apply_array(
+                    &self.grid_array_state,
+                    &mut self.drawing_state,
+                    &selection,
+                );
+                self.regenerate_drawing_gcode();
+                self.log("Grid array applied.".into());
             }
         }
 

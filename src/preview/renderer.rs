@@ -1167,6 +1167,10 @@ impl PreviewRenderer {
                 return InteractiveAction::None;
             }
 
+            if response.clicked_by(egui::PointerButton::Secondary) {
+                // Right click actions could be handled here or returned as a new InteractiveAction type later
+            }
+
             // 1. Detect Hover
             self.hover_shape_idx = None;
             for (idx, shape) in shapes.iter().enumerate() {
