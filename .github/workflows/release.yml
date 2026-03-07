@@ -1,4 +1,4 @@
-name: Dual Platform Release
+name: Release
 
 permissions:
   contents: read
@@ -15,10 +15,24 @@ env:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: x86_64
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            arch: arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup update stable
+          rustup target add ${{ matrix.target }}
 
       - name: Install Linux build dependencies
         run: |
@@ -37,44 +51,88 @@ jobs:
             libfreetype6-dev
 
       - name: Build Linux release
-        run: cargo build --release --target x86_64-unknown-linux-gnu
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package Linux artifact
         run: |
           mkdir -p dist
-          cp target/x86_64-unknown-linux-gnu/release/${APP_NAME} dist/${APP_NAME}
-          tar -C dist -czf ${APP_NAME}-linux-x86_64.tar.gz ${APP_NAME}
+          cp target/${{ matrix.target }}/release/${APP_NAME} dist/${APP_NAME}
+          tar -C dist -czf ${APP_NAME}-linux-${{ matrix.arch }}.tar.gz ${APP_NAME}
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
-          name: linux-x86_64
-          path: ${{ env.APP_NAME }}-linux-x86_64.tar.gz
+          name: linux-${{ matrix.arch }}
+          path: ${{ env.APP_NAME }}-linux-${{ matrix.arch }}.tar.gz
 
   build-windows:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x86_64
+          - target: aarch64-pc-windows-msvc
+            arch: arm64
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Rust toolchain
+        run: rustup target add ${{ matrix.target }}
+
       - name: Build Windows release
-        run: cargo build --release --target x86_64-pc-windows-msvc
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package Windows artifact
         shell: powershell
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item "target\x86_64-pc-windows-msvc\release\$env:APP_NAME.exe" "dist\$env:APP_NAME.exe"
-          Compress-Archive -Path "dist\$env:APP_NAME.exe" -DestinationPath "$env:APP_NAME-windows-x86_64.zip" -Force
+          Copy-Item "target\${{ matrix.target }}\release\$env:APP_NAME.exe" "dist\$env:APP_NAME.exe"
+          Compress-Archive -Path "dist\$env:APP_NAME.exe" -DestinationPath "$env:APP_NAME-windows-${{ matrix.arch }}.zip" -Force
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-x86_64
-          path: ${{ env.APP_NAME }}-windows-x86_64.zip
+          name: windows-${{ matrix.arch }}
+          path: ${{ env.APP_NAME }}-windows-${{ matrix.arch }}.zip
+
+  build-macos:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            arch: x86_64
+            os: macos-13
+          - target: aarch64-apple-darwin
+            arch: arm64
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Build macOS release
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package macOS artifact
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/${APP_NAME} dist/${APP_NAME}
+          cd dist
+          zip ../${APP_NAME}-macos-${{ matrix.arch }}.zip ${APP_NAME}
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: ${{ env.APP_NAME }}-macos-${{ matrix.arch }}.zip
 
   publish-release:
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
