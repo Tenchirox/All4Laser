@@ -3148,22 +3148,23 @@ impl All4LaserApp {
         }
 
         if self.renderer.selected_shape_idx.len() == 1 {
-            let idx = *self.renderer.selected_shape_idx.iter().next().unwrap();
-            if let Some(shape) = self.drawing_state.shapes.get(idx) {
-                if !matches!(shape.shape, ShapeKind::Path(_)) {
-                    if ui.button("🛤 Convert to Path").clicked() {
-                        if let Some(poly) = ui::offset::shape_to_polygon(shape) {
-                            let exterior = poly.exterior();
-                            let pts: Vec<(f32, f32)> = exterior
-                                .coords()
-                                .map(|c| (c.x as f32, c.y as f32))
-                                .collect();
-                            let mut new_shape = shape.clone();
-                            new_shape.shape = ShapeKind::Path(pts);
-                            new_shape.x = 0.0;
-                            new_shape.y = 0.0;
-                            self.drawing_state.shapes[idx] = new_shape;
-                            self.log("Converted to path.".into());
+            if let Some(&idx) = self.renderer.selected_shape_idx.iter().next() {
+                if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                    if !matches!(shape.shape, ShapeKind::Path(_)) {
+                        if ui.button("🛤 Convert to Path").clicked() {
+                            if let Some(poly) = ui::offset::shape_to_polygon(shape) {
+                                let exterior = poly.exterior();
+                                let pts: Vec<(f32, f32)> = exterior
+                                    .coords()
+                                    .map(|c| (c.x as f32, c.y as f32))
+                                    .collect();
+                                let mut new_shape = shape.clone();
+                                new_shape.shape = ShapeKind::Path(pts);
+                                new_shape.x = 0.0;
+                                new_shape.y = 0.0;
+                                self.drawing_state.shapes[idx] = new_shape;
+                                self.log("Converted to path.".into());
+                            }
                         }
                     }
                 }
