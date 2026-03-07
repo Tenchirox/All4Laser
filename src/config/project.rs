@@ -95,6 +95,9 @@ impl PostProcessor {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid name".to_string());
+        }
         let dir = Self::postprocessors_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
@@ -104,6 +107,9 @@ impl PostProcessor {
     }
 
     pub fn load(name: &str) -> Result<PostProcessor, String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid name".to_string());
+        }
         let dir = Self::postprocessors_dir();
         let path = dir.join(format!("{name}.json"));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -170,6 +176,9 @@ impl JobTemplate {
     }
 
     pub fn save(template: &JobTemplate) -> Result<(), String> {
+        if template.name.contains('/') || template.name.contains('\\') || template.name.contains("..") {
+            return Err("Invalid name".to_string());
+        }
         let dir = Self::templates_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = template.name.replace(' ', "_").to_lowercase() + ".json";
@@ -192,6 +201,9 @@ impl JobTemplate {
     }
 
     pub fn load(name: &str) -> Result<JobTemplate, String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid name".to_string());
+        }
         let dir = Self::templates_dir();
         let path = dir.join(format!("{name}.json"));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -199,6 +211,9 @@ impl JobTemplate {
     }
 
     pub fn delete(name: &str) -> Result<(), String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid name".to_string());
+        }
         let dir = Self::templates_dir();
         let path = dir.join(format!("{name}.json"));
         std::fs::remove_file(path).map_err(|e| e.to_string())
@@ -315,6 +330,9 @@ impl JigTemplate {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid name".to_string());
+        }
         let dir = Self::jigs_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
@@ -323,9 +341,20 @@ impl JigTemplate {
     }
 
     pub fn load(name: &str) -> Result<JigTemplate, String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid name".to_string());
+        }
         let path = Self::jigs_dir().join(format!("{name}.json"));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+
+    pub fn delete(name: &str) -> Result<(), String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid name".to_string());
+        }
+        let path = Self::jigs_dir().join(format!("{name}.json"));
+        std::fs::remove_file(path).map_err(|e| e.to_string())
     }
 
     pub fn list() -> Vec<String> {
