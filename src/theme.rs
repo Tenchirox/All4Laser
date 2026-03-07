@@ -184,6 +184,31 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
                 )
             }
         }
+        UiTheme::Pro => {
+            if state.is_light {
+                (
+                    Color32::from_rgb(250, 250, 250), // Base
+                    Color32::from_rgb(240, 240, 240), // Mantle
+                    Color32::from_rgb(230, 230, 230), // Crust
+                    Color32::from_rgb(255, 255, 255), // Surface0
+                    Color32::from_rgb(245, 245, 245), // Surface1
+                    Color32::from_rgb(220, 220, 220), // Surface2
+                    Color32::from_rgb(17, 24, 39),    // Text (very dark gray)
+                    Color32::from_rgb(14, 165, 233),  // Accent (Sky Blue)
+                )
+            } else {
+                (
+                    Color32::from_rgb(15, 23, 42),    // Base (Slate 900)
+                    Color32::from_rgb(2, 6, 23),      // Mantle (Slate 950)
+                    Color32::from_rgb(0, 0, 0),       // Crust (Black)
+                    Color32::from_rgb(30, 41, 59),    // Surface0 (Slate 800)
+                    Color32::from_rgb(51, 65, 85),    // Surface1 (Slate 700)
+                    Color32::from_rgb(71, 85, 105),   // Surface2 (Slate 600)
+                    Color32::from_rgb(248, 250, 252), // Text (Slate 50)
+                    Color32::from_rgb(56, 189, 248),  // Accent (Sky 400)
+                )
+            }
+        }
         UiTheme::Industrial => {
             // LightBurn utilise un thème sombre professionnel avec des accents bleus
             if state.is_light {
