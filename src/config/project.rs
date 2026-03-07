@@ -2,6 +2,10 @@ use crate::config::machine_profile::MachineProfile;
 use crate::ui::camera::CameraCalibration;
 use serde::{Deserialize, Serialize};
 
+fn is_valid_name(name: &str) -> bool {
+    !name.contains('/') && !name.contains('\\') && !name.contains("..")
+}
+
 /// An All4Laser project file (.a4l) – persists everything needed to restore a session
 #[derive(Serialize, Deserialize, Default)]
 pub struct ProjectFile {
@@ -95,6 +99,9 @@ impl PostProcessor {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid post-processor name".into());
+        }
         let dir = Self::postprocessors_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
@@ -104,6 +111,9 @@ impl PostProcessor {
     }
 
     pub fn load(name: &str) -> Result<PostProcessor, String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid post-processor name".into());
+        }
         let dir = Self::postprocessors_dir();
         let path = dir.join(format!("{name}.json"));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -170,6 +180,12 @@ impl JobTemplate {
     }
 
     pub fn save(template: &JobTemplate) -> Result<(), String> {
+        if template.name.contains('/')
+            || template.name.contains('\\')
+            || template.name.contains("..")
+        {
+            return Err("Invalid template name".into());
+        }
         let dir = Self::templates_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = template.name.replace(' ', "_").to_lowercase() + ".json";
@@ -192,6 +208,9 @@ impl JobTemplate {
     }
 
     pub fn load(name: &str) -> Result<JobTemplate, String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid template name".into());
+        }
         let dir = Self::templates_dir();
         let path = dir.join(format!("{name}.json"));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -199,6 +218,9 @@ impl JobTemplate {
     }
 
     pub fn delete(name: &str) -> Result<(), String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid template name".into());
+        }
         let dir = Self::templates_dir();
         let path = dir.join(format!("{name}.json"));
         std::fs::remove_file(path).map_err(|e| e.to_string())
@@ -315,6 +337,9 @@ impl JigTemplate {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid jig template name".into());
+        }
         let dir = Self::jigs_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
@@ -323,6 +348,9 @@ impl JigTemplate {
     }
 
     pub fn load(name: &str) -> Result<JigTemplate, String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid jig template name".into());
+        }
         let path = Self::jigs_dir().join(format!("{name}.json"));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
@@ -476,5 +504,18 @@ mod tests {
             Some("Acrylic 3mm")
         );
         assert!((back.camera_calibration.offset_x - 4.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn path_traversal_rejection() {
+        assert!(PostProcessor::load("../test").is_err());
+        assert!(PostProcessor::load("/etc/passwd").is_err());
+        assert!(PostProcessor::load("C:\\Windows\\System32").is_err());
+
+        let invalid_pp = PostProcessor {
+            name: "../evil".to_string(),
+            ..Default::default()
+        };
+        assert!(invalid_pp.save().is_err());
     }
 }
