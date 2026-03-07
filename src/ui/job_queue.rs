@@ -1,4 +1,5 @@
 use egui::RichText;
+use std::sync::Arc;
 
 use crate::theme;
 
@@ -6,7 +7,7 @@ use crate::theme;
 pub struct QueuedJob {
     pub id: u64,
     pub name: String,
-    pub lines: Vec<String>,
+    pub lines: Arc<Vec<String>>,
     pub attempts: u32,
 }
 
@@ -14,7 +15,7 @@ pub struct QueuedJob {
 pub struct JobHistoryEntry {
     pub id: u64,
     pub name: String,
-    pub lines: Vec<String>,
+    pub lines: Arc<Vec<String>>,
     pub attempts: u32,
     pub status: String,
 }
@@ -41,7 +42,7 @@ impl Default for JobQueueState {
 }
 
 impl JobQueueState {
-    pub fn enqueue_job(&mut self, name: String, lines: Vec<String>) -> u64 {
+    pub fn enqueue_job(&mut self, name: String, lines: Arc<Vec<String>>) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
         self.queue.push(QueuedJob {
@@ -132,7 +133,7 @@ impl JobQueueState {
                     self.history.push(JobHistoryEntry {
                         id: parts[0].parse().unwrap_or(0),
                         name: parts[1].to_string(),
-                        lines: Vec::new(),
+                        lines: Arc::new(Vec::new()),
                         attempts: parts[2].parse().unwrap_or(1),
                         status: parts[3].to_string(),
                     });
@@ -158,7 +159,7 @@ impl JobQueueState {
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| "batch_file".into());
-                let lines: Vec<String> = content.lines().map(String::from).collect();
+                let lines: Arc<Vec<String>> = Arc::new(content.lines().map(String::from).collect());
                 let id = self.enqueue_job(name, lines);
                 ids.push(id);
             }
@@ -383,9 +384,9 @@ mod tests {
     #[test]
     fn queue_reordering_and_pop_works() {
         let mut q = JobQueueState::default();
-        q.enqueue_job("A".into(), vec!["G0 X0".into()]);
-        q.enqueue_job("B".into(), vec!["G0 X1".into()]);
-        q.enqueue_job("C".into(), vec!["G0 X2".into()]);
+        q.enqueue_job("A".into(), std::sync::Arc::new(vec!["G0 X0".into()]));
+        q.enqueue_job("B".into(), std::sync::Arc::new(vec!["G0 X1".into()]));
+        q.enqueue_job("C".into(), std::sync::Arc::new(vec!["G0 X2".into()]));
 
         q.move_up(2);
         assert_eq!(q.queue[1].name, "C");
