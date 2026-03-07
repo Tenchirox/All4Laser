@@ -402,8 +402,8 @@ mod tests {
     #[test]
     fn retry_last_failed_requeues_job() {
         let mut q = JobQueueState::default();
-        let job_id = q.enqueue_job("Test".into(), std::sync::Arc::new(vec!["G1 X10".into()]));
-        let job = q.pop_next_job().unwrap();
+        let job_id = q.enqueue_job("Test".into(), vec!["G1 X10".into()]);
+        let job = q.pop_next_job().expect("job should exist");
         assert_eq!(job.id, job_id);
 
         q.record_failure(job, "ALARM:2".into());
