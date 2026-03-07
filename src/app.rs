@@ -2202,6 +2202,272 @@ impl All4LaserApp {
         ));
     }
 
+    fn ui_profile_selector(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut profile_changed = false;
+        let mut switch_to: Option<usize> = None;
+        ui.horizontal(|ui| {
+            let current_name = self.machine_profile.name.clone();
+            egui::ComboBox::from_id_salt("profile_selector")
+                .selected_text(&current_name)
+                .width(140.0)
+                .show_ui(ui, |ui| {
+                    for (i, p) in self.profile_store.profiles.iter().enumerate() {
+                        let is_active = i == self.profile_store.active_index;
+                        if ui.selectable_label(is_active, &p.name).clicked() && !is_active {
+                            switch_to = Some(i);
+                        }
+                    }
+                });
+            if ui.small_button("➕").on_hover_text("New profile").clicked() {
+                let mut new_p = MachineProfile::default();
+                new_p.name = format!("Machine {}", self.profile_store.profiles.len() + 1);
+                self.profile_store.add(new_p);
+                switch_to = Some(self.profile_store.profiles.len() - 1);
+            }
+            if ui.small_button("📋").on_hover_text("Duplicate").clicked() {
+                // save current edits before duplicating
+                if let Some(p) = self
+                    .profile_store
+                    .profiles
+                    .get_mut(self.profile_store.active_index)
+                {
+                    *p = self.machine_profile.clone();
+                }
+                self.profile_store.duplicate_active();
+                switch_to = Some(self.profile_store.profiles.len() - 1);
+            }
+            if self.profile_store.profiles.len() > 1 {
+                if ui
+                    .small_button("🗑")
+                    .on_hover_text("Delete profile")
+                    .clicked()
+                {
+                    let idx = self.profile_store.active_index;
+                    self.profile_store.remove(idx);
+                    switch_to = Some(self.profile_store.active_index);
+                }
+            }
+        });
+        if let Some(idx) = switch_to {
+            self.switch_to_profile(idx);
+            profile_changed = true;
+        }
+        profile_changed
+    }
+
+    fn ui_profile_import_export(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut profile_changed = false;
+        ui.horizontal(|ui| {
+            if ui.small_button("📥 Import").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Machine Profile", &["json"])
+                    .pick_file()
+                {
+                    match self.profile_store.import_profile(&path.to_string_lossy()) {
+                        Ok(name) => {
+                            let new_idx = self.profile_store.profiles.len() - 1;
+                            self.switch_to_profile(new_idx);
+                            profile_changed = true;
+                            self.log(format!("Imported profile: {name}"));
+                        }
+                        Err(e) => self.show_error(format!("Import failed: {e}")),
+                    }
+                }
+            }
+            if ui.small_button("📤 Export").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name(&format!("{}.json", self.machine_profile.name))
+                    .add_filter("Machine Profile", &["json"])
+                    .save_file()
+                {
+                    match self
+                        .profile_store
+                        .export_profile(self.profile_store.active_index, &path.to_string_lossy())
+                    {
+                        Ok(()) => self.log(format!("Profile exported to {}", path.display())),
+                        Err(e) => self.show_error(format!("Export failed: {e}")),
+                    }
+                }
+            }
+        });
+        profile_changed
+    }
+
+    fn ui_profile_settings(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut profile_changed = false;
+        egui::Grid::new("mp_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("Name:");
+                if ui
+                    .text_edit_singleline(&mut self.machine_profile.name)
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label(format!("{}:", crate::i18n::tr("Controller")));
+                let previous_kind = self.machine_profile.controller_kind;
+                egui::ComboBox::from_id_salt("controller_kind_combo")
+                    .selected_text(self.machine_profile.controller_kind.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.machine_profile.controller_kind,
+                            ControllerKind::Grbl,
+                            ControllerKind::Grbl.label(),
+                        );
+                        ui.selectable_value(
+                            &mut self.machine_profile.controller_kind,
+                            ControllerKind::Ruida,
+                            ControllerKind::Ruida.label(),
+                        );
+                        ui.selectable_value(
+                            &mut self.machine_profile.controller_kind,
+                            ControllerKind::Trocen,
+                            ControllerKind::Trocen.label(),
+                        );
+                    });
+                if self.machine_profile.controller_kind != previous_kind {
+                    profile_changed = true;
+                    self.apply_controller_kind_change(previous_kind);
+                }
+                ui.end_row();
+
+                ui.label("Width (mm):");
+                if ui
+                    .add(egui::DragValue::new(&mut self.machine_profile.workspace_x_mm).speed(5.0))
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Height (mm):");
+                if ui
+                    .add(egui::DragValue::new(&mut self.machine_profile.workspace_y_mm).speed(5.0))
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Max Rate X:");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut self.machine_profile.max_rate_x)
+                            .speed(50.0)
+                            .suffix(" mm/min"),
+                    )
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Max Rate Y:");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut self.machine_profile.max_rate_y)
+                            .speed(50.0)
+                            .suffix(" mm/min"),
+                    )
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Accel X:");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut self.machine_profile.accel_x)
+                            .speed(10.0)
+                            .suffix(" mm/s²"),
+                    )
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Accel Y:");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut self.machine_profile.accel_y)
+                            .speed(10.0)
+                            .suffix(" mm/s²"),
+                    )
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+            });
+
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(
+                    &mut self.machine_profile.return_to_origin,
+                    "Return to origin",
+                )
+                .changed()
+            {
+                profile_changed = true;
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(&mut self.machine_profile.air_assist, "Air Assist (M8/M9)")
+                .changed()
+            {
+                profile_changed = true;
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(
+                    &mut self.machine_profile.rotary_enabled,
+                    "Enable Rotary Support",
+                )
+                .changed()
+            {
+                profile_changed = true;
+            }
+        });
+        if self.machine_profile.rotary_enabled {
+            ui.horizontal(|ui| {
+                ui.label("Cylinder Ø:");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut self.machine_profile.rotary_diameter_mm)
+                            .suffix(" mm"),
+                    )
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Rotary Axis:");
+                if ui
+                    .selectable_value(&mut self.machine_profile.rotary_axis, 'Y', "Y (Roller)")
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                if ui
+                    .selectable_value(&mut self.machine_profile.rotary_axis, 'A', "A (Chuck)")
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+            });
+        }
+        profile_changed
+    }
+
     fn ui_machine_profile_editor(&mut self, ui: &mut egui::Ui) {
         let mut profile_changed = false;
 
@@ -2212,268 +2478,10 @@ impl All4LaserApp {
         )
         .default_open(false)
         .show(ui, |ui| {
-            // --- Profile selector (F11) ---
-            let mut switch_to: Option<usize> = None;
-            ui.horizontal(|ui| {
-                let current_name = self.machine_profile.name.clone();
-                egui::ComboBox::from_id_salt("profile_selector")
-                    .selected_text(&current_name)
-                    .width(140.0)
-                    .show_ui(ui, |ui| {
-                        for (i, p) in self.profile_store.profiles.iter().enumerate() {
-                            let is_active = i == self.profile_store.active_index;
-                            if ui.selectable_label(is_active, &p.name).clicked() && !is_active {
-                                switch_to = Some(i);
-                            }
-                        }
-                    });
-                if ui.small_button("➕").on_hover_text("New profile").clicked() {
-                    let mut new_p = MachineProfile::default();
-                    new_p.name = format!("Machine {}", self.profile_store.profiles.len() + 1);
-                    self.profile_store.add(new_p);
-                    switch_to = Some(self.profile_store.profiles.len() - 1);
-                }
-                if ui.small_button("📋").on_hover_text("Duplicate").clicked() {
-                    // save current edits before duplicating
-                    if let Some(p) = self
-                        .profile_store
-                        .profiles
-                        .get_mut(self.profile_store.active_index)
-                    {
-                        *p = self.machine_profile.clone();
-                    }
-                    self.profile_store.duplicate_active();
-                    switch_to = Some(self.profile_store.profiles.len() - 1);
-                }
-                if self.profile_store.profiles.len() > 1 {
-                    if ui
-                        .small_button("🗑")
-                        .on_hover_text("Delete profile")
-                        .clicked()
-                    {
-                        let idx = self.profile_store.active_index;
-                        self.profile_store.remove(idx);
-                        switch_to = Some(self.profile_store.active_index);
-                    }
-                }
-            });
-            if let Some(idx) = switch_to {
-                self.switch_to_profile(idx);
-                profile_changed = true;
-            }
-
-            ui.horizontal(|ui| {
-                if ui.small_button("📥 Import").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("Machine Profile", &["json"])
-                        .pick_file()
-                    {
-                        match self.profile_store.import_profile(&path.to_string_lossy()) {
-                            Ok(name) => {
-                                let new_idx = self.profile_store.profiles.len() - 1;
-                                self.switch_to_profile(new_idx);
-                                profile_changed = true;
-                                self.log(format!("Imported profile: {name}"));
-                            }
-                            Err(e) => self.show_error(format!("Import failed: {e}")),
-                        }
-                    }
-                }
-                if ui.small_button("📤 Export").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .set_file_name(&format!("{}.json", self.machine_profile.name))
-                        .add_filter("Machine Profile", &["json"])
-                        .save_file()
-                    {
-                        match self.profile_store.export_profile(
-                            self.profile_store.active_index,
-                            &path.to_string_lossy(),
-                        ) {
-                            Ok(()) => self.log(format!("Profile exported to {}", path.display())),
-                            Err(e) => self.show_error(format!("Export failed: {e}")),
-                        }
-                    }
-                }
-            });
-
+            profile_changed |= self.ui_profile_selector(ui);
+            profile_changed |= self.ui_profile_import_export(ui);
             ui.separator();
-
-            egui::Grid::new("mp_grid")
-                .num_columns(2)
-                .spacing([8.0, 4.0])
-                .show(ui, |ui| {
-                    ui.label("Name:");
-                    if ui
-                        .text_edit_singleline(&mut self.machine_profile.name)
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label(format!("{}:", crate::i18n::tr("Controller")));
-                    let previous_kind = self.machine_profile.controller_kind;
-                    egui::ComboBox::from_id_salt("controller_kind_combo")
-                        .selected_text(self.machine_profile.controller_kind.label())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.machine_profile.controller_kind,
-                                ControllerKind::Grbl,
-                                ControllerKind::Grbl.label(),
-                            );
-                            ui.selectable_value(
-                                &mut self.machine_profile.controller_kind,
-                                ControllerKind::Ruida,
-                                ControllerKind::Ruida.label(),
-                            );
-                            ui.selectable_value(
-                                &mut self.machine_profile.controller_kind,
-                                ControllerKind::Trocen,
-                                ControllerKind::Trocen.label(),
-                            );
-                        });
-                    if self.machine_profile.controller_kind != previous_kind {
-                        profile_changed = true;
-                        self.apply_controller_kind_change(previous_kind);
-                    }
-                    ui.end_row();
-
-                    ui.label("Width (mm):");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.workspace_x_mm)
-                                .speed(5.0),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Height (mm):");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.workspace_y_mm)
-                                .speed(5.0),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Max Rate X:");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.max_rate_x)
-                                .speed(50.0)
-                                .suffix(" mm/min"),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Max Rate Y:");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.max_rate_y)
-                                .speed(50.0)
-                                .suffix(" mm/min"),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Accel X:");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.accel_x)
-                                .speed(10.0)
-                                .suffix(" mm/s²"),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Accel Y:");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.accel_y)
-                                .speed(10.0)
-                                .suffix(" mm/s²"),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-                });
-
-            ui.horizontal(|ui| {
-                if ui
-                    .checkbox(
-                        &mut self.machine_profile.return_to_origin,
-                        "Return to origin",
-                    )
-                    .changed()
-                {
-                    profile_changed = true;
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui
-                    .checkbox(&mut self.machine_profile.air_assist, "Air Assist (M8/M9)")
-                    .changed()
-                {
-                    profile_changed = true;
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui
-                    .checkbox(
-                        &mut self.machine_profile.rotary_enabled,
-                        "Enable Rotary Support",
-                    )
-                    .changed()
-                {
-                    profile_changed = true;
-                }
-            });
-            if self.machine_profile.rotary_enabled {
-                ui.horizontal(|ui| {
-                    ui.label("Cylinder Ø:");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.rotary_diameter_mm)
-                                .suffix(" mm"),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Rotary Axis:");
-                    if ui
-                        .selectable_value(&mut self.machine_profile.rotary_axis, 'Y', "Y (Roller)")
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    if ui
-                        .selectable_value(&mut self.machine_profile.rotary_axis, 'A', "A (Chuck)")
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                });
-            }
+            profile_changed |= self.ui_profile_settings(ui);
         });
 
         if profile_changed {
@@ -4242,14 +4250,19 @@ impl All4LaserApp {
                 self.handle_camera_pick_point(pos);
             }
             InteractiveAction::GroupSelection => {
-                let selected_indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
+                let selected_indices: Vec<usize> =
+                    self.renderer.selected_shape_idx.iter().copied().collect();
                 crate::ui::drawing::group_shapes(&mut self.drawing_state.shapes, &selected_indices);
                 self.renderer.selected_shape_idx.clear();
                 self.regenerate_drawing_gcode();
             }
             InteractiveAction::UngroupSelection => {
-                let selected_indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
-                crate::ui::drawing::ungroup_shapes(&mut self.drawing_state.shapes, &selected_indices);
+                let selected_indices: Vec<usize> =
+                    self.renderer.selected_shape_idx.iter().copied().collect();
+                crate::ui::drawing::ungroup_shapes(
+                    &mut self.drawing_state.shapes,
+                    &selected_indices,
+                );
                 self.renderer.selected_shape_idx.clear();
                 self.regenerate_drawing_gcode();
             }

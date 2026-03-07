@@ -1138,7 +1138,10 @@ impl PreviewRenderer {
             let wy = -(hover.y - self.pan.y) / self.zoom;
             let is_multi = ui.input(|i| i.modifiers.ctrl || i.modifiers.shift);
 
-            if response.clicked_by(egui::PointerButton::Primary) && self.dragging_rotation.is_none() && camera_pick_active {
+            if response.clicked_by(egui::PointerButton::Primary)
+                && self.dragging_rotation.is_none()
+                && camera_pick_active
+            {
                 if self.is_point_in_camera_overlay(wx, wy, camera_state) {
                     return InteractiveAction::CameraPickPoint(Pos2::new(wx, wy));
                 }
@@ -1217,7 +1220,8 @@ impl PreviewRenderer {
                 }
             }
 
-            if response.clicked_by(egui::PointerButton::Primary) && self.dragging_rotation.is_none() {
+            if response.clicked_by(egui::PointerButton::Primary) && self.dragging_rotation.is_none()
+            {
                 if let Some(idx) = self.hover_shape_idx {
                     let mut add_node_action: Option<InteractiveAction> = None;
                     if self.node_edit_mode {

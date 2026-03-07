@@ -308,7 +308,9 @@ fn atkinson_dither(img: &GrayImage) -> GrayImage {
 
             spread(&mut buf, x + 1, y);
             spread(&mut buf, x + 2, y);
-            if x > 0 { spread(&mut buf, x - 1, y + 1); }
+            if x > 0 {
+                spread(&mut buf, x - 1, y + 1);
+            }
             spread(&mut buf, x, y + 1);
             spread(&mut buf, x + 1, y + 1);
             spread(&mut buf, x, y + 2);
