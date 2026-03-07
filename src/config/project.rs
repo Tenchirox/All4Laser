@@ -2,6 +2,10 @@ use crate::config::machine_profile::MachineProfile;
 use crate::ui::camera::CameraCalibration;
 use serde::{Deserialize, Serialize};
 
+fn is_valid_name(name: &str) -> bool {
+    !name.contains('/') && !name.contains('\\') && !name.contains("..")
+}
+
 /// An All4Laser project file (.a4l) – persists everything needed to restore a session
 #[derive(Serialize, Deserialize, Default)]
 pub struct ProjectFile {
@@ -108,6 +112,9 @@ impl PostProcessor {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid post-processor name".into());
+        }
         let dir = Self::postprocessors_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = sanitize_filename(&self.name) + ".json";
@@ -186,6 +193,12 @@ impl JobTemplate {
     }
 
     pub fn save(template: &JobTemplate) -> Result<(), String> {
+        if template.name.contains('/')
+            || template.name.contains('\\')
+            || template.name.contains("..")
+        {
+            return Err("Invalid template name".into());
+        }
         let dir = Self::templates_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = sanitize_filename(&template.name) + ".json";
@@ -337,6 +350,9 @@ impl JigTemplate {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid jig template name".into());
+        }
         let dir = Self::jigs_dir();
         let _ = std::fs::create_dir_all(&dir);
         let filename = sanitize_filename(&self.name) + ".json";
