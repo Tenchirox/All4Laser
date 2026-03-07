@@ -54,6 +54,7 @@ impl CustomTheme {
     }
 
     pub fn load(name: &str) -> Result<CustomTheme, String> {
+        crate::config::project::validate_safe_filename(name)?;
         let dir = Self::themes_dir();
         let path = dir.join(format!("{name}.json"));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
