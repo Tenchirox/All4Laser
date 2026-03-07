@@ -2358,6 +2358,11 @@ impl All4LaserApp {
                         );
                         ui.selectable_value(
                             &mut self.machine_profile.controller_kind,
+                            ControllerKind::Marlin,
+                            ControllerKind::Marlin.label(),
+                        );
+                        ui.selectable_value(
+                            &mut self.machine_profile.controller_kind,
                             ControllerKind::Ruida,
                             ControllerKind::Ruida.label(),
                         );
@@ -4321,6 +4326,7 @@ impl All4LaserApp {
                 let selected_indices: Vec<usize> =
                     self.renderer.selected_shape_idx.iter().copied().collect();
                 crate::ui::drawing::group_shapes(&mut self.drawing_state.shapes, &selected_indices);
+            }
             InteractiveAction::ContextDeleteSelection => {
                 self.push_node_undo_snapshot();
                 let mut indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
@@ -4342,6 +4348,7 @@ impl All4LaserApp {
                     &mut self.drawing_state.shapes,
                     &selected_indices,
                 );
+            }
             InteractiveAction::ContextDuplicateSelection => {
                 self.push_node_undo_snapshot();
                 let indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
