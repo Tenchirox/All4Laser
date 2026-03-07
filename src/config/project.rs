@@ -2,6 +2,10 @@ use crate::config::machine_profile::MachineProfile;
 use crate::ui::camera::CameraCalibration;
 use serde::{Deserialize, Serialize};
 
+fn is_valid_name(name: &str) -> bool {
+    !name.contains('/') && !name.contains('\\') && !name.contains("..")
+}
+
 /// An All4Laser project file (.a4l) – persists everything needed to restore a session
 #[derive(Serialize, Deserialize, Default)]
 pub struct ProjectFile {
@@ -500,5 +504,18 @@ mod tests {
             Some("Acrylic 3mm")
         );
         assert!((back.camera_calibration.offset_x - 4.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn path_traversal_rejection() {
+        assert!(PostProcessor::load("../test").is_err());
+        assert!(PostProcessor::load("/etc/passwd").is_err());
+        assert!(PostProcessor::load("C:\\Windows\\System32").is_err());
+
+        let invalid_pp = PostProcessor {
+            name: "../evil".to_string(),
+            ..Default::default()
+        };
+        assert!(invalid_pp.save().is_err());
     }
 }
