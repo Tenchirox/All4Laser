@@ -4468,131 +4468,18 @@ impl All4LaserApp {
             }
             InteractiveAction::ContextGroupSelection => {
                 self.push_node_undo_snapshot();
-                let indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
-                if indices.len() >= 2 {
-                    let mut all_pts: Vec<(f32, f32)> = Vec::new();
-                    let mut layer = 0usize;
-                    let mut collected_indices: Vec<usize> = Vec::new();
-                    for &idx in &indices {
-                        if let Some(shape) = self.drawing_state.shapes.get(idx) {
-                            layer = shape.layer_idx;
-                            // Convert shape local points to world coordinates
-                            let local_pts: Vec<(f32, f32)> = match &shape.shape {
-                                crate::ui::drawing::ShapeKind::Rectangle => {
-                                    vec![
-                                        (0.0, 0.0),
-                                        (shape.width, 0.0),
-                                        (shape.width, shape.height),
-                                        (0.0, shape.height),
-                                        (0.0, 0.0),
-                                    ]
-                                }
-                                crate::ui::drawing::ShapeKind::Circle => {
-                                    let steps = 64;
-                                    (0..=steps)
-                                        .map(|i| {
-                                            let a = std::f32::consts::TAU * i as f32 / steps as f32;
-                                            (shape.radius * a.cos(), shape.radius * a.sin())
-                                        })
-                                        .collect()
-                                }
-                                crate::ui::drawing::ShapeKind::Path(pts) => pts.clone(),
-                                _ => Vec::new(),
-                            };
-                            let world_pts: Vec<(f32, f32)> = local_pts
-                                .iter()
-                                .map(|&(lx, ly)| shape.world_pos(lx, ly))
-                                .collect();
-                            all_pts.extend(world_pts);
-                            collected_indices.push(idx);
-                        }
-                    }
-                    if !all_pts.is_empty() {
-                        collected_indices.sort_unstable();
-                        for idx in collected_indices.into_iter().rev() {
-                            self.drawing_state.shapes.remove(idx);
-                        }
-                        let grouped = crate::ui::drawing::ShapeParams {
-                            shape: crate::ui::drawing::ShapeKind::Path(all_pts),
-                            layer_idx: layer,
-                            ..Default::default()
-                        };
-                        let new_idx = self.drawing_state.shapes.len();
-                        self.drawing_state.shapes.push(grouped);
-                        self.renderer.selected_shape_idx.clear();
-                        self.renderer.selected_shape_idx.insert(new_idx);
-                        self.regenerate_drawing_gcode();
-                    }
-                }
+                let selected_indices: Vec<usize> =
+                    self.renderer.selected_shape_idx.iter().copied().collect();
+                crate::ui::drawing::group_shapes(&mut self.drawing_state.shapes, &selected_indices);
             }
             InteractiveAction::ContextUngroupSelection => {
                 self.push_node_undo_snapshot();
-                let indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
-                let mut new_shapes: Vec<crate::ui::drawing::ShapeParams> = Vec::new();
-                let mut remove_indices: Vec<usize> = Vec::new();
-                for &idx in &indices {
-                    if let Some(shape) = self.drawing_state.shapes.get(idx) {
-                        if let crate::ui::drawing::ShapeKind::Path(ref pts) = shape.shape {
-                            if pts.len() >= 4 {
-                                // Compute median segment length to detect gaps
-                                let mut seg_lengths: Vec<f32> = Vec::new();
-                                for i in 1..pts.len() {
-                                    let dx = pts[i].0 - pts[i - 1].0;
-                                    let dy = pts[i].1 - pts[i - 1].1;
-                                    seg_lengths.push((dx * dx + dy * dy).sqrt());
-                                }
-                                seg_lengths.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                                let median = seg_lengths[seg_lengths.len() / 2];
-                                let gap_threshold = (median * 10.0).max(1.0);
-
-                                // Split at large gaps
-                                let mut sub_paths: Vec<Vec<(f32, f32)>> = Vec::new();
-                                let mut current_sub: Vec<(f32, f32)> = vec![pts[0]];
-                                for i in 1..pts.len() {
-                                    let dx = pts[i].0 - pts[i - 1].0;
-                                    let dy = pts[i].1 - pts[i - 1].1;
-                                    let dist = (dx * dx + dy * dy).sqrt();
-                                    if dist > gap_threshold && current_sub.len() >= 2 {
-                                        sub_paths.push(std::mem::take(&mut current_sub));
-                                    }
-                                    current_sub.push(pts[i]);
-                                }
-                                if current_sub.len() >= 2 {
-                                    sub_paths.push(current_sub);
-                                }
-
-                                if sub_paths.len() >= 2 {
-                                    for sub in &sub_paths {
-                                        let min_x = sub.iter().map(|p| p.0).fold(f32::MAX, f32::min);
-                                        let min_y = sub.iter().map(|p| p.1).fold(f32::MAX, f32::min);
-                                        let local_pts: Vec<(f32, f32)> = sub.iter().map(|p| (p.0 - min_x, p.1 - min_y)).collect();
-                                        new_shapes.push(crate::ui::drawing::ShapeParams {
-                                            shape: crate::ui::drawing::ShapeKind::Path(local_pts),
-                                            x: shape.x + min_x,
-                                            y: shape.y + min_y,
-                                            layer_idx: shape.layer_idx,
-                                            ..Default::default()
-                                        });
-                                    }
-                                    remove_indices.push(idx);
-                                }
-                            }
-                        }
-                    }
-                }
-                if !remove_indices.is_empty() {
-                    remove_indices.sort_unstable();
-                    for idx in remove_indices.into_iter().rev() {
-                        self.drawing_state.shapes.remove(idx);
-                    }
-                    let base = self.drawing_state.shapes.len();
-                    self.renderer.selected_shape_idx.clear();
-                    for (i, s) in new_shapes.into_iter().enumerate() {
-                        self.drawing_state.shapes.push(s);
-                        self.renderer.selected_shape_idx.insert(base + i);
-                    }
-                    self.regenerate_drawing_gcode();
-                }
+                let selected_indices: Vec<usize> =
+                    self.renderer.selected_shape_idx.iter().copied().collect();
+                crate::ui::drawing::ungroup_shapes(
+                    &mut self.drawing_state.shapes,
+                    &selected_indices,
+                );
             }
             InteractiveAction::ContextSelectAll => {
                 self.renderer.selected_shape_idx.clear();

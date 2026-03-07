@@ -38,6 +38,7 @@ pub struct RasterParams {
     pub brightness: f32, // -1.0 to 1.0
     pub contrast: f32,   // 0.0 to 5.0 (1.0 is neutral)
     pub threshold: u8,   // 0-255 for vectorization
+    pub smoothing: f32, // 0.0 to 1.0 for path smoothing
     pub flip_h: bool,
     pub flip_v: bool,
     pub rotation: i32, // 0, 90, 180, 270
@@ -58,6 +59,7 @@ impl Default for RasterParams {
             brightness: 0.0,
             contrast: 1.0,
             threshold: 128,
+            smoothing: 0.5,
             flip_h: false,
             flip_v: false,
             rotation: 0,

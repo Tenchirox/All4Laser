@@ -77,7 +77,24 @@ pub fn trace_image(img: &DynamicImage, params: &RasterParams) -> Vec<ShapeParams
                         .collect();
 
                     // Optimize/Simplify points (naive subsampling)
-                    let simplified = if points.len() > 10 {
+
+                    // Use path smoothing from vector_edit
+                    let mut dummy_state = crate::ui::drawing::DrawingState::default();
+                    dummy_state.shapes.push(ShapeParams {
+                        shape: ShapeKind::Path(points.clone()),
+                        ..Default::default()
+                    });
+                    let simplified = if params.smoothing > 0.0 && points.len() > 3 {
+                        if let Ok(_removed) = crate::ui::vector_edit::simplify_path(&mut dummy_state, 0, params.smoothing * 2.0) {
+                            if let ShapeKind::Path(ref pts) = dummy_state.shapes[0].shape {
+                                pts.clone()
+                            } else {
+                                points
+                            }
+                        } else {
+                            points
+                        }
+                    } else if points.len() > 10 {
                         points.into_iter().step_by(2).collect()
                     } else {
                         points

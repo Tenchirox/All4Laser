@@ -84,8 +84,12 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("Bitmap Import Mode:").strong());
-                            ui.selectable_value(&mut state.vectorize, false, "Raster");
-                            ui.selectable_value(&mut state.vectorize, true, "Vectorize (Stencil)");
+                            if ui.selectable_value(&mut state.vectorize, false, "Raster").changed() {
+                                state.needs_texture_update = true;
+                            }
+                            if ui.selectable_value(&mut state.vectorize, true, "Vectorize (Stencil)").changed() {
+                                state.needs_texture_update = true;
+                            }
                         });
                         ui.add_space(8.0);
 
@@ -126,10 +130,24 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                         ui.add_space(8.0);
                         ui.label("Image Adjustments:");
                         if state.vectorize {
-                            ui.add(
+                            if ui.add(
                                 egui::Slider::new(&mut state.raster_params.threshold, 0..=255)
                                     .text("Threshold"),
-                            );
+                            ).changed() {
+                                state.needs_texture_update = true;
+                            }
+                            if ui.add(
+                                egui::Slider::new(&mut state.raster_params.smoothing, 0.0..=1.0)
+                                    .text("Smoothing"),
+                            ).changed() {
+                                // Potentially update preview if we supported vector preview, but currently texture is raster.
+                            }
+                            if ui.add(
+                                egui::Slider::new(&mut state.raster_params.contrast, 0.0..=5.0)
+                                    .text("Contrast"),
+                            ).changed() {
+                                state.needs_texture_update = true;
+                            }
                             if ui
                                 .checkbox(
                                     &mut state.raster_params.use_skeleton,
