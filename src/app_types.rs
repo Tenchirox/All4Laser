@@ -136,3 +136,71 @@ pub fn shape_fill_warning(
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_path_is_closed_for_fill_empty() {
+        assert!(!path_is_closed_for_fill(&[]));
+    }
+
+    #[test]
+    fn test_path_is_closed_for_fill_one_point() {
+        assert!(!path_is_closed_for_fill(&[(0.0, 0.0)]));
+    }
+
+    #[test]
+    fn test_path_is_closed_for_fill_two_points() {
+        assert!(!path_is_closed_for_fill(&[(0.0, 0.0), (1.0, 1.0)]));
+    }
+
+    #[test]
+    fn test_path_is_closed_for_fill_exact_match() {
+        assert!(path_is_closed_for_fill(&[
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 1.0),
+            (0.0, 0.0)
+        ]));
+    }
+
+    #[test]
+    fn test_path_is_closed_for_fill_within_threshold() {
+        // Distance is exactly 0.05
+        assert!(path_is_closed_for_fill(&[
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 1.0),
+            (0.03, 0.04)
+        ]));
+
+        // Distance is slightly less than 0.05
+        assert!(path_is_closed_for_fill(&[
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 1.0),
+            (0.02, 0.03)
+        ]));
+    }
+
+    #[test]
+    fn test_path_is_closed_for_fill_outside_threshold() {
+        // Distance is slightly more than 0.05
+        assert!(!path_is_closed_for_fill(&[
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 1.0),
+            (0.04, 0.04)
+        ]));
+
+        // Distance is much more than 0.05
+        assert!(!path_is_closed_for_fill(&[
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 1.0),
+            (0.5, 0.5)
+        ]));
+    }
+}

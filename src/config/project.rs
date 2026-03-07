@@ -55,6 +55,19 @@ fn default_camera_opacity() -> f32 {
     0.5
 }
 
+fn sanitize_filename(name: &str) -> String {
+    name.replace(' ', "_")
+        .replace('/', "_")
+        .replace('\\', "_")
+        .replace('.', "_")
+        .replace(':', "_")
+        .to_lowercase()
+}
+
+fn is_safe_filename(name: &str) -> bool {
+    !name.contains('/') && !name.contains('\\') && !name.contains("..") && !name.contains(':')
+}
+
 /// Job template (F106) — stores layer configurations for reuse
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct JobTemplate {
@@ -107,18 +120,23 @@ impl PostProcessor {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid post-processor name".into());
+        }
         let dir = Self::postprocessors_dir();
         let _ = std::fs::create_dir_all(&dir);
-        let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
+        let filename = sanitize_filename(&self.name) + ".json";
         let path = dir.join(filename);
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(path, json).map_err(|e| e.to_string())
     }
 
     pub fn load(name: &str) -> Result<PostProcessor, String> {
-        validate_safe_filename(name)?;
+        if !is_safe_filename(name) {
+            return Err("Invalid post-processor name".into());
+        }
         let dir = Self::postprocessors_dir();
-        let path = dir.join(format!("{name}.json"));
+        let path = dir.join(format!("{}.json", name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase()));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
     }
@@ -183,9 +201,15 @@ impl JobTemplate {
     }
 
     pub fn save(template: &JobTemplate) -> Result<(), String> {
+        if template.name.contains('/')
+            || template.name.contains('\\')
+            || template.name.contains("..")
+        {
+            return Err("Invalid template name".into());
+        }
         let dir = Self::templates_dir();
         let _ = std::fs::create_dir_all(&dir);
-        let filename = template.name.replace(' ', "_").to_lowercase() + ".json";
+        let filename = sanitize_filename(&template.name) + ".json";
         let path = dir.join(filename);
         let json = serde_json::to_string_pretty(template).map_err(|e| e.to_string())?;
         std::fs::write(path, json).map_err(|e| e.to_string())
@@ -205,17 +229,22 @@ impl JobTemplate {
     }
 
     pub fn load(name: &str) -> Result<JobTemplate, String> {
-        validate_safe_filename(name)?;
+        if !is_safe_filename(name) {
+            return Err("Invalid template name".into());
+        }
         let dir = Self::templates_dir();
-        let path = dir.join(format!("{name}.json"));
+        let path = dir.join(format!("{}.json", name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase()));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
     }
 
     pub fn delete(name: &str) -> Result<(), String> {
         validate_safe_filename(name)?;
+        if !is_safe_filename(name) {
+            return Err("Invalid template name".into());
+        }
         let dir = Self::templates_dir();
-        let path = dir.join(format!("{name}.json"));
+        let path = dir.join(format!("{}.json", name.replace(&['/', '\\', '.', ':', ' '][..], "_").to_lowercase()));
         std::fs::remove_file(path).map_err(|e| e.to_string())
     }
 }
@@ -330,18 +359,31 @@ impl JigTemplate {
     }
 
     pub fn save(&self) -> Result<(), String> {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid jig template name".into());
+        }
         let dir = Self::jigs_dir();
         let _ = std::fs::create_dir_all(&dir);
-        let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
+        let filename = sanitize_filename(&self.name) + ".json";
         let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
         std::fs::write(dir.join(filename), json).map_err(|e| e.to_string())
     }
 
     pub fn load(name: &str) -> Result<JigTemplate, String> {
-        validate_safe_filename(name)?;
+        if !is_safe_filename(name) {
+            return Err("Invalid jig template name".into());
+        }
         let path = Self::jigs_dir().join(format!("{name}.json"));
         let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+
+    pub fn delete(name: &str) -> Result<(), String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid name".to_string());
+        }
+        let path = Self::jigs_dir().join(format!("{name}.json"));
+        std::fs::remove_file(path).map_err(|e| e.to_string())
     }
 
     pub fn list() -> Vec<String> {
@@ -456,6 +498,43 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_template_name_sanitization_prevents_path_traversal() {
+        let dangerous_name = "../../../etc/passwd";
+
+        let template = JobTemplate {
+            name: dangerous_name.to_string(),
+            description: "".to_string(),
+            layers: vec![],
+        };
+        let _ = JobTemplate::save(&template);
+        let _ = JobTemplate::load(dangerous_name);
+
+        let pp = PostProcessor {
+            name: dangerous_name.to_string(),
+            header: vec![],
+            footer: vec![],
+            laser_on: "".to_string(),
+            laser_off: "".to_string(),
+            air_on: "".to_string(),
+            air_off: "".to_string(),
+            comment_style: CommentStyle::Semicolon,
+        };
+        let _ = pp.save();
+        let _ = PostProcessor::load(dangerous_name);
+
+        let jig = JigTemplate {
+            name: dangerous_name.to_string(),
+            width_mm: 10.0,
+            height_mm: 10.0,
+            holes: vec![],
+            alignment_pins: vec![],
+            description: "".to_string(),
+        };
+        let _ = jig.save();
+        let _ = JigTemplate::load(dangerous_name);
+    }
+
+    #[test]
     fn legacy_project_without_camera_fields_still_loads() {
         let legacy = r#"{"version":1,"gcode_path":null,"gcode_content":null,"offset_x":10.0,"offset_y":-2.0,"rotation_deg":0.0,"machine_profile":null}"#;
         let parsed: ProjectFile =
@@ -506,5 +585,23 @@ mod tests {
             Some("Acrylic 3mm")
         );
         assert!((back.camera_calibration.offset_x - 4.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_sanitize_filename() {
+        assert_eq!(sanitize_filename("Safe Name"), "safe_name");
+        assert_eq!(sanitize_filename("test/dir\\file.name:yes"), "test_dir_file_name_yes");
+        assert_eq!(sanitize_filename("../../../etc/passwd"), "_________etc_passwd");
+    }
+
+    #[test]
+    fn test_is_safe_filename() {
+        assert!(is_safe_filename("safe_name"));
+        assert!(is_safe_filename("Safe Name"));
+        assert!(!is_safe_filename("test/dir"));
+        assert!(!is_safe_filename("test\\dir"));
+        assert!(!is_safe_filename("../test"));
+        assert!(!is_safe_filename("C:\\test"));
+        assert!(!is_safe_filename("test:name"));
     }
 }

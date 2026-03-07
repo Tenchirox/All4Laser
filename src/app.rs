@@ -72,7 +72,7 @@ pub struct All4LaserApp {
 
     // GCode
     loaded_file: Option<GCodeFile>,
-    program_lines: Vec<String>,
+    program_lines: std::sync::Arc<Vec<String>>,
     program_index: usize,
     running: bool,
     is_dry_run: bool, // new flag for dry run
@@ -217,6 +217,7 @@ pub struct All4LaserApp {
 
     // Timing
     last_poll: Instant,
+    about_open: bool,
 }
 
 impl All4LaserApp {
@@ -234,7 +235,7 @@ impl All4LaserApp {
             baud_rates: ui::connection::default_baud_rates(),
             selected_baud: 4, // 115200
             loaded_file: None,
-            program_lines: Vec::new(),
+            program_lines: std::sync::Arc::new(Vec::new()),
             program_index: 0,
             running: false,
             is_dry_run: false,
@@ -309,6 +310,7 @@ impl All4LaserApp {
             project_notes: String::new(),
             wizard: WizardState::default(),
             autosave: AutosaveState::default(),
+            about_open: false,
         };
 
         // Apply loaded settings
@@ -881,7 +883,7 @@ impl All4LaserApp {
         // Populate GCode editor text
         self.gcode_editor.text = lines.join("\n");
         self.gcode_editor.dirty = false;
-        self.program_lines = lines;
+        self.program_lines = std::sync::Arc::new(lines);
         self.program_index = 0;
         // Calculate job center for rotation
         if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
@@ -1675,7 +1677,7 @@ impl All4LaserApp {
         // Append return-to-origin if configured
         if self.machine_profile.return_to_origin {
             if self.program_lines.last().map(|l| l.trim()) != Some("G0 X0 Y0") {
-                self.program_lines.push("G0 X0 Y0 F3000".to_string());
+                std::sync::Arc::make_mut(&mut self.program_lines).push("G0 X0 Y0 F3000".to_string());
             }
         }
 
@@ -1748,7 +1750,7 @@ impl All4LaserApp {
         };
 
         let file = GCodeFile::from_lines(&job.name, &job.lines);
-        self.set_loaded_file(file, job.lines.clone());
+        self.set_loaded_file(file, job.lines.to_vec());
         if !self.run_preflight("queue", true) {
             self.job_queue_state
                 .record_failure(job.clone(), "Preflight blocked launch".into());
@@ -1979,6 +1981,37 @@ impl All4LaserApp {
         }
     }
 
+
+    fn handle_keyboard_undo_redo(&mut self, undo_node_edit: bool, redo_node_edit: bool) {
+        if undo_node_edit {
+            self.handle_undo_node_edit();
+        }
+        if redo_node_edit {
+            self.handle_redo_node_edit();
+        }
+    }
+
+    fn handle_keyboard_clipboard(&mut self, copy_selection: bool, cut_selection: bool, paste_selection: bool) {
+        if copy_selection {
+            self.handle_copy_selection();
+        }
+        if cut_selection {
+            self.handle_cut_selection();
+        }
+        if paste_selection {
+            self.handle_paste_selection();
+        }
+    }
+
+    fn handle_keyboard_delete(&mut self, delete_node: bool, delete_selection: bool) {
+        if delete_node {
+            self.handle_delete_node();
+        }
+        if delete_selection {
+            self.handle_delete_selection();
+        }
+    }
+
     fn handle_keyboard(&mut self, ctx: &egui::Context) {
         let mut jog_dir: Option<JogDirection> = None;
         let mut hold = false;
@@ -2055,92 +2088,9 @@ impl All4LaserApp {
             }
         });
 
-        if undo_node_edit {
-            if !self.undo_node_edit() {
-                self.log("Nothing to undo.".into());
-            }
-        }
-        if redo_node_edit {
-            if !self.redo_node_edit() {
-                self.log("Nothing to redo.".into());
-            }
-        }
-
-        if copy_selection {
-            let copied = self.copy_selected_shapes_to_clipboard();
-            if copied == 0 {
-                self.log("Copy: no shape selected.".into());
-            } else {
-                self.log(format!("Copied {copied} shape(s)."));
-            }
-        }
-
-        if cut_selection {
-            let copied = self.copy_selected_shapes_to_clipboard();
-            if copied == 0 {
-                self.log("Cut: no shape selected.".into());
-            } else {
-                self.push_node_undo_snapshot();
-                let removed = self.delete_selected_shapes();
-                self.log(format!("Cut {removed} shape(s)."));
-            }
-        }
-
-        if paste_selection {
-            if self.clipboard_shapes.is_empty() {
-                self.log("Paste: clipboard is empty.".into());
-            } else {
-                self.push_node_undo_snapshot();
-                let pasted = self.paste_shapes_from_clipboard();
-                self.log(format!("Pasted {pasted} shape(s)."));
-            }
-        }
-
-        if delete_node {
-            if let Some((shape_idx, node_idx)) = self.renderer.selected_node {
-                self.push_node_undo_snapshot();
-                let mut selected_in_shape: Vec<usize> = self
-                    .renderer
-                    .selected_nodes
-                    .iter()
-                    .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
-                    .collect();
-                selected_in_shape.sort_unstable();
-                selected_in_shape.dedup();
-                if selected_in_shape.is_empty() {
-                    selected_in_shape.push(node_idx);
-                }
-
-                let result = if selected_in_shape.len() > 1 {
-                    ui::vector_edit::delete_nodes(
-                        &mut self.drawing_state,
-                        shape_idx,
-                        &selected_in_shape,
-                    )
-                } else {
-                    ui::vector_edit::delete_node(&mut self.drawing_state, shape_idx, node_idx)
-                };
-
-                match result {
-                    Ok(()) => {
-                        self.regenerate_drawing_gcode();
-                        self.renderer.selected_nodes.clear();
-                        self.renderer.selected_node = Some((shape_idx, node_idx.saturating_sub(1)));
-                    }
-                    Err(e) => self.log(format!("Node delete failed: {e}")),
-                }
-            }
-        }
-
-        if delete_selection {
-            if !self.renderer.selected_shape_idx.is_empty() {
-                self.push_node_undo_snapshot();
-                let removed = self.delete_selected_shapes();
-                if removed > 0 {
-                    self.log(format!("Deleted {removed} shape(s)."));
-                }
-            }
-        }
+        self.handle_keyboard_undo_redo(undo_node_edit, redo_node_edit);
+        self.handle_keyboard_clipboard(copy_selection, cut_selection, paste_selection);
+        self.handle_keyboard_delete(delete_node, delete_selection);
 
         if let Some(dir) = jog_dir {
             self.jog(dir);
@@ -2150,6 +2100,94 @@ impl All4LaserApp {
         }
         if abort {
             self.abort_program();
+        }
+    }
+
+    fn handle_undo_node_edit(&mut self) {
+        if !self.undo_node_edit() {
+            self.log("Nothing to undo.".into());
+        }
+    }
+
+    fn handle_redo_node_edit(&mut self) {
+        if !self.redo_node_edit() {
+            self.log("Nothing to redo.".into());
+        }
+    }
+
+    fn handle_copy_selection(&mut self) {
+        let copied = self.copy_selected_shapes_to_clipboard();
+        if copied == 0 {
+            self.log("Copy: no shape selected.".into());
+        } else {
+            self.log(format!("Copied {copied} shape(s)."));
+        }
+    }
+
+    fn handle_cut_selection(&mut self) {
+        let copied = self.copy_selected_shapes_to_clipboard();
+        if copied == 0 {
+            self.log("Cut: no shape selected.".into());
+        } else {
+            self.push_node_undo_snapshot();
+            let removed = self.delete_selected_shapes();
+            self.log(format!("Cut {removed} shape(s)."));
+        }
+    }
+
+    fn handle_paste_selection(&mut self) {
+        if self.clipboard_shapes.is_empty() {
+            self.log("Paste: clipboard is empty.".into());
+        } else {
+            self.push_node_undo_snapshot();
+            let pasted = self.paste_shapes_from_clipboard();
+            self.log(format!("Pasted {pasted} shape(s)."));
+        }
+    }
+
+    fn handle_delete_node(&mut self) {
+        if let Some((shape_idx, node_idx)) = self.renderer.selected_node {
+            self.push_node_undo_snapshot();
+            let mut selected_in_shape: Vec<usize> = self
+                .renderer
+                .selected_nodes
+                .iter()
+                .filter_map(|(s, n)| if *s == shape_idx { Some(*n) } else { None })
+                .collect();
+            selected_in_shape.sort_unstable();
+            selected_in_shape.dedup();
+            if selected_in_shape.is_empty() {
+                selected_in_shape.push(node_idx);
+            }
+
+            let result = if selected_in_shape.len() > 1 {
+                ui::vector_edit::delete_nodes(
+                    &mut self.drawing_state,
+                    shape_idx,
+                    &selected_in_shape,
+                )
+            } else {
+                ui::vector_edit::delete_node(&mut self.drawing_state, shape_idx, node_idx)
+            };
+
+            match result {
+                Ok(()) => {
+                    self.regenerate_drawing_gcode();
+                    self.renderer.selected_nodes.clear();
+                    self.renderer.selected_node = Some((shape_idx, node_idx.saturating_sub(1)));
+                }
+                Err(e) => self.log(format!("Node delete failed: {e}")),
+            }
+        }
+    }
+
+    fn handle_delete_selection(&mut self) {
+        if !self.renderer.selected_shape_idx.is_empty() {
+            self.push_node_undo_snapshot();
+            let removed = self.delete_selected_shapes();
+            if removed > 0 {
+                self.log(format!("Deleted {removed} shape(s)."));
+            }
         }
     }
 
@@ -2202,6 +2240,272 @@ impl All4LaserApp {
         ));
     }
 
+    fn ui_profile_selector(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut profile_changed = false;
+        let mut switch_to: Option<usize> = None;
+        ui.horizontal(|ui| {
+            let current_name = self.machine_profile.name.clone();
+            egui::ComboBox::from_id_salt("profile_selector")
+                .selected_text(&current_name)
+                .width(140.0)
+                .show_ui(ui, |ui| {
+                    for (i, p) in self.profile_store.profiles.iter().enumerate() {
+                        let is_active = i == self.profile_store.active_index;
+                        if ui.selectable_label(is_active, &p.name).clicked() && !is_active {
+                            switch_to = Some(i);
+                        }
+                    }
+                });
+            if ui.small_button("➕").on_hover_text("New profile").clicked() {
+                let mut new_p = MachineProfile::default();
+                new_p.name = format!("Machine {}", self.profile_store.profiles.len() + 1);
+                self.profile_store.add(new_p);
+                switch_to = Some(self.profile_store.profiles.len() - 1);
+            }
+            if ui.small_button("📋").on_hover_text("Duplicate").clicked() {
+                // save current edits before duplicating
+                if let Some(p) = self
+                    .profile_store
+                    .profiles
+                    .get_mut(self.profile_store.active_index)
+                {
+                    *p = self.machine_profile.clone();
+                }
+                self.profile_store.duplicate_active();
+                switch_to = Some(self.profile_store.profiles.len() - 1);
+            }
+            if self.profile_store.profiles.len() > 1 {
+                if ui
+                    .small_button("🗑")
+                    .on_hover_text("Delete profile")
+                    .clicked()
+                {
+                    let idx = self.profile_store.active_index;
+                    self.profile_store.remove(idx);
+                    switch_to = Some(self.profile_store.active_index);
+                }
+            }
+        });
+        if let Some(idx) = switch_to {
+            self.switch_to_profile(idx);
+            profile_changed = true;
+        }
+        profile_changed
+    }
+
+    fn ui_profile_import_export(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut profile_changed = false;
+        ui.horizontal(|ui| {
+            if ui.small_button("📥 Import").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Machine Profile", &["json"])
+                    .pick_file()
+                {
+                    match self.profile_store.import_profile(&path.to_string_lossy()) {
+                        Ok(name) => {
+                            let new_idx = self.profile_store.profiles.len() - 1;
+                            self.switch_to_profile(new_idx);
+                            profile_changed = true;
+                            self.log(format!("Imported profile: {name}"));
+                        }
+                        Err(e) => self.show_error(format!("Import failed: {e}")),
+                    }
+                }
+            }
+            if ui.small_button("📤 Export").clicked() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_file_name(&format!("{}.json", self.machine_profile.name))
+                    .add_filter("Machine Profile", &["json"])
+                    .save_file()
+                {
+                    match self
+                        .profile_store
+                        .export_profile(self.profile_store.active_index, &path.to_string_lossy())
+                    {
+                        Ok(()) => self.log(format!("Profile exported to {}", path.display())),
+                        Err(e) => self.show_error(format!("Export failed: {e}")),
+                    }
+                }
+            }
+        });
+        profile_changed
+    }
+
+    fn ui_profile_settings(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut profile_changed = false;
+        egui::Grid::new("mp_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("Name:");
+                if ui
+                    .text_edit_singleline(&mut self.machine_profile.name)
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label(format!("{}:", crate::i18n::tr("Controller")));
+                let previous_kind = self.machine_profile.controller_kind;
+                egui::ComboBox::from_id_salt("controller_kind_combo")
+                    .selected_text(self.machine_profile.controller_kind.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.machine_profile.controller_kind,
+                            ControllerKind::Grbl,
+                            ControllerKind::Grbl.label(),
+                        );
+                        ui.selectable_value(
+                            &mut self.machine_profile.controller_kind,
+                            ControllerKind::Ruida,
+                            ControllerKind::Ruida.label(),
+                        );
+                        ui.selectable_value(
+                            &mut self.machine_profile.controller_kind,
+                            ControllerKind::Trocen,
+                            ControllerKind::Trocen.label(),
+                        );
+                    });
+                if self.machine_profile.controller_kind != previous_kind {
+                    profile_changed = true;
+                    self.apply_controller_kind_change(previous_kind);
+                }
+                ui.end_row();
+
+                ui.label("Width (mm):");
+                if ui
+                    .add(egui::DragValue::new(&mut self.machine_profile.workspace_x_mm).speed(5.0))
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Height (mm):");
+                if ui
+                    .add(egui::DragValue::new(&mut self.machine_profile.workspace_y_mm).speed(5.0))
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Max Rate X:");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut self.machine_profile.max_rate_x)
+                            .speed(50.0)
+                            .suffix(" mm/min"),
+                    )
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Max Rate Y:");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut self.machine_profile.max_rate_y)
+                            .speed(50.0)
+                            .suffix(" mm/min"),
+                    )
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Accel X:");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut self.machine_profile.accel_x)
+                            .speed(10.0)
+                            .suffix(" mm/s²"),
+                    )
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Accel Y:");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut self.machine_profile.accel_y)
+                            .speed(10.0)
+                            .suffix(" mm/s²"),
+                    )
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+            });
+
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(
+                    &mut self.machine_profile.return_to_origin,
+                    "Return to origin",
+                )
+                .changed()
+            {
+                profile_changed = true;
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(&mut self.machine_profile.air_assist, "Air Assist (M8/M9)")
+                .changed()
+            {
+                profile_changed = true;
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(
+                    &mut self.machine_profile.rotary_enabled,
+                    "Enable Rotary Support",
+                )
+                .changed()
+            {
+                profile_changed = true;
+            }
+        });
+        if self.machine_profile.rotary_enabled {
+            ui.horizontal(|ui| {
+                ui.label("Cylinder Ø:");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut self.machine_profile.rotary_diameter_mm)
+                            .suffix(" mm"),
+                    )
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Rotary Axis:");
+                if ui
+                    .selectable_value(&mut self.machine_profile.rotary_axis, 'Y', "Y (Roller)")
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                if ui
+                    .selectable_value(&mut self.machine_profile.rotary_axis, 'A', "A (Chuck)")
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+            });
+        }
+        profile_changed
+    }
+
     fn ui_machine_profile_editor(&mut self, ui: &mut egui::Ui) {
         let mut profile_changed = false;
 
@@ -2212,268 +2516,10 @@ impl All4LaserApp {
         )
         .default_open(false)
         .show(ui, |ui| {
-            // --- Profile selector (F11) ---
-            let mut switch_to: Option<usize> = None;
-            ui.horizontal(|ui| {
-                let current_name = self.machine_profile.name.clone();
-                egui::ComboBox::from_id_salt("profile_selector")
-                    .selected_text(&current_name)
-                    .width(140.0)
-                    .show_ui(ui, |ui| {
-                        for (i, p) in self.profile_store.profiles.iter().enumerate() {
-                            let is_active = i == self.profile_store.active_index;
-                            if ui.selectable_label(is_active, &p.name).clicked() && !is_active {
-                                switch_to = Some(i);
-                            }
-                        }
-                    });
-                if ui.small_button("➕").on_hover_text("New profile").clicked() {
-                    let mut new_p = MachineProfile::default();
-                    new_p.name = format!("Machine {}", self.profile_store.profiles.len() + 1);
-                    self.profile_store.add(new_p);
-                    switch_to = Some(self.profile_store.profiles.len() - 1);
-                }
-                if ui.small_button("📋").on_hover_text("Duplicate").clicked() {
-                    // save current edits before duplicating
-                    if let Some(p) = self
-                        .profile_store
-                        .profiles
-                        .get_mut(self.profile_store.active_index)
-                    {
-                        *p = self.machine_profile.clone();
-                    }
-                    self.profile_store.duplicate_active();
-                    switch_to = Some(self.profile_store.profiles.len() - 1);
-                }
-                if self.profile_store.profiles.len() > 1 {
-                    if ui
-                        .small_button("🗑")
-                        .on_hover_text("Delete profile")
-                        .clicked()
-                    {
-                        let idx = self.profile_store.active_index;
-                        self.profile_store.remove(idx);
-                        switch_to = Some(self.profile_store.active_index);
-                    }
-                }
-            });
-            if let Some(idx) = switch_to {
-                self.switch_to_profile(idx);
-                profile_changed = true;
-            }
-
-            ui.horizontal(|ui| {
-                if ui.small_button("📥 Import").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("Machine Profile", &["json"])
-                        .pick_file()
-                    {
-                        match self.profile_store.import_profile(&path.to_string_lossy()) {
-                            Ok(name) => {
-                                let new_idx = self.profile_store.profiles.len() - 1;
-                                self.switch_to_profile(new_idx);
-                                profile_changed = true;
-                                self.log(format!("Imported profile: {name}"));
-                            }
-                            Err(e) => self.show_error(format!("Import failed: {e}")),
-                        }
-                    }
-                }
-                if ui.small_button("📤 Export").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .set_file_name(&format!("{}.json", self.machine_profile.name))
-                        .add_filter("Machine Profile", &["json"])
-                        .save_file()
-                    {
-                        match self.profile_store.export_profile(
-                            self.profile_store.active_index,
-                            &path.to_string_lossy(),
-                        ) {
-                            Ok(()) => self.log(format!("Profile exported to {}", path.display())),
-                            Err(e) => self.show_error(format!("Export failed: {e}")),
-                        }
-                    }
-                }
-            });
-
+            profile_changed |= self.ui_profile_selector(ui);
+            profile_changed |= self.ui_profile_import_export(ui);
             ui.separator();
-
-            egui::Grid::new("mp_grid")
-                .num_columns(2)
-                .spacing([8.0, 4.0])
-                .show(ui, |ui| {
-                    ui.label("Name:");
-                    if ui
-                        .text_edit_singleline(&mut self.machine_profile.name)
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label(format!("{}:", crate::i18n::tr("Controller")));
-                    let previous_kind = self.machine_profile.controller_kind;
-                    egui::ComboBox::from_id_salt("controller_kind_combo")
-                        .selected_text(self.machine_profile.controller_kind.label())
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.machine_profile.controller_kind,
-                                ControllerKind::Grbl,
-                                ControllerKind::Grbl.label(),
-                            );
-                            ui.selectable_value(
-                                &mut self.machine_profile.controller_kind,
-                                ControllerKind::Ruida,
-                                ControllerKind::Ruida.label(),
-                            );
-                            ui.selectable_value(
-                                &mut self.machine_profile.controller_kind,
-                                ControllerKind::Trocen,
-                                ControllerKind::Trocen.label(),
-                            );
-                        });
-                    if self.machine_profile.controller_kind != previous_kind {
-                        profile_changed = true;
-                        self.apply_controller_kind_change(previous_kind);
-                    }
-                    ui.end_row();
-
-                    ui.label("Width (mm):");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.workspace_x_mm)
-                                .speed(5.0),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Height (mm):");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.workspace_y_mm)
-                                .speed(5.0),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Max Rate X:");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.max_rate_x)
-                                .speed(50.0)
-                                .suffix(" mm/min"),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Max Rate Y:");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.max_rate_y)
-                                .speed(50.0)
-                                .suffix(" mm/min"),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Accel X:");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.accel_x)
-                                .speed(10.0)
-                                .suffix(" mm/s²"),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-
-                    ui.label("Accel Y:");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.accel_y)
-                                .speed(10.0)
-                                .suffix(" mm/s²"),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    ui.end_row();
-                });
-
-            ui.horizontal(|ui| {
-                if ui
-                    .checkbox(
-                        &mut self.machine_profile.return_to_origin,
-                        "Return to origin",
-                    )
-                    .changed()
-                {
-                    profile_changed = true;
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui
-                    .checkbox(&mut self.machine_profile.air_assist, "Air Assist (M8/M9)")
-                    .changed()
-                {
-                    profile_changed = true;
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui
-                    .checkbox(
-                        &mut self.machine_profile.rotary_enabled,
-                        "Enable Rotary Support",
-                    )
-                    .changed()
-                {
-                    profile_changed = true;
-                }
-            });
-            if self.machine_profile.rotary_enabled {
-                ui.horizontal(|ui| {
-                    ui.label("Cylinder Ø:");
-                    if ui
-                        .add(
-                            egui::DragValue::new(&mut self.machine_profile.rotary_diameter_mm)
-                                .suffix(" mm"),
-                        )
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Rotary Axis:");
-                    if ui
-                        .selectable_value(&mut self.machine_profile.rotary_axis, 'Y', "Y (Roller)")
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                    if ui
-                        .selectable_value(&mut self.machine_profile.rotary_axis, 'A', "A (Chuck)")
-                        .changed()
-                    {
-                        profile_changed = true;
-                    }
-                });
-            }
+            profile_changed |= self.ui_profile_settings(ui);
         });
 
         if profile_changed {
@@ -2769,10 +2815,20 @@ impl All4LaserApp {
             self.handle_camera_ui_actions(ui);
 
             ui.add_space(6.0);
-            let gen_action = ui::generators::show(ui, &mut self.generator_state);
+            let gen_action = ui::generators::show(ui, &mut self.generator_state, self.active_layer_idx);
             if let Some(lines) = gen_action.generate_gcode {
                 let file = GCodeFile::from_lines("generator", &lines);
                 self.set_loaded_file(file, lines);
+            }
+            if let Some(shapes) = gen_action.generate_shapes {
+                self.push_node_undo_snapshot();
+                self.renderer.selected_shape_idx.clear();
+                let base = self.drawing_state.shapes.len();
+                for (i, s) in shapes.into_iter().enumerate() {
+                    self.drawing_state.shapes.push(s);
+                    self.renderer.selected_shape_idx.insert(base + i);
+                }
+                self.regenerate_drawing_gcode();
             }
 
             ui.add_space(6.0);
@@ -3138,22 +3194,23 @@ impl All4LaserApp {
         }
 
         if self.renderer.selected_shape_idx.len() == 1 {
-            let idx = *self.renderer.selected_shape_idx.iter().next().unwrap();
-            if let Some(shape) = self.drawing_state.shapes.get(idx) {
-                if !matches!(shape.shape, ShapeKind::Path(_)) {
-                    if ui.button("🛤 Convert to Path").clicked() {
-                        if let Some(poly) = ui::offset::shape_to_polygon(shape) {
-                            let exterior = poly.exterior();
-                            let pts: Vec<(f32, f32)> = exterior
-                                .coords()
-                                .map(|c| (c.x as f32, c.y as f32))
-                                .collect();
-                            let mut new_shape = shape.clone();
-                            new_shape.shape = ShapeKind::Path(pts);
-                            new_shape.x = 0.0;
-                            new_shape.y = 0.0;
-                            self.drawing_state.shapes[idx] = new_shape;
-                            self.log("Converted to path.".into());
+            if let Some(&idx) = self.renderer.selected_shape_idx.iter().next() {
+                if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                    if !matches!(shape.shape, ShapeKind::Path(_)) {
+                        if ui.button("🛤 Convert to Path").clicked() {
+                            if let Some(poly) = ui::offset::shape_to_polygon(shape) {
+                                let exterior = poly.exterior();
+                                let pts: Vec<(f32, f32)> = exterior
+                                    .coords()
+                                    .map(|c| (c.x as f32, c.y as f32))
+                                    .collect();
+                                let mut new_shape = shape.clone();
+                                new_shape.shape = ShapeKind::Path(pts);
+                                new_shape.x = 0.0;
+                                new_shape.y = 0.0;
+                                self.drawing_state.shapes[idx] = new_shape;
+                                self.log("Converted to path.".into());
+                            }
                         }
                     }
                 }
@@ -3934,6 +3991,25 @@ impl All4LaserApp {
                 self.settings_state = Some(state);
             }
         }
+        if actions.zoom_in {
+            self.renderer.zoom_in();
+        }
+        if actions.zoom_out {
+            self.renderer.zoom_out();
+        }
+        if actions.undo {
+            if !self.undo_node_edit() {
+                self.log("Nothing to undo.".into());
+            }
+        }
+        if actions.redo {
+            if !self.redo_node_edit() {
+                self.log("Nothing to redo.".into());
+            }
+        }
+        if actions.open_about {
+            self.about_open = true;
+        }
     }
 
     fn handle_open_project(&mut self, ctx: &egui::Context) {
@@ -4245,7 +4321,18 @@ impl All4LaserApp {
                 let selected_indices: Vec<usize> =
                     self.renderer.selected_shape_idx.iter().copied().collect();
                 crate::ui::drawing::group_shapes(&mut self.drawing_state.shapes, &selected_indices);
+            InteractiveAction::ContextDeleteSelection => {
+                self.push_node_undo_snapshot();
+                let mut indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
+                indices.sort_unstable();
+                for idx in indices.into_iter().rev() {
+                    if idx < self.drawing_state.shapes.len() {
+                        self.drawing_state.shapes.remove(idx);
+                    }
+                }
                 self.renderer.selected_shape_idx.clear();
+                self.renderer.selected_node = None;
+                self.renderer.selected_nodes.clear();
                 self.regenerate_drawing_gcode();
             }
             InteractiveAction::UngroupSelection => {
@@ -4255,10 +4342,164 @@ impl All4LaserApp {
                     &mut self.drawing_state.shapes,
                     &selected_indices,
                 );
+            InteractiveAction::ContextDuplicateSelection => {
+                self.push_node_undo_snapshot();
+                let indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
+                let mut new_indices = Vec::new();
+                for idx in &indices {
+                    if let Some(shape) = self.drawing_state.shapes.get(*idx) {
+                        let mut dup = shape.clone();
+                        dup.x += 5.0;
+                        dup.y += 5.0;
+                        let new_idx = self.drawing_state.shapes.len();
+                        self.drawing_state.shapes.push(dup);
+                        new_indices.push(new_idx);
+                    }
+                }
                 self.renderer.selected_shape_idx.clear();
+                for ni in new_indices {
+                    self.renderer.selected_shape_idx.insert(ni);
+                }
                 self.regenerate_drawing_gcode();
             }
-            InteractiveAction::None => {}
+            InteractiveAction::ContextGroupSelection => {
+                self.push_node_undo_snapshot();
+                let indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
+                if indices.len() >= 2 {
+                    let mut all_pts: Vec<(f32, f32)> = Vec::new();
+                    let mut layer = 0usize;
+                    let mut collected_indices: Vec<usize> = Vec::new();
+                    for &idx in &indices {
+                        if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                            layer = shape.layer_idx;
+                            // Convert shape local points to world coordinates
+                            let local_pts: Vec<(f32, f32)> = match &shape.shape {
+                                crate::ui::drawing::ShapeKind::Rectangle => {
+                                    vec![
+                                        (0.0, 0.0),
+                                        (shape.width, 0.0),
+                                        (shape.width, shape.height),
+                                        (0.0, shape.height),
+                                        (0.0, 0.0),
+                                    ]
+                                }
+                                crate::ui::drawing::ShapeKind::Circle => {
+                                    let steps = 64;
+                                    (0..=steps)
+                                        .map(|i| {
+                                            let a = std::f32::consts::TAU * i as f32 / steps as f32;
+                                            (shape.radius * a.cos(), shape.radius * a.sin())
+                                        })
+                                        .collect()
+                                }
+                                crate::ui::drawing::ShapeKind::Path(pts) => pts.clone(),
+                                _ => Vec::new(),
+                            };
+                            let world_pts: Vec<(f32, f32)> = local_pts
+                                .iter()
+                                .map(|&(lx, ly)| shape.world_pos(lx, ly))
+                                .collect();
+                            all_pts.extend(world_pts);
+                            collected_indices.push(idx);
+                        }
+                    }
+                    if !all_pts.is_empty() {
+                        collected_indices.sort_unstable();
+                        for idx in collected_indices.into_iter().rev() {
+                            self.drawing_state.shapes.remove(idx);
+                        }
+                        let grouped = crate::ui::drawing::ShapeParams {
+                            shape: crate::ui::drawing::ShapeKind::Path(all_pts),
+                            layer_idx: layer,
+                            ..Default::default()
+                        };
+                        let new_idx = self.drawing_state.shapes.len();
+                        self.drawing_state.shapes.push(grouped);
+                        self.renderer.selected_shape_idx.clear();
+                        self.renderer.selected_shape_idx.insert(new_idx);
+                        self.regenerate_drawing_gcode();
+                    }
+                }
+            }
+            InteractiveAction::ContextUngroupSelection => {
+                self.push_node_undo_snapshot();
+                let indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
+                let mut new_shapes: Vec<crate::ui::drawing::ShapeParams> = Vec::new();
+                let mut remove_indices: Vec<usize> = Vec::new();
+                for &idx in &indices {
+                    if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                        if let crate::ui::drawing::ShapeKind::Path(ref pts) = shape.shape {
+                            if pts.len() >= 4 {
+                                // Compute median segment length to detect gaps
+                                let mut seg_lengths: Vec<f32> = Vec::new();
+                                for i in 1..pts.len() {
+                                    let dx = pts[i].0 - pts[i - 1].0;
+                                    let dy = pts[i].1 - pts[i - 1].1;
+                                    seg_lengths.push((dx * dx + dy * dy).sqrt());
+                                }
+                                seg_lengths.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                                let median = seg_lengths[seg_lengths.len() / 2];
+                                let gap_threshold = (median * 10.0).max(1.0);
+
+                                // Split at large gaps
+                                let mut sub_paths: Vec<Vec<(f32, f32)>> = Vec::new();
+                                let mut current_sub: Vec<(f32, f32)> = vec![pts[0]];
+                                for i in 1..pts.len() {
+                                    let dx = pts[i].0 - pts[i - 1].0;
+                                    let dy = pts[i].1 - pts[i - 1].1;
+                                    let dist = (dx * dx + dy * dy).sqrt();
+                                    if dist > gap_threshold && current_sub.len() >= 2 {
+                                        sub_paths.push(std::mem::take(&mut current_sub));
+                                    }
+                                    current_sub.push(pts[i]);
+                                }
+                                if current_sub.len() >= 2 {
+                                    sub_paths.push(current_sub);
+                                }
+
+                                if sub_paths.len() >= 2 {
+                                    for sub in &sub_paths {
+                                        let min_x = sub.iter().map(|p| p.0).fold(f32::MAX, f32::min);
+                                        let min_y = sub.iter().map(|p| p.1).fold(f32::MAX, f32::min);
+                                        let local_pts: Vec<(f32, f32)> = sub.iter().map(|p| (p.0 - min_x, p.1 - min_y)).collect();
+                                        new_shapes.push(crate::ui::drawing::ShapeParams {
+                                            shape: crate::ui::drawing::ShapeKind::Path(local_pts),
+                                            x: shape.x + min_x,
+                                            y: shape.y + min_y,
+                                            layer_idx: shape.layer_idx,
+                                            ..Default::default()
+                                        });
+                                    }
+                                    remove_indices.push(idx);
+                                }
+                            }
+                        }
+                    }
+                }
+                if !remove_indices.is_empty() {
+                    remove_indices.sort_unstable();
+                    for idx in remove_indices.into_iter().rev() {
+                        self.drawing_state.shapes.remove(idx);
+                    }
+                    let base = self.drawing_state.shapes.len();
+                    self.renderer.selected_shape_idx.clear();
+                    for (i, s) in new_shapes.into_iter().enumerate() {
+                        self.drawing_state.shapes.push(s);
+                        self.renderer.selected_shape_idx.insert(base + i);
+                    }
+                    self.regenerate_drawing_gcode();
+                }
+            }
+            InteractiveAction::ContextSelectAll => {
+                self.renderer.selected_shape_idx.clear();
+                for i in 0..self.drawing_state.shapes.len() {
+                    self.renderer.selected_shape_idx.insert(i);
+                }
+                if let Some(last) = self.drawing_state.shapes.last() {
+                    self.drawing_state.current = last.clone();
+                }
+            }
+            _ => {}
         }
     }
 
@@ -4368,7 +4609,7 @@ impl All4LaserApp {
             if let Some(lines) = ed_action.apply {
                 let file = GCodeFile::from_lines("edited", &lines);
                 self.log(format!("GCode editor applied ({} lines)", lines.len()));
-                self.program_lines = lines.clone();
+                self.program_lines = std::sync::Arc::new(lines);
                 self.program_index = 0;
                 self.loaded_file = Some(file);
                 self.needs_auto_fit = true;
@@ -4752,6 +4993,26 @@ impl eframe::App for All4LaserApp {
             self.notify_job_done = false;
         }
 
+        if self.about_open {
+            let mut open = true;
+            let mut close_clicked = false;
+            egui::Window::new("About All4Laser")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label(egui::RichText::new("All4Laser").strong().size(20.0));
+                    ui.label("Advanced Laser Control Software");
+                    ui.add_space(8.0);
+                    if ui.button("OK").clicked() {
+                        close_clicked = true;
+                    }
+                });
+            if !open || close_clicked {
+                self.about_open = false;
+            }
+        }
+
         // Tool windows dispatch
         self.update_tool_windows(ctx);
 
@@ -4767,11 +5028,26 @@ impl eframe::App for All4LaserApp {
         let is_light = self.light_mode;
         let caps = self.controller_capabilities();
 
+        let mut menu_actions = ui::toolbar::ToolbarAction::default();
+        if self.ui_theme == theme::UiTheme::Industrial || self.ui_theme == theme::UiTheme::Pro {
+            TopBottomPanel::top("menu_bar_panel").show(ctx, |ui| {
+                menu_actions = ui::toolbar::show_menu_bar(
+                    ui,
+                    &self.recent_files,
+                    self.loaded_file.is_some(),
+                    !self.drawing_state.shapes.is_empty(),
+                    self.beginner_mode,
+                    self.light_mode,
+                    caps,
+                );
+            });
+        }
+
         TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.add_space(4.0);
             let has_file = self.loaded_file.is_some();
             let has_shapes = !self.drawing_state.shapes.is_empty();
-            let actions = ui::toolbar::show(
+            let mut actions = ui::toolbar::show(
                 ui,
                 is_connected,
                 is_running,
@@ -4783,6 +5059,7 @@ impl eframe::App for All4LaserApp {
                 has_shapes,
                 caps,
             );
+            actions.merge(menu_actions);
             ui.add_space(4.0);
 
             self.handle_toolbar_actions(ctx, actions);
