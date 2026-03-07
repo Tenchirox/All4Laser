@@ -369,6 +369,14 @@ impl JigTemplate {
         serde_json::from_str(&json).map_err(|e| e.to_string())
     }
 
+    pub fn delete(name: &str) -> Result<(), String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid name".to_string());
+        }
+        let path = Self::jigs_dir().join(format!("{name}.json"));
+        std::fs::remove_file(path).map_err(|e| e.to_string())
+    }
+
     pub fn list() -> Vec<String> {
         let dir = Self::jigs_dir();
         std::fs::read_dir(dir)
