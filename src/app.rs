@@ -4242,14 +4242,19 @@ impl All4LaserApp {
                 self.handle_camera_pick_point(pos);
             }
             InteractiveAction::GroupSelection => {
-                let selected_indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
+                let selected_indices: Vec<usize> =
+                    self.renderer.selected_shape_idx.iter().copied().collect();
                 crate::ui::drawing::group_shapes(&mut self.drawing_state.shapes, &selected_indices);
                 self.renderer.selected_shape_idx.clear();
                 self.regenerate_drawing_gcode();
             }
             InteractiveAction::UngroupSelection => {
-                let selected_indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
-                crate::ui::drawing::ungroup_shapes(&mut self.drawing_state.shapes, &selected_indices);
+                let selected_indices: Vec<usize> =
+                    self.renderer.selected_shape_idx.iter().copied().collect();
+                crate::ui::drawing::ungroup_shapes(
+                    &mut self.drawing_state.shapes,
+                    &selected_indices,
+                );
                 self.renderer.selected_shape_idx.clear();
                 self.regenerate_drawing_gcode();
             }
