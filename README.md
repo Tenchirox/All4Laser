@@ -37,16 +37,71 @@
 *   **Rust Toolchain**: [Install Rust](https://rustup.rs/) (latest stable version recommended).
 *   **Serial Port Permissions**: (Linux) Ensure your user is in the `dialout` or `uucp` group.
 
+### Windows Notes (GNU toolchain)
+If you build with `x86_64-pc-windows-gnu`, install an MSYS2 GCC toolchain and ensure `gcc`/`ar` are available in your terminal `PATH`.
+
+Example session setup:
+```powershell
+$env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+rustup default stable-x86_64-pc-windows-gnu
+cargo run
+```
+
+For camera live preview on Windows:
+- Enable **Camera access** in Windows Privacy settings.
+- Close other apps that may lock the webcam.
+- Select the camera from the **Camera Overlay > Device** list.
+
 ### Installation
 1.  Clone the repository:
     ```bash
-    git clone https://github.com/your-username/All4Laser.git
+    git clone https://github.com/Tenchirox/All4Laser.git
     cd All4Laser
     ```
 2.  Build and run:
     ```bash
     cargo run --release
     ```
+
+### Multi-platform build helpers
+
+Build Windows + Linux in parallel from Windows:
+
+```powershell
+# PowerShell script
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-dual.ps1
+
+# or batch wrapper
+.\build-dual.bat
+```
+
+Useful flags:
+
+```powershell
+# show planned commands without compiling
+.\build-dual.bat -DryRun
+
+# release profile
+.\build-dual.bat -Release
+
+# force Linux builder choice
+.\build-dual.bat -LinuxBuilder cargo
+.\build-dual.bat -LinuxBuilder cross
+```
+
+Logs are written to `target/build-logs`.
+
+### GitHub release workflow
+
+Workflow file: `.github/workflows/release-dual.yml`
+
+It builds and packages:
+- Linux (`x86_64-unknown-linux-gnu`) → `.tar.gz`
+- Windows (`x86_64-pc-windows-msvc`) → `.zip`
+
+Triggers:
+- Push tag `v*` (example: `v1.2.0`) to auto-publish a release
+- Manual run via **Actions > Dual Platform Release** (`workflow_dispatch`)
 
 ---
 

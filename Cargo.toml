@@ -23,11 +23,15 @@ rusttype = "0.9"
 qrcode = "0.14"
 font-kit = "0.14"
 geo = "0.32"
-lazy_static = "1.5"
 indexmap = "2.13.0"
+ureq = { version = "2.12", features = ["json"] }
+webbrowser = "1.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 v4l = "0.14"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+nokhwa = { version = "0.10", features = ["input-msmf", "output-threaded"] }
 
 [profile.release]
 opt-level = 3
@@ -37,5 +41,10 @@ strip = true
 [[test]]
 name = "test_fonts"
 path = "src/test_fonts.rs"
+
 [build-dependencies]
 winres = "0.1"
+
+[package.metadata.packager]
+formats = ["deb", "appimage", "nsis", "dmg"]
+icons = ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"]

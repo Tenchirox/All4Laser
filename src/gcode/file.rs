@@ -152,7 +152,13 @@ fn build_preview(lines: &[GCodeLine]) -> (Vec<PreviewSegment>, Vec<LayerSettings
 
         // Try to detect layer changes in comments (LaserGRBL/LightBurn style)
         if line.raw.contains(";LAYER:") {
-            let name = line.raw.split(":").nth(1).unwrap_or("Layer").trim().to_string();
+            let name = line
+                .raw
+                .split(":")
+                .nth(1)
+                .unwrap_or("Layer")
+                .trim()
+                .to_string();
             // Check if already exists
             if let Some(idx) = layers.iter().position(|l| l.name == name) {
                 current_layer_idx = idx;
@@ -160,7 +166,11 @@ fn build_preview(lines: &[GCodeLine]) -> (Vec<PreviewSegment>, Vec<LayerSettings
                 current_layer_idx = layers.len();
                 layers.push(LayerSettings {
                     name,
-                    color: egui::Color32::from_rgb(100 + ((current_layer_idx * 40) % 155) as u8, 200, 255),
+                    color: egui::Color32::from_rgb(
+                        100 + ((current_layer_idx * 40) % 155) as u8,
+                        200,
+                        255,
+                    ),
                     ..Default::default()
                 });
             }
@@ -208,7 +218,11 @@ fn build_preview(lines: &[GCodeLine]) -> (Vec<PreviewSegment>, Vec<LayerSettings
 
             if new_x != state.x || new_y != state.y {
                 let is_laser = state.laser_on && state.current_g != 0 && state.s > 0.0;
-                let power = if is_laser { (state.s / 1000.0).min(1.0) } else { 0.0 };
+                let power = if is_laser {
+                    (state.s / 1000.0).min(1.0)
+                } else {
+                    0.0
+                };
                 segments.push(PreviewSegment {
                     x1: state.x,
                     y1: state.y,
@@ -230,7 +244,8 @@ fn build_preview(lines: &[GCodeLine]) -> (Vec<PreviewSegment>, Vec<LayerSettings
                     let a_eff = a_eff.max(10.0); // guard against div/0
 
                     // Cap feed to machine max rate
-                    let f_capped = state.f
+                    let f_capped = state
+                        .f
                         .min(kin.max_rate_x * angle.cos() + kin.max_rate_y * angle.sin());
 
                     total_time_secs += move_time_trapezoid(dist, f_capped, a_eff);

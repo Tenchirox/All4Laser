@@ -1,8 +1,8 @@
-use egui::{Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2, Ui};
 use crate::gcode::types::PreviewSegment;
 use crate::theme;
-use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
+use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::ui::layers_new::{CutLayer, CutMode};
+use egui::{Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Ui, Vec2};
 use indexmap::IndexSet;
 use std::collections::HashMap;
 
@@ -26,13 +26,13 @@ pub struct PreviewRenderer {
     /// Machine workspace in mm (from GRBL $130, $131)
     pub workspace_size: Vec2,
     pub simulation_progress: Option<f32>, // 0.0 to 1.0
-    pub show_rapids: bool, // Toggle for G0 moves
-    pub show_fill_preview: bool, // Overlay predicted hatch for fill layers
-    pub show_thermal_risk: bool, // Overlay thermal overburn risk heatmap
-    pub risk_threshold: f32, // Alert threshold for accumulated energy score
-    pub risk_cell_mm: f32, // Grid cell size in mm used by thermal risk map
-    pub last_risk_alert_cells: usize, // Number of currently highlighted risk cells
-    pub realistic_preview: bool, // Toggle for realistic material texture
+    pub show_rapids: bool,                // Toggle for G0 moves
+    pub show_fill_preview: bool,          // Overlay predicted hatch for fill layers
+    pub show_thermal_risk: bool,          // Overlay thermal overburn risk heatmap
+    pub risk_threshold: f32,              // Alert threshold for accumulated energy score
+    pub risk_cell_mm: f32,                // Grid cell size in mm used by thermal risk map
+    pub last_risk_alert_cells: usize,     // Number of currently highlighted risk cells
+    pub realistic_preview: bool,          // Toggle for realistic material texture
     _drag_start: Option<Pos2>,
     pub selected_shape_idx: IndexSet<usize>, // Selected indices in DrawingState (Multi-select). Ordered so last selected is last.
     pub node_edit_mode: bool,
@@ -46,6 +46,10 @@ pub struct PreviewRenderer {
     selection_box_additive: bool,
     pub image_textures: std::collections::HashMap<usize, egui::TextureHandle>, // shape_idx -> texture
     pub initial_fit_done: bool,
+    // Measurement tool (F50)
+    pub measure_mode: bool,
+    pub measure_start: Option<(f32, f32)>, // world coords mm
+    pub measure_end: Option<(f32, f32)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,6 +86,9 @@ impl Default for PreviewRenderer {
             selection_box_additive: false,
             image_textures: std::collections::HashMap::new(),
             initial_fit_done: false,
+            measure_mode: false,
+            measure_start: None,
+            measure_end: None,
         }
     }
 }
@@ -90,12 +97,38 @@ pub enum InteractiveAction {
     None,
     SelectShape(usize, bool), // idx, is_multi (ctrl/shift)
     Deselect,
-    DragSelection { delta: Vec2 }, // Drag all selected
-    RotateSelection { shape_idx: usize, delta_deg: f32 },
-    MoveNode { shape_idx: usize, node_idx: usize, new_pos: Pos2 },
-    MoveNodeHandle { shape_idx: usize, node_idx: usize, handle: NodeHandleKind, new_pos: Pos2 },
-    AddNode { shape_idx: usize, insert_after: usize, new_pos: Pos2 },
+    DragSelection {
+        delta: Vec2,
+    }, // Drag all selected
+    RotateSelection {
+        shape_idx: usize,
+        delta_deg: f32,
+    },
+    MoveNode {
+        shape_idx: usize,
+        node_idx: usize,
+        new_pos: Pos2,
+    },
+    MoveNodeHandle {
+        shape_idx: usize,
+        node_idx: usize,
+        handle: NodeHandleKind,
+        new_pos: Pos2,
+    },
+    AddNode {
+        shape_idx: usize,
+        insert_after: usize,
+        new_pos: Pos2,
+    },
     CameraPickPoint(Pos2),
+    // Context menu actions (right-click)
+    ContextDeleteSelection,
+    ContextDuplicateSelection,
+    ContextGroupSelection,
+    ContextUngroupSelection,
+    ContextSelectAll,
+    GroupSelection,
+    UngroupSelection,
 }
 
 impl PreviewRenderer {
@@ -111,7 +144,8 @@ impl PreviewRenderer {
         job_rotation_deg: f32,
         camera_state: &crate::ui::camera::CameraState,
     ) -> InteractiveAction {
-        let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
+        let (response, painter) =
+            ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
         let rect = response.rect;
         let mut action = InteractiveAction::None;
 
@@ -142,7 +176,10 @@ impl PreviewRenderer {
             let rx = dx * cos_a - dy * sin_a;
             let ry = dx * sin_a + dy * cos_a;
             // 3. Re-center + Offset
-            Pos2::new(rx + job_center.x + job_offset.x, ry + job_center.y + job_offset.y)
+            Pos2::new(
+                rx + job_center.x + job_offset.x,
+                ry + job_center.y + job_offset.y,
+            )
         };
 
         if !self.initial_fit_done {
@@ -195,10 +232,26 @@ impl PreviewRenderer {
                 let base_idx = mesh.vertices.len() as u32;
                 mesh.add_triangle(base_idx, base_idx + 1, base_idx + 2);
                 mesh.add_triangle(base_idx, base_idx + 2, base_idx + 3);
-                mesh.vertices.push(egui::epaint::Vertex { pos: p0, uv: egui::pos2(0.0, 0.0), color });
-                mesh.vertices.push(egui::epaint::Vertex { pos: p1, uv: egui::pos2(1.0, 0.0), color });
-                mesh.vertices.push(egui::epaint::Vertex { pos: p2, uv: egui::pos2(1.0, 1.0), color });
-                mesh.vertices.push(egui::epaint::Vertex { pos: p3, uv: egui::pos2(0.0, 1.0), color });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: p0,
+                    uv: egui::pos2(0.0, 0.0),
+                    color,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: p1,
+                    uv: egui::pos2(1.0, 0.0),
+                    color,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: p2,
+                    uv: egui::pos2(1.0, 1.0),
+                    color,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: p3,
+                    uv: egui::pos2(0.0, 1.0),
+                    color,
+                });
                 painter.add(mesh);
 
                 let frame = Stroke::new(1.0, Color32::from_rgba_premultiplied(137, 180, 250, 220));
@@ -210,12 +263,27 @@ impl PreviewRenderer {
         }
 
         // Handle generic input (Pan/Zoom) vs Selection input
-        let camera_pick_active = camera_state.calibration_wizard_active || camera_state.point_align_active;
-        let handled_interaction = self.handle_input(ui, &response, rect, shapes, camera_state, camera_pick_active);
+        let camera_pick_active =
+            camera_state.calibration_wizard_active || camera_state.point_align_active;
+        let handled_interaction = self.handle_input(
+            ui,
+            &response,
+            rect,
+            shapes,
+            camera_state,
+            camera_pick_active,
+        );
         if let InteractiveAction::None = handled_interaction {
-             // If interaction wasn't a selection/drag, proceed standard input handling
+            // If interaction wasn't a selection/drag, proceed standard input handling
         } else {
             action = handled_interaction;
+        }
+
+        // Right-click context menu
+        let has_selection = !self.selected_shape_idx.is_empty();
+        let ctx_action = self.show_context_menu(ui, &response, has_selection);
+        if !matches!(ctx_action, InteractiveAction::None) {
+            action = ctx_action;
         }
 
         // Draw grid
@@ -241,9 +309,19 @@ impl PreviewRenderer {
             let a = self.world_to_screen(start.x, start.y, rect);
             let b = self.world_to_screen(end.x, end.y, rect);
             let sel_rect = Rect::from_two_pos(a, b);
-            let fill = Color32::from_rgba_premultiplied(theme::BLUE.r(), theme::BLUE.g(), theme::BLUE.b(), 28);
+            let fill = Color32::from_rgba_premultiplied(
+                theme::BLUE.r(),
+                theme::BLUE.g(),
+                theme::BLUE.b(),
+                28,
+            );
             painter.rect_filled(sel_rect, 0.0, fill);
-            painter.rect_stroke(sel_rect, 0.0, Stroke::new(1.0, theme::BLUE), StrokeKind::Middle);
+            painter.rect_stroke(
+                sel_rect,
+                0.0,
+                Stroke::new(1.0, theme::BLUE),
+                StrokeKind::Middle,
+            );
         }
 
         // Draw machine position
@@ -264,11 +342,17 @@ impl PreviewRenderer {
         // Draw origin crosshair
         let origin = self.world_to_screen(0.0, 0.0, rect);
         painter.line_segment(
-            [Pos2::new(origin.x - 15.0, origin.y), Pos2::new(origin.x + 15.0, origin.y)],
+            [
+                Pos2::new(origin.x - 15.0, origin.y),
+                Pos2::new(origin.x + 15.0, origin.y),
+            ],
             Stroke::new(1.0, theme::SURFACE2),
         );
         painter.line_segment(
-            [Pos2::new(origin.x, origin.y - 15.0), Pos2::new(origin.x, origin.y + 15.0)],
+            [
+                Pos2::new(origin.x, origin.y - 15.0),
+                Pos2::new(origin.x, origin.y + 15.0),
+            ],
             Stroke::new(1.0, theme::SURFACE2),
         );
 
@@ -320,8 +404,7 @@ impl PreviewRenderer {
         segments: &[PreviewSegment],
         rect: Rect,
         transform: &F,
-    )
-    where
+    ) where
         F: Fn(f32, f32) -> Pos2,
     {
         if !self.show_thermal_risk || segments.is_empty() {
@@ -365,14 +448,26 @@ impl PreviewRenderer {
             let stroke = Color32::from_rgba_premultiplied(255, 140, 80, (alpha as f32 * 0.9) as u8);
 
             painter.rect_filled(overlay_rect, 0.0, fill);
-            painter.rect_stroke(overlay_rect, 0.0, Stroke::new(0.7, stroke), StrokeKind::Inside);
+            painter.rect_stroke(
+                overlay_rect,
+                0.0,
+                Stroke::new(0.7, stroke),
+                StrokeKind::Inside,
+            );
         }
 
         self.last_risk_alert_cells = alert_count;
     }
 
-    fn draw_gcode_segments<F>(&self, painter: &Painter, segments: &[PreviewSegment], rect: Rect, is_light: bool, transform: F)
-    where F: Fn(f32, f32) -> Pos2
+    fn draw_gcode_segments<F>(
+        &self,
+        painter: &Painter,
+        segments: &[PreviewSegment],
+        rect: Rect,
+        is_light: bool,
+        transform: F,
+    ) where
+        F: Fn(f32, f32) -> Pos2,
     {
         let rapid_stroke = if is_light || self.realistic_preview {
             Stroke::new(0.5, Color32::from_rgba_premultiplied(200, 200, 200, 150))
@@ -384,31 +479,32 @@ impl PreviewRenderer {
 
         let realistic = self.realistic_preview;
 
-        let flush_accumulated = |painter: &egui::Painter, accum: &mut Option<(Pos2, Pos2, f32, usize)>| {
-            if let Some((p1, p2, total_power, count)) = accum.take() {
-                let avg_power = total_power / (count as f32);
-                let base_alpha = 40.0 + 215.0 * avg_power;
-                let mut stroke_width = 0.1 * self.zoom;
-                let mut final_alpha = base_alpha;
-                
-                if stroke_width < 1.0 {
-                    final_alpha *= stroke_width;
-                    stroke_width = 1.0;
-                }
-                
-                stroke_width = stroke_width.min(2.5);
+        let flush_accumulated =
+            |painter: &egui::Painter, accum: &mut Option<(Pos2, Pos2, f32, usize)>| {
+                if let Some((p1, p2, total_power, count)) = accum.take() {
+                    let avg_power = total_power / (count as f32);
+                    let base_alpha = 40.0 + 215.0 * avg_power;
+                    let mut stroke_width = 0.1 * self.zoom;
+                    let mut final_alpha = base_alpha;
 
-                let color = if realistic {
-                    // Burn effect (Dark Brown)
-                    Color32::from_rgba_premultiplied(60, 30, 10, (avg_power * 255.0) as u8)
-                } else if is_light {
-                    Color32::from_rgba_premultiplied(0, 0, 0, final_alpha as u8)
-                } else {
-                    Color32::from_rgba_premultiplied(255, 255, 255, final_alpha as u8)
-                };
-                painter.line_segment([p1, p2], Stroke::new(stroke_width, color));
-            }
-        };
+                    if stroke_width < 1.0 {
+                        final_alpha *= stroke_width;
+                        stroke_width = 1.0;
+                    }
+
+                    stroke_width = stroke_width.min(2.5);
+
+                    let color = if realistic {
+                        // Burn effect (Dark Brown)
+                        Color32::from_rgba_premultiplied(60, 30, 10, (avg_power * 255.0) as u8)
+                    } else if is_light {
+                        Color32::from_rgba_premultiplied(0, 0, 0, final_alpha as u8)
+                    } else {
+                        Color32::from_rgba_premultiplied(255, 255, 255, final_alpha as u8)
+                    };
+                    painter.line_segment([p1, p2], Stroke::new(stroke_width, color));
+                }
+            };
 
         for seg in segments {
             let p1_w = transform(seg.x1, seg.y1);
@@ -426,7 +522,9 @@ impl PreviewRenderer {
                 let length_sq = (p1.x - p2.x).powi(2) + (p1.y - p2.y).powi(2);
 
                 if is_horizontal && length_sq < 4.0 {
-                    if let Some((acc_p1, acc_p2, total_power, count)) = current_accumulated_line.as_mut() {
+                    if let Some((acc_p1, acc_p2, total_power, count)) =
+                        current_accumulated_line.as_mut()
+                    {
                         if (acc_p1.y - p1.y).abs() < 1.0 && (acc_p2.x - p1.x).abs() < 2.0 {
                             acc_p2.x = p2.x;
                             *total_power += seg.power;
@@ -444,12 +542,12 @@ impl PreviewRenderer {
                     let base_alpha = 40.0 + 215.0 * seg.power;
                     let mut stroke_width = 0.1 * self.zoom;
                     let mut final_alpha = base_alpha;
-                    
+
                     if stroke_width < 1.0 {
                         final_alpha *= stroke_width;
                         stroke_width = 1.0;
                     }
-                    
+
                     stroke_width = stroke_width.min(2.5);
 
                     let color = if is_light {
@@ -514,7 +612,10 @@ impl PreviewRenderer {
             if !layer.visible {
                 continue;
             }
-            if !matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
+            if !matches!(
+                layer.mode,
+                CutMode::Fill | CutMode::FillAndLine | CutMode::Offset
+            ) {
                 continue;
             }
 
@@ -531,7 +632,11 @@ impl PreviewRenderer {
             }
 
             let request_count = remaining.min(MAX_SEGMENTS_PER_LAYER);
-            let segments = crate::gcode::fill::preview_fill_segments_group(&layer_shapes, layer, request_count);
+            let segments = crate::gcode::fill::preview_fill_segments_group(
+                &layer_shapes,
+                layer,
+                request_count,
+            );
             if segments.is_empty() {
                 continue;
             }
@@ -557,9 +662,18 @@ impl PreviewRenderer {
         }
     }
 
-    fn draw_shape_overlay(&mut self, ui: &Ui, painter: &Painter, shape: &ShapeParams, rect: Rect, is_selected: bool, idx: usize, layers: &[CutLayer]) {
+    fn draw_shape_overlay(
+        &mut self,
+        ui: &Ui,
+        painter: &Painter,
+        shape: &ShapeParams,
+        rect: Rect,
+        is_selected: bool,
+        idx: usize,
+        layers: &[CutLayer],
+    ) {
         let is_hovered = self.hover_shape_idx == Some(idx);
-        
+
         let stroke_color = if is_selected {
             theme::BLUE
         } else if is_hovered {
@@ -572,7 +686,7 @@ impl PreviewRenderer {
                 theme::TEXT.linear_multiply(0.5)
             }
         };
-        
+
         let stroke = Stroke::new(1.0, stroke_color);
         let angle = shape.rotation.to_radians();
 
@@ -627,8 +741,10 @@ impl PreviewRenderer {
                             self.world_to_screen(wx, wy, rect)
                         };
                         let p2 = {
-                            let wx = shape.x + pts[i+1].0 * angle.cos() - pts[i+1].1 * angle.sin();
-                            let wy = shape.y + pts[i+1].0 * angle.sin() + pts[i+1].1 * angle.cos();
+                            let wx =
+                                shape.x + pts[i + 1].0 * angle.cos() - pts[i + 1].1 * angle.sin();
+                            let wy =
+                                shape.y + pts[i + 1].0 * angle.sin() + pts[i + 1].1 * angle.cos();
                             self.world_to_screen(wx, wy, rect)
                         };
                         painter.line_segment([p1, p2], stroke);
@@ -648,7 +764,7 @@ impl PreviewRenderer {
                         ui.ctx().load_texture(
                             format!("shape_{}", idx),
                             color_image,
-                            Default::default()
+                            Default::default(),
                         )
                     });
                     texture.id()
@@ -666,8 +782,10 @@ impl PreviewRenderer {
                     self.world_to_screen(wx, wy, rect)
                 };
                 let p3 = {
-                    let wx = shape.x + params.width_mm * angle.cos() - params.height_mm * angle.sin();
-                    let wy = shape.y + params.width_mm * angle.sin() + params.height_mm * angle.cos();
+                    let wx =
+                        shape.x + params.width_mm * angle.cos() - params.height_mm * angle.sin();
+                    let wy =
+                        shape.y + params.width_mm * angle.sin() + params.height_mm * angle.cos();
                     self.world_to_screen(wx, wy, rect)
                 };
                 let p4 = {
@@ -680,11 +798,27 @@ impl PreviewRenderer {
                 let base_idx = mesh.vertices.len() as u32;
                 mesh.add_triangle(base_idx, base_idx + 1, base_idx + 2);
                 mesh.add_triangle(base_idx, base_idx + 2, base_idx + 3);
-                
-                mesh.vertices.push(egui::epaint::Vertex { pos: p1, uv: egui::pos2(0.0, 0.0), color: Color32::WHITE });
-                mesh.vertices.push(egui::epaint::Vertex { pos: p2, uv: egui::pos2(1.0, 0.0), color: Color32::WHITE });
-                mesh.vertices.push(egui::epaint::Vertex { pos: p3, uv: egui::pos2(1.0, 1.0), color: Color32::WHITE });
-                mesh.vertices.push(egui::epaint::Vertex { pos: p4, uv: egui::pos2(0.0, 1.0), color: Color32::WHITE });
+
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: p1,
+                    uv: egui::pos2(0.0, 0.0),
+                    color: Color32::WHITE,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: p2,
+                    uv: egui::pos2(1.0, 0.0),
+                    color: Color32::WHITE,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: p3,
+                    uv: egui::pos2(1.0, 1.0),
+                    color: Color32::WHITE,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: p4,
+                    uv: egui::pos2(0.0, 1.0),
+                    color: Color32::WHITE,
+                });
 
                 painter.add(mesh);
 
@@ -702,14 +836,14 @@ impl PreviewRenderer {
             let handle_pos = self.get_rotation_handle_pos(shape);
             let s_handle = self.world_to_screen(handle_pos.x, handle_pos.y, rect);
             let s_center = self.world_to_screen(shape.x, shape.y, rect);
-            
+
             // Top-right corner in local space
             let (tr_lx, tr_ly) = match &shape.shape {
                 ShapeKind::Rectangle => (shape.width, shape.height),
                 ShapeKind::Circle => (shape.radius, shape.radius), // "corner" of square bounding box
                 _ => (0.0, 0.0),
             };
-            
+
             // World pos of top-right corner
             let angle = shape.rotation.to_radians();
             let tr_wx = shape.x + tr_lx * angle.cos() - tr_ly * angle.sin();
@@ -718,37 +852,56 @@ impl PreviewRenderer {
 
             // Draw connection line from top-right corner to handle
             painter.line_segment([s_tr, s_handle], Stroke::new(1.0, theme::SUBTEXT));
-            
+
             // Draw an arc with arrows (Visual indicator for rotation)
             let radius = s_center.distance(s_handle);
             let angle_base = (s_handle - s_center).angle();
             let arc_span = 0.2; // radians
-            
+
             let mut points = vec![];
             for i in -5..=5 {
                 let a = angle_base + (i as f32 * arc_span / 10.0);
                 points.push(s_center + Vec2::angled(a) * radius);
             }
-            painter.add(egui::Shape::line(points.clone(), Stroke::new(1.2, theme::BLUE)));
-            
+            painter.add(egui::Shape::line(
+                points.clone(),
+                Stroke::new(1.2, theme::BLUE),
+            ));
+
             // Arrows at ends of arc
             let draw_arrow = |p: Pos2, angle: f32| {
                 let head_len = 2.5;
                 let head_angle = 0.5;
-                painter.line_segment([p, p - Vec2::angled(angle + head_angle) * head_len], Stroke::new(1.2, theme::BLUE));
-                painter.line_segment([p, p - Vec2::angled(angle - head_angle) * head_len], Stroke::new(1.2, theme::BLUE));
+                painter.line_segment(
+                    [p, p - Vec2::angled(angle + head_angle) * head_len],
+                    Stroke::new(1.2, theme::BLUE),
+                );
+                painter.line_segment(
+                    [p, p - Vec2::angled(angle - head_angle) * head_len],
+                    Stroke::new(1.2, theme::BLUE),
+                );
             };
-            
-            draw_arrow(*(points.last().unwrap()), angle_base + arc_span/2.0 + std::f32::consts::FRAC_PI_2);
-            draw_arrow(*(points.first().unwrap()), angle_base - arc_span/2.0 - std::f32::consts::FRAC_PI_2);
+
+            draw_arrow(
+                *(points.last().unwrap()),
+                angle_base + arc_span / 2.0 + std::f32::consts::FRAC_PI_2,
+            );
+            draw_arrow(
+                *(points.first().unwrap()),
+                angle_base - arc_span / 2.0 - std::f32::consts::FRAC_PI_2,
+            );
 
             painter.circle_filled(s_handle, 3.5, theme::BLUE);
             painter.circle_stroke(s_handle, 5.0, Stroke::new(1.0, Color32::WHITE));
 
             // Small square handles at corners for movement feedback (placeholder for full transform handles)
             let handle_size = 4.0;
-            painter.rect_filled(Rect::from_center_size(s_center, Vec2::splat(handle_size)), 1.0, theme::BLUE);
-            
+            painter.rect_filled(
+                Rect::from_center_size(s_center, Vec2::splat(handle_size)),
+                1.0,
+                theme::BLUE,
+            );
+
             // Node Editing Handles
             if self.node_edit_mode {
                 if let ShapeKind::Path(pts) = &shape.shape {
@@ -760,7 +913,11 @@ impl PreviewRenderer {
                         };
                         let is_node_sel = self.selected_nodes.contains(&(idx, v_idx))
                             || self.selected_node == Some((idx, v_idx));
-                        let color = if is_node_sel { theme::RED } else { theme::GREEN };
+                        let color = if is_node_sel {
+                            theme::RED
+                        } else {
+                            theme::GREEN
+                        };
                         painter.circle_filled(vp, 4.0, color);
                     }
 
@@ -776,8 +933,11 @@ impl PreviewRenderer {
                                 if node_idx > 0 {
                                     if let Some(prev) = pts.get(node_idx - 1) {
                                         let prev_w = {
-                                            let wx = shape.x + prev.0 * angle.cos() - prev.1 * angle.sin();
-                                            let wy = shape.y + prev.0 * angle.sin() + prev.1 * angle.cos();
+                                            let wx = shape.x + prev.0 * angle.cos()
+                                                - prev.1 * angle.sin();
+                                            let wy = shape.y
+                                                + prev.0 * angle.sin()
+                                                + prev.1 * angle.cos();
                                             self.world_to_screen(wx, wy, rect)
                                         };
                                         painter.line_segment(
@@ -795,8 +955,11 @@ impl PreviewRenderer {
                                 if node_idx + 1 < pts.len() {
                                     if let Some(next) = pts.get(node_idx + 1) {
                                         let next_w = {
-                                            let wx = shape.x + next.0 * angle.cos() - next.1 * angle.sin();
-                                            let wy = shape.y + next.0 * angle.sin() + next.1 * angle.cos();
+                                            let wx = shape.x + next.0 * angle.cos()
+                                                - next.1 * angle.sin();
+                                            let wy = shape.y
+                                                + next.0 * angle.sin()
+                                                + next.1 * angle.cos();
                                             self.world_to_screen(wx, wy, rect)
                                         };
                                         painter.line_segment(
@@ -828,7 +991,9 @@ impl PreviewRenderer {
         let view_w = rect.width() - margin * 2.0;
         let view_h = rect.height() - margin * 2.0;
 
-        self.zoom = (view_w / self.workspace_size.x).min(view_h / self.workspace_size.y).max(0.01);
+        self.zoom = (view_w / self.workspace_size.x)
+            .min(view_h / self.workspace_size.y)
+            .max(0.01);
 
         let center_x = self.workspace_size.x / 2.0;
         let center_y = self.workspace_size.y / 2.0;
@@ -840,7 +1005,13 @@ impl PreviewRenderer {
     }
 
     /// Auto-fit all segments in view
-    pub fn auto_fit(&mut self, segments: &[PreviewSegment], rect: Rect, job_offset: Vec2, job_rotation_deg: f32) {
+    pub fn auto_fit(
+        &mut self,
+        segments: &[PreviewSegment],
+        rect: Rect,
+        job_offset: Vec2,
+        job_rotation_deg: f32,
+    ) {
         if segments.is_empty() {
             self.auto_fit_workspace(rect);
             return;
@@ -863,7 +1034,10 @@ impl PreviewRenderer {
             let dy = y - job_center.y;
             let rx = dx * cos_a - dy * sin_a;
             let ry = dx * sin_a + dy * cos_a;
-            Pos2::new(rx + job_center.x + job_offset.x, ry + job_center.y + job_offset.y)
+            Pos2::new(
+                rx + job_center.x + job_offset.x,
+                ry + job_center.y + job_offset.y,
+            )
         };
 
         let mut min_x = f32::MAX;
@@ -897,6 +1071,51 @@ impl PreviewRenderer {
         );
     }
 
+    /// Convert screen coordinates to world coordinates (mm)
+    pub fn screen_to_world(&self, screen: Pos2, rect: Rect) -> (f32, f32) {
+        let wx = (screen.x - self.pan.x) / self.zoom;
+        let wy = -(screen.y - self.pan.y) / self.zoom;
+        (wx, wy)
+    }
+
+    /// Draw measurement overlay (F50)
+    pub fn draw_measurement(&self, painter: &Painter, rect: Rect) {
+        if !self.measure_mode {
+            return;
+        }
+        if let (Some(start), Some(end)) = (self.measure_start, self.measure_end) {
+            let p1 = self.world_to_screen(start.0, start.1, rect);
+            let p2 = self.world_to_screen(end.0, end.1, rect);
+            let dx = end.0 - start.0;
+            let dy = end.1 - start.1;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            painter.line_segment([p1, p2], Stroke::new(2.0, Color32::from_rgb(0, 200, 255)));
+            painter.circle_filled(p1, 4.0, Color32::from_rgb(0, 200, 255));
+            painter.circle_filled(p2, 4.0, Color32::from_rgb(0, 200, 255));
+
+            let mid = Pos2::new((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0 - 12.0);
+            let label = format!("{dist:.2} mm");
+            painter.text(
+                mid,
+                egui::Align2::CENTER_BOTTOM,
+                label,
+                egui::FontId::proportional(13.0),
+                Color32::from_rgb(0, 200, 255),
+            );
+
+            // Show dx/dy
+            let detail = format!("dx={dx:.2} dy={dy:.2}");
+            painter.text(
+                Pos2::new(mid.x, mid.y + 14.0),
+                egui::Align2::CENTER_TOP,
+                detail,
+                egui::FontId::proportional(10.0),
+                Color32::from_rgb(0, 180, 220),
+            );
+        }
+    }
+
     pub fn zoom_in(&mut self) {
         self.zoom *= 1.3;
     }
@@ -916,8 +1135,16 @@ impl PreviewRenderer {
     ) -> InteractiveAction {
         let mut action = InteractiveAction::None;
 
+        // ── Middle mouse button: ALWAYS pan, regardless of selection ──
+        if response.dragged_by(egui::PointerButton::Middle) {
+            let delta = response.drag_delta();
+            self.pan += delta;
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            return action;
+        }
+
         if let Some(hover) = response.hover_pos() {
-            // Zoom logic
+            // Zoom logic (scroll wheel)
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             if scroll != 0.0 {
                 let old_zoom = self.zoom;
@@ -932,11 +1159,18 @@ impl PreviewRenderer {
             let wy = -(hover.y - self.pan.y) / self.zoom;
             let is_multi = ui.input(|i| i.modifiers.ctrl || i.modifiers.shift);
 
-            if response.clicked() && self.dragging_rotation.is_none() && camera_pick_active {
+            if response.clicked_by(egui::PointerButton::Primary)
+                && self.dragging_rotation.is_none()
+                && camera_pick_active
+            {
                 if self.is_point_in_camera_overlay(wx, wy, camera_state) {
                     return InteractiveAction::CameraPickPoint(Pos2::new(wx, wy));
                 }
                 return InteractiveAction::None;
+            }
+
+            if response.clicked_by(egui::PointerButton::Secondary) {
+                // Right click actions could be handled here or returned as a new InteractiveAction type later
             }
 
             // 1. Detect Hover
@@ -947,8 +1181,8 @@ impl PreviewRenderer {
                 }
             }
 
-            // 2. Click/Drag Selection Logic
-            if response.drag_started() {
+            // 2. Left-click/Drag Selection Logic
+            if response.drag_started_by(egui::PointerButton::Primary) {
                 if self.node_edit_mode {
                     if let Some((shape_idx, node_idx)) = self.selected_node {
                         if let Some(shape) = shapes.get(shape_idx) {
@@ -963,7 +1197,8 @@ impl PreviewRenderer {
                                         shape.y + p.0 * sin_a + p.1 * cos_a,
                                     );
                                     if hp.distance(Pos2::new(wx, wy)) <= 6.0 / self.zoom {
-                                        self.dragging_node_handle = Some((shape_idx, node_idx, NodeHandleKind::In));
+                                        self.dragging_node_handle =
+                                            Some((shape_idx, node_idx, NodeHandleKind::In));
                                     }
                                 }
                                 if self.dragging_node_handle.is_none() && node_idx + 1 < pts.len() {
@@ -973,7 +1208,8 @@ impl PreviewRenderer {
                                         shape.y + p.0 * sin_a + p.1 * cos_a,
                                     );
                                     if hp.distance(Pos2::new(wx, wy)) <= 6.0 / self.zoom {
-                                        self.dragging_node_handle = Some((shape_idx, node_idx, NodeHandleKind::Out));
+                                        self.dragging_node_handle =
+                                            Some((shape_idx, node_idx, NodeHandleKind::Out));
                                     }
                                 }
                             }
@@ -986,7 +1222,9 @@ impl PreviewRenderer {
                     let s_idx = *self.selected_shape_idx.iter().next().unwrap();
                     if let Some(shape) = shapes.get(s_idx) {
                         let handle_pos = self.get_rotation_handle_pos(shape);
-                        if (handle_pos.x - wx).abs() < 8.0 / self.zoom && (handle_pos.y - wy).abs() < 8.0 / self.zoom {
+                        if (handle_pos.x - wx).abs() < 8.0 / self.zoom
+                            && (handle_pos.y - wy).abs() < 8.0 / self.zoom
+                        {
                             self.dragging_rotation = Some(s_idx);
                         }
                     }
@@ -1003,7 +1241,8 @@ impl PreviewRenderer {
                 }
             }
 
-            if response.clicked() && self.dragging_rotation.is_none() {
+            if response.clicked_by(egui::PointerButton::Primary) && self.dragging_rotation.is_none()
+            {
                 if let Some(idx) = self.hover_shape_idx {
                     let mut add_node_action: Option<InteractiveAction> = None;
                     if self.node_edit_mode {
@@ -1017,7 +1256,9 @@ impl PreviewRenderer {
                                         shape.x + p.0 * cos_a - p.1 * sin_a,
                                         shape.y + p.0 * sin_a + p.1 * cos_a,
                                     );
-                                    if (vp.x - wx).abs() < 4.0 / self.zoom && (vp.y - wy).abs() < 4.0 / self.zoom {
+                                    if (vp.x - wx).abs() < 4.0 / self.zoom
+                                        && (vp.y - wy).abs() < 4.0 / self.zoom
+                                    {
                                         node_hit = Some(v_idx);
                                         break;
                                     }
@@ -1077,7 +1318,7 @@ impl PreviewRenderer {
 
                     if is_multi {
                         if self.selected_shape_idx.contains(&idx) {
-                            self.selected_shape_idx.remove(&idx);
+                            self.selected_shape_idx.shift_remove(&idx);
                         } else {
                             self.selected_shape_idx.insert(idx);
                         }
@@ -1085,7 +1326,8 @@ impl PreviewRenderer {
                         self.selected_shape_idx.clear();
                         self.selected_shape_idx.insert(idx);
                     }
-                    action = add_node_action.unwrap_or(InteractiveAction::SelectShape(idx, is_multi));
+                    action =
+                        add_node_action.unwrap_or(InteractiveAction::SelectShape(idx, is_multi));
                 } else if !is_multi {
                     self.selected_shape_idx.clear();
                     self.selected_node = None;
@@ -1095,7 +1337,8 @@ impl PreviewRenderer {
             }
         }
 
-        if response.dragged() {
+        // ── Left mouse drag: shape/node operations ──
+        if response.dragged_by(egui::PointerButton::Primary) {
             if self.selection_box_start.is_some() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     let ex = (pos.x - self.pan.x) / self.zoom;
@@ -1122,7 +1365,7 @@ impl PreviewRenderer {
                         let (wcx, wcy) = shape.world_pos(lcx, lcy);
                         let dx = wx - wcx;
                         let dy = wy - wcy;
-                        
+
                         // Handle is at (width + offset, height + offset) in local coords
                         let offset = 2.0;
                         let (local_lx, local_ly) = match &shape.shape {
@@ -1133,43 +1376,56 @@ impl PreviewRenderer {
                                 (shape.text.len() as f32 * char_w, shape.font_size_mm)
                             }
                             ShapeKind::Path(pts) => {
-                                let mut max_x: f32 = 0.0; let mut max_y: f32 = 0.0;
+                                let mut max_x: f32 = 0.0;
+                                let mut max_y: f32 = 0.0;
                                 for p in pts {
                                     max_x = max_x.max(p.0);
                                     max_y = max_y.max(p.1);
                                 }
                                 (max_x, max_y)
                             }
-                            ShapeKind::RasterImage { params, .. } => (params.width_mm, params.height_mm),
+                            ShapeKind::RasterImage { params, .. } => {
+                                (params.width_mm, params.height_mm)
+                            }
                         };
-                        
+
                         // Angle from center to top-right handle in local space
-                        let base_angle = (local_ly + offset - lcy).atan2(local_lx + offset - lcx).to_degrees();
+                        let base_angle = (local_ly + offset - lcy)
+                            .atan2(local_lx + offset - lcx)
+                            .to_degrees();
                         let current_angle = dy.atan2(dx).to_degrees();
                         let new_rotation = current_angle - base_angle;
                         let delta = new_rotation - shape.rotation;
-                        
-                        action = InteractiveAction::RotateSelection { shape_idx: s_idx, delta_deg: delta };
+
+                        action = InteractiveAction::RotateSelection {
+                            shape_idx: s_idx,
+                            delta_deg: delta,
+                        };
                     }
                 }
             } else if self.node_edit_mode && self.selected_node.is_some() {
-                 let (s_idx, v_idx) = self.selected_node.unwrap();
-                 if let Some(pos) = response.interact_pointer_pos() {
-                     let dx = (pos.x - self.pan.x) / self.zoom;
-                     let dy = -(pos.y - self.pan.y) / self.zoom;
-                     action = InteractiveAction::MoveNode { shape_idx: s_idx, node_idx: v_idx, new_pos: Pos2::new(dx, dy) };
-                 }
+                let (s_idx, v_idx) = self.selected_node.unwrap();
+                if let Some(pos) = response.interact_pointer_pos() {
+                    let dx = (pos.x - self.pan.x) / self.zoom;
+                    let dy = -(pos.y - self.pan.y) / self.zoom;
+                    action = InteractiveAction::MoveNode {
+                        shape_idx: s_idx,
+                        node_idx: v_idx,
+                        new_pos: Pos2::new(dx, dy),
+                    };
+                }
             } else if !self.selected_shape_idx.is_empty() {
                 let delta = response.drag_delta();
                 action = InteractiveAction::DragSelection {
-                    delta: Vec2::new(delta.x / self.zoom, -delta.y / self.zoom)
+                    delta: Vec2::new(delta.x / self.zoom, -delta.y / self.zoom),
                 };
-            } else {
-                self.pan += response.drag_delta();
             }
-        } else {
-            if response.drag_stopped() {
-                if let (Some(start), Some(end)) = (self.selection_box_start.take(), self.selection_box_end.take()) {
+        } else if !response.dragged_by(egui::PointerButton::Middle) {
+            if response.drag_stopped_by(egui::PointerButton::Primary) {
+                if let (Some(start), Some(end)) = (
+                    self.selection_box_start.take(),
+                    self.selection_box_end.take(),
+                ) {
                     let hit_indices = self.shapes_in_world_rect(start, end, shapes);
                     if !self.selection_box_additive {
                         self.selected_shape_idx.clear();
@@ -1200,11 +1456,49 @@ impl PreviewRenderer {
         action
     }
 
+    fn show_context_menu(
+        &self,
+        _ui: &egui::Ui,
+        response: &egui::Response,
+        has_selection: bool,
+    ) -> InteractiveAction {
+        let mut ctx_action = InteractiveAction::None;
+        response.clone().context_menu(|ui| {
+            if has_selection {
+                if ui.button("🗑  Supprimer la sélection").clicked() {
+                    ctx_action = InteractiveAction::ContextDeleteSelection;
+                    ui.close_menu();
+                }
+                if ui.button("📋  Dupliquer").clicked() {
+                    ctx_action = InteractiveAction::ContextDuplicateSelection;
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("🔗  Grouper").clicked() {
+                    ctx_action = InteractiveAction::ContextGroupSelection;
+                    ui.close_menu();
+                }
+                if ui.button("✂  Dégrouper").clicked() {
+                    ctx_action = InteractiveAction::ContextUngroupSelection;
+                    ui.close_menu();
+                }
+                ui.separator();
+            }
+            if ui.button("☑  Tout sélectionner").clicked() {
+                ctx_action = InteractiveAction::ContextSelectAll;
+                ui.close_menu();
+            }
+        });
+        ctx_action
+    }
+
     fn is_point_in_shape(&self, wx: f32, wy: f32, shape: &ShapeParams) -> bool {
         let (lx, ly) = self.world_to_local(wx, wy, shape);
         match &shape.shape {
-            ShapeKind::Rectangle => lx >= 0.0 && lx <= shape.width && ly >= 0.0 && ly <= shape.height,
-            ShapeKind::Circle => (lx*lx + ly*ly).sqrt() <= shape.radius,
+            ShapeKind::Rectangle => {
+                lx >= 0.0 && lx <= shape.width && ly >= 0.0 && ly <= shape.height
+            }
+            ShapeKind::Circle => (lx * lx + ly * ly).sqrt() <= shape.radius,
             ShapeKind::TextLine => {
                 let char_w = shape.font_size_mm * 0.6;
                 let w = shape.text.len() as f32 * char_w;
@@ -1212,11 +1506,15 @@ impl PreviewRenderer {
             }
             ShapeKind::Path(pts) => {
                 // Re-use bounding box for hit test for paths (simplified)
-                let mut min_x = f32::MAX; let mut max_x = f32::MIN;
-                let mut min_y = f32::MAX; let mut max_y = f32::MIN;
+                let mut min_x = f32::MAX;
+                let mut max_x = f32::MIN;
+                let mut min_y = f32::MAX;
+                let mut max_y = f32::MIN;
                 for p in pts {
-                    min_x = min_x.min(p.0); max_x = max_x.max(p.0);
-                    min_y = min_y.min(p.1); max_y = max_y.max(p.1);
+                    min_x = min_x.min(p.0);
+                    max_x = max_x.max(p.0);
+                    min_y = min_y.min(p.1);
+                    max_y = max_y.max(p.1);
                 }
                 lx >= min_x && lx <= max_x && ly >= min_y && ly <= max_y
             }
@@ -1229,7 +1527,7 @@ impl PreviewRenderer {
     fn get_rotation_handle_pos(&self, shape: &ShapeParams) -> Pos2 {
         let angle = shape.rotation.to_radians();
         let offset = 2.0; // World units (mm) away from the corner
-        
+
         // Find local top-right corner
         let (lx, ly) = match &shape.shape {
             ShapeKind::Rectangle => (shape.width, shape.height),
@@ -1249,11 +1547,11 @@ impl PreviewRenderer {
             }
             ShapeKind::RasterImage { params, .. } => (params.width_mm, params.height_mm),
         };
-        
+
         // Add offset in local coordinates
         let lx_f = lx + offset;
         let ly_f = ly + offset;
-        
+
         let wx = shape.x + lx_f * angle.cos() - ly_f * angle.sin();
         let wy = shape.y + lx_f * angle.sin() + ly_f * angle.cos();
         Pos2::new(wx, wy)
@@ -1320,7 +1618,9 @@ impl PreviewRenderer {
                 if pts.is_empty() {
                     return None;
                 }
-                pts.iter().map(|(lx, ly)| transform(shape, *lx, *ly)).collect()
+                pts.iter()
+                    .map(|(lx, ly)| transform(shape, *lx, *ly))
+                    .collect()
             }
             ShapeKind::RasterImage { params, .. } => vec![
                 transform(shape, 0.0, 0.0),
@@ -1344,10 +1644,7 @@ impl PreviewRenderer {
     }
 
     fn world_to_screen(&self, wx: f32, wy: f32, _rect: Rect) -> Pos2 {
-        Pos2::new(
-            wx * self.zoom + self.pan.x,
-            -wy * self.zoom + self.pan.y,
-        )
+        Pos2::new(wx * self.zoom + self.pan.x, -wy * self.zoom + self.pan.y)
     }
 
     fn draw_grid(&self, painter: &Painter, rect: Rect, is_light: bool) {
@@ -1366,8 +1663,13 @@ impl PreviewRenderer {
         } else {
             Stroke::new(1.5, theme::SURFACE2)
         };
-        let workspace_stroke = Stroke::new(1.5, Color32::from_rgba_premultiplied(166, 227, 161, 120));
-        let label_color = if is_light { Color32::from_rgb(100, 100, 120) } else { theme::OVERLAY0 };
+        let workspace_stroke =
+            Stroke::new(1.5, Color32::from_rgba_premultiplied(166, 227, 161, 120));
+        let label_color = if is_light {
+            Color32::from_rgb(100, 100, 120)
+        } else {
+            theme::OVERLAY0
+        };
 
         // Adaptive grid spacing
         let (minor_step, major_step) = if self.zoom < 0.3 {
@@ -1391,13 +1693,16 @@ impl PreviewRenderer {
             let sx = wx * self.zoom + self.pan.x;
             if sx >= rect.left() && sx <= rect.right() {
                 let is_major = (wx / major_step).round() * major_step == wx.round();
-                
+
                 // Screen Y bounds for vertical lines
                 let s_y_start = self.pan.y - self.workspace_size.y * self.zoom;
                 let s_y_end = self.pan.y;
-                
+
                 painter.line_segment(
-                    [Pos2::new(sx, s_y_start.max(rect.top())), Pos2::new(sx, s_y_end.min(rect.bottom()))],
+                    [
+                        Pos2::new(sx, s_y_start.max(rect.top())),
+                        Pos2::new(sx, s_y_end.min(rect.bottom())),
+                    ],
                     if is_major { major_stroke } else { minor_stroke },
                 );
 
@@ -1405,9 +1710,10 @@ impl PreviewRenderer {
                 if is_major {
                     // Stay on top edge of workspace, but clamp to visible screen area
                     let label_y = s_y_start.max(rect.top() + 4.0);
-                    if label_y <= s_y_end - 10.0 { // Only draw if we're not squishing into the bottom edge
+                    if label_y <= s_y_end - 10.0 {
+                        // Only draw if we're not squishing into the bottom edge
                         painter.text(
-                            Pos2::new(sx + 2.0, label_y),
+                            Pos2::new(sx + 2.0, label_y - 12.0),
                             egui::Align2::LEFT_TOP,
                             format!("{:.0}", wx),
                             egui::FontId::monospace(9.0),
@@ -1425,13 +1731,16 @@ impl PreviewRenderer {
             let sy = -wy * self.zoom + self.pan.y;
             if sy >= rect.top() && sy <= rect.bottom() {
                 let is_major = (wy / major_step).round() * major_step == wy.round();
-                
-                // Screen X bounds for horizontal lines 
+
+                // Screen X bounds for horizontal lines
                 let s_x_start = self.pan.x;
                 let s_x_end = self.pan.x + self.workspace_size.x * self.zoom;
-                
+
                 painter.line_segment(
-                    [Pos2::new(s_x_start.max(rect.left()), sy), Pos2::new(s_x_end.min(rect.right()), sy)],
+                    [
+                        Pos2::new(s_x_start.max(rect.left()), sy),
+                        Pos2::new(s_x_end.min(rect.right()), sy),
+                    ],
                     if is_major { major_stroke } else { minor_stroke },
                 );
 
@@ -1439,9 +1748,10 @@ impl PreviewRenderer {
                 if is_major {
                     // Stay on left edge of workspace, but clamp to visible screen area
                     let label_x = s_x_start.max(rect.left() + 2.0);
-                    if label_x <= s_x_end - 20.0 { // Only draw if we're not squishing into the right edge
+                    if label_x <= s_x_end - 20.0 {
+                        // Only draw if we're not squishing into the right edge
                         painter.text(
-                            Pos2::new(label_x, sy - 9.0),
+                            Pos2::new(label_x - 22.0, sy - 9.0),
                             egui::Align2::LEFT_TOP,
                             format!("{:.0}", wy),
                             egui::FontId::monospace(9.0),
@@ -1459,14 +1769,20 @@ impl PreviewRenderer {
         let s_x_end = self.pan.x + self.workspace_size.x * self.zoom;
 
         if origin.x >= rect.left() && origin.x <= rect.right() {
-             painter.line_segment(
-                [Pos2::new(origin.x, s_y_start.max(rect.top())), Pos2::new(origin.x, origin.y.min(rect.bottom()))],
+            painter.line_segment(
+                [
+                    Pos2::new(origin.x, s_y_start.max(rect.top())),
+                    Pos2::new(origin.x, origin.y.min(rect.bottom())),
+                ],
                 axis_stroke,
             );
         }
         if origin.y >= rect.top() && origin.y <= rect.bottom() {
             painter.line_segment(
-                [Pos2::new(origin.x.max(rect.left()), origin.y), Pos2::new(s_x_end.min(rect.right()), origin.y)],
+                [
+                    Pos2::new(origin.x.max(rect.left()), origin.y),
+                    Pos2::new(s_x_end.min(rect.right()), origin.y),
+                ],
                 axis_stroke,
             );
         }

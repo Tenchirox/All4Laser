@@ -3,19 +3,81 @@ use egui::{Color32, Context};
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum UiTheme {
-    Modern,    // Catppuccin
+    Modern,     // Catppuccin
     Industrial, // LightBurn-style
+    Pro,        // Clean, High-contrast, Modern Professional
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum UiLayout {
-    Modern, // sidebar left
+    Modern,  // sidebar left
     Classic, // LightBurn style (sidebar left/right, console right)
+    Pro,     // High-end workspace: wider panels, robust layout
 }
 
 pub struct AppTheme {
     pub ui_theme: UiTheme,
     pub is_light: bool,
+}
+
+/// User-importable custom theme (F66)
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CustomTheme {
+    pub name: String,
+    pub base: [u8; 3],
+    pub mantle: [u8; 3],
+    pub crust: [u8; 3],
+    pub surface0: [u8; 3],
+    pub surface1: [u8; 3],
+    pub surface2: [u8; 3],
+    pub text: [u8; 3],
+    pub subtext: [u8; 3],
+    pub accent: [u8; 3],
+}
+
+impl CustomTheme {
+    fn themes_dir() -> std::path::PathBuf {
+        std::env::current_exe()
+            .unwrap_or_default()
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("themes")
+    }
+
+    pub fn save(&self) -> Result<(), String> {
+        if self.name.contains('/') || self.name.contains('\\') || self.name.contains("..") {
+            return Err("Invalid theme name".into());
+        }
+        let dir = Self::themes_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let filename = self.name.replace(' ', "_").to_lowercase() + ".json";
+        let path = dir.join(filename);
+        let json = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        std::fs::write(path, json).map_err(|e| e.to_string())
+    }
+
+    pub fn load(name: &str) -> Result<CustomTheme, String> {
+        if name.contains('/') || name.contains('\\') || name.contains("..") {
+            return Err("Invalid theme name".into());
+        }
+        let dir = Self::themes_dir();
+        let path = dir.join(format!("{name}.json"));
+        let json = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+
+    pub fn list() -> Vec<String> {
+        let dir = Self::themes_dir();
+        let mut names = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.path().file_stem() {
+                    names.push(name.to_string_lossy().to_string());
+                }
+            }
+        }
+        names
+    }
 }
 
 // Dark (Mocha)
@@ -39,19 +101,19 @@ pub const LIGHT_TEXT: Color32 = Color32::from_rgb(43, 49, 65);
 pub const LIGHT_SUBTEXT: Color32 = Color32::from_rgb(80, 88, 109);
 
 // Accents (approximate for both, but usually vivid enough)
-pub const RED: Color32 = Color32::from_rgb(243, 139, 168);     // #F38BA8
-pub const PEACH: Color32 = Color32::from_rgb(250, 179, 135);   // #FAB387
-pub const YELLOW: Color32 = Color32::from_rgb(249, 226, 175);  // #F9E2AF
-pub const GREEN: Color32 = Color32::from_rgb(166, 227, 161);   // #A6E3A1
+pub const RED: Color32 = Color32::from_rgb(243, 139, 168); // #F38BA8
+pub const PEACH: Color32 = Color32::from_rgb(250, 179, 135); // #FAB387
+pub const YELLOW: Color32 = Color32::from_rgb(249, 226, 175); // #F9E2AF
+pub const GREEN: Color32 = Color32::from_rgb(166, 227, 161); // #A6E3A1
 pub const BLUE: Color32 = Color32::from_rgb(82, 134, 214);
-pub const LAVENDER: Color32 = Color32::from_rgb(180, 190, 254);// #B4BEFE
-pub const MAUVE: Color32 = Color32::from_rgb(203, 166, 247);   // #CBA6F7
-pub const TEAL: Color32 = Color32::from_rgb(148, 226, 213);    // #94E2D5
+pub const LAVENDER: Color32 = Color32::from_rgb(180, 190, 254); // #B4BEFE
+pub const MAUVE: Color32 = Color32::from_rgb(203, 166, 247); // #CBA6F7
+pub const TEAL: Color32 = Color32::from_rgb(148, 226, 213); // #94E2D5
 
 // Generic exports for backwards compatibility (used by other modules directly)
-// We will alias these to the currently active theme in `apply_theme` using context, 
-// but since they are consts used directly, we can't easily swap them at runtime without 
-// passing the theme state everywhere. 
+// We will alias these to the currently active theme in `apply_theme` using context,
+// but since they are consts used directly, we can't easily swap them at runtime without
+// passing the theme state everywhere.
 // For now, let's just make the background/surfaces change correctly.
 // The constants exported here are the DARK defaults used in other files.
 pub const BASE: Color32 = DARK_BASE;
@@ -67,22 +129,90 @@ pub const SUBTEXT: Color32 = DARK_SUBTEXT;
 
 pub fn apply_theme(ctx: &Context, state: &AppTheme) {
     let mut style = (*ctx.style()).clone();
-    
+
     // Industrial Palette (LightBurn-style - plus fidèle à l'original)
-    let iron = Color32::from_rgb(48, 49, 52);      // Background principal
-    let steel = Color32::from_rgb(58, 59, 63);     // Surface panels
-    let coal = Color32::from_rgb(39, 40, 43);      // Fond sombre
-    let cobalt = Color32::from_rgb(0, 122, 204);   // Accent Blue LightBurn
-    let mercury = Color32::from_rgb(230, 231, 234);// Texte principal
+    let iron = Color32::from_rgb(48, 49, 52); // Background principal
+    let steel = Color32::from_rgb(58, 59, 63); // Surface panels
+    let coal = Color32::from_rgb(39, 40, 43); // Fond sombre
+    let cobalt = Color32::from_rgb(0, 122, 204); // Accent Blue LightBurn
+    let mercury = Color32::from_rgb(230, 231, 234); // Texte principal
     let light_gray = Color32::from_rgb(186, 188, 194); // Texte secondaire
     let dark_steel = Color32::from_rgb(71, 72, 77); // Surface active
 
     let (base, mantle, crust, surface0, surface1, surface2, text, accent) = match state.ui_theme {
         UiTheme::Modern => {
             if state.is_light {
-                (LIGHT_BASE, LIGHT_MANTLE, LIGHT_CRUST, LIGHT_SURFACE0, LIGHT_SURFACE1, LIGHT_SURFACE2, LIGHT_TEXT, BLUE)
+                (
+                    LIGHT_BASE,
+                    LIGHT_MANTLE,
+                    LIGHT_CRUST,
+                    LIGHT_SURFACE0,
+                    LIGHT_SURFACE1,
+                    LIGHT_SURFACE2,
+                    LIGHT_TEXT,
+                    BLUE,
+                )
             } else {
-                (DARK_BASE, DARK_MANTLE, DARK_CRUST, DARK_SURFACE0, DARK_SURFACE1, DARK_SURFACE2, DARK_TEXT, BLUE)
+                (
+                    DARK_BASE,
+                    DARK_MANTLE,
+                    DARK_CRUST,
+                    DARK_SURFACE0,
+                    DARK_SURFACE1,
+                    DARK_SURFACE2,
+                    DARK_TEXT,
+                    BLUE,
+                )
+            }
+        }
+        UiTheme::Pro => {
+            if state.is_light {
+                (
+                    Color32::from_rgb(250, 250, 250), // Base
+                    Color32::from_rgb(240, 240, 240), // Mantle
+                    Color32::from_rgb(230, 230, 230), // Crust
+                    Color32::from_rgb(255, 255, 255), // Surface0
+                    Color32::from_rgb(245, 245, 245), // Surface1
+                    Color32::from_rgb(220, 220, 220), // Surface2
+                    Color32::from_rgb(17, 24, 39),    // Text (very dark gray)
+                    Color32::from_rgb(14, 165, 233),  // Accent (Sky Blue)
+                )
+            } else {
+                (
+                    Color32::from_rgb(15, 23, 42),    // Base (Slate 900)
+                    Color32::from_rgb(2, 6, 23),      // Mantle (Slate 950)
+                    Color32::from_rgb(0, 0, 0),       // Crust (Black)
+                    Color32::from_rgb(30, 41, 59),    // Surface0 (Slate 800)
+                    Color32::from_rgb(51, 65, 85),    // Surface1 (Slate 700)
+                    Color32::from_rgb(71, 85, 105),   // Surface2 (Slate 600)
+                    Color32::from_rgb(248, 250, 252), // Text (Slate 50)
+                    Color32::from_rgb(56, 189, 248),  // Accent (Sky 400)
+                )
+            }
+        }
+        UiTheme::Pro => {
+            if state.is_light {
+                (
+                    Color32::from_rgb(250, 250, 250), // Base
+                    Color32::from_rgb(240, 240, 240), // Mantle
+                    Color32::from_rgb(230, 230, 230), // Crust
+                    Color32::from_rgb(255, 255, 255), // Surface0
+                    Color32::from_rgb(245, 245, 245), // Surface1
+                    Color32::from_rgb(220, 220, 220), // Surface2
+                    Color32::from_rgb(17, 24, 39),    // Text (very dark gray)
+                    Color32::from_rgb(14, 165, 233),  // Accent (Sky Blue)
+                )
+            } else {
+                (
+                    Color32::from_rgb(15, 23, 42),    // Base (Slate 900)
+                    Color32::from_rgb(2, 6, 23),      // Mantle (Slate 950)
+                    Color32::from_rgb(0, 0, 0),       // Crust (Black)
+                    Color32::from_rgb(30, 41, 59),    // Surface0 (Slate 800)
+                    Color32::from_rgb(51, 65, 85),    // Surface1 (Slate 700)
+                    Color32::from_rgb(71, 85, 105),   // Surface2 (Slate 600)
+                    Color32::from_rgb(248, 250, 252), // Text (Slate 50)
+                    Color32::from_rgb(56, 189, 248),  // Accent (Sky 400)
+                )
             }
         }
         UiTheme::Industrial => {
@@ -101,7 +231,16 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
                 )
             } else {
                 // Version sombre - couleurs LightBurn authentiques
-                (iron, steel, coal, steel, dark_steel, Color32::from_rgb(86, 88, 94), mercury, cobalt)
+                (
+                    iron,
+                    steel,
+                    coal,
+                    steel,
+                    dark_steel,
+                    Color32::from_rgb(86, 88, 94),
+                    mercury,
+                    cobalt,
+                )
             }
         }
     };
@@ -121,6 +260,13 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
                 Color32::from_rgb(60, 63, 82)
             }
         }
+        UiTheme::Pro => {
+            if state.is_light {
+                Color32::from_rgb(226, 232, 240) // Slate 200
+            } else {
+                Color32::from_rgb(51, 65, 85) // Slate 700
+            }
+        }
     };
 
     style.visuals.dark_mode = !state.is_light;
@@ -132,10 +278,10 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
     style.visuals.window_stroke = egui::Stroke::new(1.0, border_color);
 
     // Rounding based on theme
-    let rounding = if state.ui_theme == UiTheme::Industrial {
-        egui::CornerRadius::same(1) // Quasi plat
-    } else {
-        egui::CornerRadius::same(6) // Modern/Round
+    let rounding = match state.ui_theme {
+        UiTheme::Industrial => egui::CornerRadius::same(1), // Quasi plat
+        UiTheme::Pro => egui::CornerRadius::same(4),        // Slightly rounded, crisp
+        UiTheme::Modern => egui::CornerRadius::same(6),     // Modern/Round
     };
 
     // Noninteractive
@@ -150,51 +296,95 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
     style.visuals.widgets.inactive.weak_bg_fill = if state.ui_theme == UiTheme::Industrial {
         mantle
     } else if state.is_light {
-        Color32::from_rgb(225, 228, 238)
+        if state.ui_theme == UiTheme::Pro {
+            Color32::from_rgb(241, 245, 249)
+        } else {
+            Color32::from_rgb(225, 228, 238)
+        }
     } else {
         surface0
     };
     style.visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, border_color);
-    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(if state.ui_theme == UiTheme::Industrial { 1.2 } else { 1.5 }, text);
+    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(
+        if state.ui_theme == UiTheme::Industrial {
+            1.2
+        } else {
+            1.5
+        },
+        text,
+    );
     style.visuals.widgets.inactive.corner_radius = rounding;
 
     // Hovered
     style.visuals.widgets.hovered.bg_fill = surface1;
     style.visuals.widgets.hovered.weak_bg_fill = surface1;
-    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(if state.ui_theme == UiTheme::Industrial { 1.2 } else { 1.5 }, accent);
+    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(
+        if state.ui_theme == UiTheme::Industrial {
+            1.2
+        } else {
+            1.5
+        },
+        accent,
+    );
     style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.5, text);
     style.visuals.widgets.hovered.corner_radius = rounding;
 
     // Active (clicked)
     style.visuals.widgets.active.bg_fill = surface2;
     style.visuals.widgets.active.weak_bg_fill = surface2;
-    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(if state.ui_theme == UiTheme::Industrial { 1.6 } else { 2.0 }, accent);
+    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(
+        if state.ui_theme == UiTheme::Industrial {
+            1.6
+        } else {
+            2.0
+        },
+        accent,
+    );
     style.visuals.widgets.active.fg_stroke = egui::Stroke::new(2.0, text);
     style.visuals.widgets.active.corner_radius = rounding;
 
     // Open (combo boxes, menus)
     style.visuals.widgets.open.bg_fill = surface1;
     style.visuals.widgets.open.weak_bg_fill = surface1;
-    style.visuals.widgets.open.bg_stroke = egui::Stroke::new(if state.ui_theme == UiTheme::Industrial { 1.2 } else { 1.5 }, accent);
+    style.visuals.widgets.open.bg_stroke = egui::Stroke::new(
+        if state.ui_theme == UiTheme::Industrial {
+            1.2
+        } else {
+            1.5
+        },
+        accent,
+    );
     style.visuals.widgets.open.fg_stroke = egui::Stroke::new(1.5, text);
     style.visuals.widgets.open.corner_radius = rounding;
 
     style.visuals.selection.bg_fill = accent;
     style.visuals.selection.stroke.color = if state.ui_theme == UiTheme::Industrial {
-        if state.is_light { Color32::from_rgb(250, 250, 252) } else { light_gray }
+        if state.is_light {
+            Color32::from_rgb(250, 250, 252)
+        } else {
+            light_gray
+        }
     } else {
         crust
     };
-    
-    if state.ui_theme == UiTheme::Industrial {
-        style.spacing.button_padding = egui::vec2(5.5, 3.0);
-        style.spacing.item_spacing = egui::vec2(3.5, 3.5);
-        style.spacing.indent = 10.0;
-        style.visuals.window_stroke = egui::Stroke::new(1.0, Color32::from_rgb(83, 85, 92));
-    } else {
-        style.spacing.button_padding = egui::vec2(12.0, 6.0);
-        style.spacing.item_spacing = egui::vec2(8.0, 7.0);
+
+    match state.ui_theme {
+        UiTheme::Industrial => {
+            style.spacing.button_padding = egui::vec2(5.5, 3.0);
+            style.spacing.item_spacing = egui::vec2(3.5, 3.5);
+            style.spacing.indent = 10.0;
+            style.visuals.window_stroke = egui::Stroke::new(1.0, Color32::from_rgb(83, 85, 92));
+        }
+        UiTheme::Pro => {
+            style.spacing.button_padding = egui::vec2(10.0, 5.0);
+            style.spacing.item_spacing = egui::vec2(6.0, 6.0);
+            style.spacing.indent = 12.0;
+        }
+        UiTheme::Modern => {
+            style.spacing.button_padding = egui::vec2(12.0, 6.0);
+            style.spacing.item_spacing = egui::vec2(8.0, 7.0);
+        }
     }
-    
+
     ctx.set_style(style);
 }

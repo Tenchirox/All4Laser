@@ -1,4 +1,5 @@
-use egui::{Ui, RichText};
+use crate::ui::drawing::{ShapeKind, ShapeParams};
+use egui::{RichText, Ui};
 use qrcode::QrCode;
 
 pub struct GeneratorState {
@@ -39,13 +40,21 @@ impl Default for GeneratorState {
 
 pub struct GeneratorAction {
     pub generate_gcode: Option<Vec<String>>,
+    pub generate_shapes: Option<Vec<ShapeParams>>,
 }
 
-pub fn show(ui: &mut Ui, state: &mut GeneratorState) -> GeneratorAction {
-    let mut action = GeneratorAction { generate_gcode: None };
+pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> GeneratorAction {
+    let mut action = GeneratorAction {
+        generate_gcode: None,
+        generate_shapes: None,
+    };
 
     ui.group(|ui| {
-        ui.label(RichText::new("📦 Object Generators").color(crate::theme::LAVENDER).strong());
+        ui.label(
+            RichText::new("📦 Object Generators")
+                .color(crate::theme::LAVENDER)
+                .strong(),
+        );
         ui.add_space(4.0);
 
         ui.collapsing("🔗 QR Code Generator", |ui| {
@@ -60,7 +69,7 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState) -> GeneratorAction {
                     let size = 1.0; // 1mm per module
                     let pixels = code.to_colors();
                     let width = code.width();
-                    
+
                     gcode.push("G90".to_string());
                     gcode.push("M5".to_string());
                     for (i, color) in pixels.into_iter().enumerate() {
@@ -90,27 +99,46 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState) -> GeneratorAction {
             ui.add(egui::Slider::new(&mut state.box_tab_size, 5.0..=50.0).text("Tab Size"));
 
             if ui.button("🚀 Generate Box Components").clicked() {
-                let mut gcode = Vec::new();
                 let w = state.box_w;
                 let h = state.box_h;
                 let d = state.box_d;
                 let t = state.box_thickness;
                 let ts = state.box_tab_size;
 
-                // Edge types: true = Male (starts with tab at boundary), false = Female (starts with recess)
-                // Bottom/Top Faces (W x H)
-                add_tabbed_face(&mut gcode, w, h, t, ts, 0.0, 0.0, [true, true, true, true]); // Bottom face
-                add_tabbed_face(&mut gcode, w, h, t, ts, w + 10.0, 0.0, [true, true, true, true]); // Top face
+                let mut shapes = Vec::new();
 
-                // Front/Back Faces (W x D)
-                add_tabbed_face(&mut gcode, w, d, t, ts, 0.0, h + 10.0, [false, true, false, true]); // Front
-                add_tabbed_face(&mut gcode, w, d, t, ts, w + 10.0, h + 10.0, [false, true, false, true]); // Back
+                // Bottom face (W x H)
+                shapes.push(make_tabbed_face_shape(
+                    w, h, t, ts, 0.0, 0.0,
+                    [true, true, true, true], active_layer, "Bottom",
+                ));
+                // Top face (W x H)
+                shapes.push(make_tabbed_face_shape(
+                    w, h, t, ts, w + 10.0, 0.0,
+                    [true, true, true, true], active_layer, "Top",
+                ));
+                // Front face (W x D)
+                shapes.push(make_tabbed_face_shape(
+                    w, d, t, ts, 0.0, h + 10.0,
+                    [false, true, false, true], active_layer, "Front",
+                ));
+                // Back face (W x D)
+                shapes.push(make_tabbed_face_shape(
+                    w, d, t, ts, w + 10.0, h + 10.0,
+                    [false, true, false, true], active_layer, "Back",
+                ));
+                // Left face (H x D)
+                shapes.push(make_tabbed_face_shape(
+                    h, d, t, ts, 0.0, h + d + 20.0,
+                    [false, false, false, false], active_layer, "Left",
+                ));
+                // Right face (H x D)
+                shapes.push(make_tabbed_face_shape(
+                    h, d, t, ts, h + 10.0, h + d + 20.0,
+                    [false, false, false, false], active_layer, "Right",
+                ));
 
-                // Left/Right Faces (H x D)
-                add_tabbed_face(&mut gcode, h, d, t, ts, 0.0, h + d + 20.0, [false, false, false, false]); // Left
-                add_tabbed_face(&mut gcode, h, d, t, ts, h + 10.0, h + d + 20.0, [false, false, false, false]); // Right
-
-                action.generate_gcode = Some(gcode);
+                action.generate_shapes = Some(shapes);
             }
         });
 
@@ -120,15 +148,31 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState) -> GeneratorAction {
 
             ui.horizontal(|ui| {
                 ui.label("Width:");
-                ui.add(egui::DragValue::new(&mut state.fiducial_width).range(20.0..=2000.0).suffix(" mm"));
+                ui.add(
+                    egui::DragValue::new(&mut state.fiducial_width)
+                        .range(20.0..=2000.0)
+                        .suffix(" mm"),
+                );
                 ui.label("Height:");
-                ui.add(egui::DragValue::new(&mut state.fiducial_height).range(20.0..=2000.0).suffix(" mm"));
+                ui.add(
+                    egui::DragValue::new(&mut state.fiducial_height)
+                        .range(20.0..=2000.0)
+                        .suffix(" mm"),
+                );
             });
             ui.horizontal(|ui| {
                 ui.label("Margin:");
-                ui.add(egui::DragValue::new(&mut state.fiducial_margin).range(1.0..=200.0).suffix(" mm"));
+                ui.add(
+                    egui::DragValue::new(&mut state.fiducial_margin)
+                        .range(1.0..=200.0)
+                        .suffix(" mm"),
+                );
                 ui.label("Mark size:");
-                ui.add(egui::DragValue::new(&mut state.fiducial_mark_size).range(1.0..=100.0).suffix(" mm"));
+                ui.add(
+                    egui::DragValue::new(&mut state.fiducial_mark_size)
+                        .range(1.0..=100.0)
+                        .suffix(" mm"),
+                );
             });
             ui.horizontal(|ui| {
                 ui.label("Feed:");
@@ -200,7 +244,16 @@ fn generate_fiducials_gcode(state: &GeneratorState) -> Vec<String> {
     gcode
 }
 
-fn add_tabbed_face(gcode: &mut Vec<String>, w: f32, h: f32, t: f32, ts: f32, ox: f32, oy: f32, edges: [bool; 4]) {
+fn add_tabbed_face(
+    gcode: &mut Vec<String>,
+    w: f32,
+    h: f32,
+    t: f32,
+    ts: f32,
+    ox: f32,
+    oy: f32,
+    edges: [bool; 4],
+) {
     gcode.push(format!("; Face {}x{}", w, h));
     gcode.push(format!("G0 X{} Y{}", ox, oy));
     gcode.push("M3 S1000".into());
@@ -214,8 +267,17 @@ fn add_tabbed_face(gcode: &mut Vec<String>, w: f32, h: f32, t: f32, ts: f32, ox:
     gcode.push("M5".into());
 }
 
-fn draw_edge(gcode: &mut Vec<String>, sx: f32, sy: f32, dx: f32, dy: f32, t: f32, ts: f32, is_male: bool) {
-    let length = (dx*dx + dy*dy).sqrt();
+fn draw_edge(
+    gcode: &mut Vec<String>,
+    sx: f32,
+    sy: f32,
+    dx: f32,
+    dy: f32,
+    t: f32,
+    ts: f32,
+    is_male: bool,
+) {
+    let length = (dx * dx + dy * dy).sqrt();
     let num_tabs = (length / ts).floor() as i32;
     if num_tabs < 1 {
         gcode.push(format!("G1 X{} Y{} F800", sx + dx, sy + dy));
@@ -231,23 +293,110 @@ fn draw_edge(gcode: &mut Vec<String>, sx: f32, sy: f32, dx: f32, dy: f32, t: f32
     for i in 0..num_tabs {
         let is_tab = (i % 2 == 0) == is_male;
         let offset = if is_tab { 0.0 } else { -t };
-        
+
         let p_start_x = sx + (dx * (i as f32 / num_tabs as f32));
         let p_start_y = sy + (dy * (i as f32 / num_tabs as f32));
-        
+
         let p_end_x = sx + (dx * ((i + 1) as f32 / num_tabs as f32));
         let p_end_y = sy + (dy * ((i + 1) as f32 / num_tabs as f32));
 
         // Move to offset starting point
-        gcode.push(format!("G1 X{} Y{}", p_start_x + nx * offset, p_start_y + ny * offset));
+        gcode.push(format!(
+            "G1 X{} Y{}",
+            p_start_x + nx * offset,
+            p_start_y + ny * offset
+        ));
         // Cut the segment
-        gcode.push(format!("G1 X{} Y{}", p_end_x + nx * offset, p_end_y + ny * offset));
+        gcode.push(format!(
+            "G1 X{} Y{}",
+            p_end_x + nx * offset,
+            p_end_y + ny * offset
+        ));
+    }
+}
+
+/// Build a closed Path shape for a single tabbed box face.
+/// The shape origin (x, y) is at (ox, oy); points are local to (0,0).
+fn make_tabbed_face_shape(
+    w: f32,
+    h: f32,
+    t: f32,
+    ts: f32,
+    ox: f32,
+    oy: f32,
+    edges: [bool; 4],
+    layer_idx: usize,
+    _label: &str,
+) -> ShapeParams {
+    let mut pts: Vec<(f32, f32)> = Vec::new();
+
+    // Edges: 0: Bottom (+X), 1: Right (+Y), 2: Top (-X), 3: Left (-Y)
+    // Each edge goes from one corner to the next, generating tabbed points
+    edge_points(&mut pts, 0.0, 0.0, w, 0.0, t, ts, edges[0]);
+    edge_points(&mut pts, w, 0.0, 0.0, h, t, ts, edges[1]);
+    edge_points(&mut pts, w, h, -w, 0.0, t, ts, edges[2]);
+    edge_points(&mut pts, 0.0, h, 0.0, -h, t, ts, edges[3]);
+
+    // Close the path back to start
+    if let Some(&first) = pts.first() {
+        if let Some(&last) = pts.last() {
+            if (first.0 - last.0).abs() > 0.01 || (first.1 - last.1).abs() > 0.01 {
+                pts.push(first);
+            }
+        }
+    }
+
+    ShapeParams {
+        shape: ShapeKind::Path(pts),
+        x: ox,
+        y: oy,
+        layer_idx,
+        ..Default::default()
+    }
+}
+
+/// Generate the points for one tabbed edge and append them to `pts`.
+/// (sx, sy) is the start corner (local coords), (dx, dy) is the direction vector.
+fn edge_points(
+    pts: &mut Vec<(f32, f32)>,
+    sx: f32,
+    sy: f32,
+    dx: f32,
+    dy: f32,
+    t: f32,
+    ts: f32,
+    is_male: bool,
+) {
+    let length = (dx * dx + dy * dy).sqrt();
+    let num_tabs = (length / ts).floor().max(1.0) as i32;
+
+    // Normal direction (perpendicular, pointing inward)
+    let (nx, ny) = if dy == 0.0 {
+        if dx > 0.0 { (0.0, -1.0) } else { (0.0, 1.0) }
+    } else {
+        if dy > 0.0 { (1.0, 0.0) } else { (-1.0, 0.0) }
+    };
+
+    for i in 0..num_tabs {
+        let is_tab = (i % 2 == 0) == is_male;
+        let offset = if is_tab { 0.0 } else { -t };
+
+        let frac_start = i as f32 / num_tabs as f32;
+        let frac_end = (i + 1) as f32 / num_tabs as f32;
+
+        let p_start_x = sx + dx * frac_start + nx * offset;
+        let p_start_y = sy + dy * frac_start + ny * offset;
+        let p_end_x = sx + dx * frac_end + nx * offset;
+        let p_end_y = sy + dy * frac_end + ny * offset;
+
+        pts.push((p_start_x, p_start_y));
+        pts.push((p_end_x, p_end_y));
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_fiducials_gcode, GeneratorState};
+    use super::{GeneratorState, generate_fiducials_gcode};
 
     #[test]
     fn fiducials_generator_emits_four_marks() {
@@ -255,7 +404,10 @@ mod tests {
         state.fiducial_draw_frame = false;
 
         let lines = generate_fiducials_gcode(&state);
-        let marks = lines.iter().filter(|line| line.starts_with("; Fiducial ")).count();
+        let marks = lines
+            .iter()
+            .filter(|line| line.starts_with("; Fiducial "))
+            .count();
         assert_eq!(marks, 4);
     }
 

@@ -1,6 +1,6 @@
-use egui::{Ui, RichText};
 use crate::theme;
-use crate::ui::drawing::{ShapeParams, ShapeKind, DrawingState};
+use crate::ui::drawing::{DrawingState, ShapeKind, ShapeParams};
+use egui::RichText;
 use geo::{LineString, Polygon};
 
 #[derive(Clone, Debug)]
@@ -44,7 +44,11 @@ pub fn show(ctx: &egui::Context, state: &mut OffsetState) -> OffsetAction {
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Distance:");
-                ui.add(egui::DragValue::new(&mut state.distance).speed(0.1).suffix(" mm"));
+                ui.add(
+                    egui::DragValue::new(&mut state.distance)
+                        .speed(0.1)
+                        .suffix(" mm"),
+                );
             });
 
             ui.horizontal(|ui| {
@@ -56,7 +60,14 @@ pub fn show(ctx: &egui::Context, state: &mut OffsetState) -> OffsetAction {
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button(RichText::new("📐 Create Offset").color(theme::GREEN).strong()).clicked() {
+                if ui
+                    .button(
+                        RichText::new("📐 Create Offset")
+                            .color(theme::GREEN)
+                            .strong(),
+                    )
+                    .clicked()
+                {
                     action.apply = true;
                 }
                 if ui.button("Close").clicked() {
@@ -90,11 +101,14 @@ pub fn apply_offset(state: &OffsetState, drawing: &mut DrawingState, selected_in
 
                 let style = BufferStyle::new(dist).line_join(join);
                 let offset_multi_poly = poly.buffer_with_style(style);
-                
+
                 // Convert back to ShapeParams (Path)
                 for p in offset_multi_poly.0 {
                     let exterior = p.exterior();
-                    let points: Vec<(f32, f32)> = exterior.coords().map(|c| (c.x as f32, c.y as f32)).collect();
+                    let points: Vec<(f32, f32)> = exterior
+                        .coords()
+                        .map(|c| (c.x as f32, c.y as f32))
+                        .collect();
                     if !points.is_empty() {
                         let mut new_shape = shape.clone();
                         new_shape.shape = ShapeKind::Path(points);
@@ -120,7 +134,13 @@ pub fn shape_to_polygon(s: &ShapeParams) -> Option<Polygon<f64>> {
 
     match &s.shape {
         ShapeKind::Rectangle => {
-            let pts = vec![(0.0, 0.0), (s.width as f64, 0.0), (s.width as f64, s.height as f64), (0.0, s.height as f64), (0.0, 0.0)];
+            let pts = vec![
+                (0.0, 0.0),
+                (s.width as f64, 0.0),
+                (s.width as f64, s.height as f64),
+                (0.0, s.height as f64),
+                (0.0, 0.0),
+            ];
             let points: Vec<(f64, f64)> = pts.into_iter().map(|(lx, ly)| rotate(lx, ly)).collect();
             Some(Polygon::new(LineString::from(points), vec![]))
         }
@@ -136,8 +156,11 @@ pub fn shape_to_polygon(s: &ShapeParams) -> Option<Polygon<f64>> {
             Some(Polygon::new(LineString::from(points), vec![]))
         }
         ShapeKind::Path(pts) => {
-            let points: Vec<(f64, f64)> = pts.iter().map(|p| rotate(p.0 as f64, p.1 as f64)).collect();
-            if points.len() < 3 { return None; }
+            let points: Vec<(f64, f64)> =
+                pts.iter().map(|p| rotate(p.0 as f64, p.1 as f64)).collect();
+            if points.len() < 3 {
+                return None;
+            }
             Some(Polygon::new(LineString::from(points), vec![]))
         }
         _ => None,

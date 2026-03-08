@@ -2,19 +2,25 @@
 #[derive(Debug, Clone)]
 pub struct GCodeLine {
     pub raw: String,
-    pub g_code: Option<i32>,  // G0, G1, G2, G3, G28, G90, G91, etc.
-    pub m_code: Option<i32>,  // M3, M4, M5, etc.
+    pub g_code: Option<i32>, // G0, G1, G2, G3, G28, G90, G91, etc.
+    pub m_code: Option<i32>, // M3, M4, M5, etc.
     pub x: Option<f32>,
     pub y: Option<f32>,
     pub z: Option<f32>,
     pub f: Option<f32>,
     pub s: Option<f32>,
-    pub i: Option<f32>,       // Arc center offset
-    pub j: Option<f32>,       // Arc center offset
+    pub i: Option<f32>, // Arc center offset
+    pub j: Option<f32>, // Arc center offset
 }
 
 impl GCodeLine {
-    pub fn transform(&self, offset: egui::Vec2, rotation_deg: f32, center: egui::Pos2, rotary_scale: f32) -> String {
+    pub fn transform(
+        &self,
+        offset: egui::Vec2,
+        rotation_deg: f32,
+        center: egui::Pos2,
+        rotary_scale: f32,
+    ) -> String {
         // If no transformation, return original raw line to preserve comments/formatting
         if offset.x == 0.0 && offset.y == 0.0 && rotation_deg == 0.0 && rotary_scale == 1.0 {
             return self.raw.clone();
@@ -32,7 +38,7 @@ impl GCodeLine {
             (rx + center.x + offset.x, ry + center.y + offset.y)
         };
 
-        // We only transform absolute moves. 
+        // We only transform absolute moves.
         // Relative moves (G91) would need modal state tracking which we don't do here.
         // Fortunately most laser GCode is G90.
         if let (Some(x), Some(y)) = (line.x, line.y) {
@@ -55,16 +61,39 @@ impl GCodeLine {
 
     pub fn to_gcode(&self) -> String {
         let mut s = String::new();
-        if let Some(g) = self.g_code { s.push_str(&format!("G{} ", g)); }
-        if let Some(m) = self.m_code { s.push_str(&format!("M{} ", m)); }
-        if let Some(x) = self.x { s.push_str(&format!("X{:.3} ", x)); }
-        if let Some(y) = self.y { s.push_str(&format!("Y{:.3} ", y)); }
-        if let Some(z) = self.z { s.push_str(&format!("Z{:.3} ", z)); }
-        if let Some(i) = self.i { s.push_str(&format!("I{:.3} ", i)); }
-        if let Some(j) = self.j { s.push_str(&format!("J{:.3} ", j)); }
-        if let Some(f) = self.f { s.push_str(&format!("F{:.0} ", f)); }
-        if let Some(s_val) = self.s { s.push_str(&format!("S{:.0} ", s_val)); }
-        if s.is_empty() { self.raw.clone() } else { s.trim().to_string() }
+        if let Some(g) = self.g_code {
+            s.push_str(&format!("G{} ", g));
+        }
+        if let Some(m) = self.m_code {
+            s.push_str(&format!("M{} ", m));
+        }
+        if let Some(x) = self.x {
+            s.push_str(&format!("X{:.3} ", x));
+        }
+        if let Some(y) = self.y {
+            s.push_str(&format!("Y{:.3} ", y));
+        }
+        if let Some(z) = self.z {
+            s.push_str(&format!("Z{:.3} ", z));
+        }
+        if let Some(i) = self.i {
+            s.push_str(&format!("I{:.3} ", i));
+        }
+        if let Some(j) = self.j {
+            s.push_str(&format!("J{:.3} ", j));
+        }
+        if let Some(f) = self.f {
+            s.push_str(&format!("F{:.0} ", f));
+        }
+        if let Some(s_val) = self.s {
+            s.push_str(&format!("S{:.0} ", s_val));
+        }
+        if s.is_empty() {
+            self.raw.clone()
+        } else {
+            s.pop(); // Remove the trailing space without re-allocating
+            s
+        }
     }
 }
 
@@ -107,7 +136,7 @@ impl Default for LayerSettings {
 #[derive(Debug, Clone)]
 pub struct ModalState {
     pub absolute: bool,
-    pub current_g: i32,      // 0=G0, 1=G1, 2=G2, 3=G3
+    pub current_g: i32, // 0=G0, 1=G1, 2=G2, 3=G3
     pub laser_on: bool,
     pub x: f32,
     pub y: f32,
@@ -122,8 +151,11 @@ impl Default for ModalState {
             absolute: true,
             current_g: 0,
             laser_on: false,
-            x: 0.0, y: 0.0, z: 0.0,
-            f: 0.0, s: 0.0,
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            f: 0.0,
+            s: 0.0,
         }
     }
 }

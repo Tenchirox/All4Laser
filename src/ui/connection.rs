@@ -1,5 +1,5 @@
-use egui::{Ui, RichText, ComboBox};
 use crate::theme;
+use egui::{ComboBox, RichText, Ui};
 
 pub struct ConnectionAction {
     pub connect: bool,
@@ -9,7 +9,11 @@ pub struct ConnectionAction {
 
 impl Default for ConnectionAction {
     fn default() -> Self {
-        Self { connect: false, disconnect: false, refresh_ports: false }
+        Self {
+            connect: false,
+            disconnect: false,
+            refresh_ports: false,
+        }
     }
 }
 
@@ -26,7 +30,12 @@ pub fn show(
     let mut action = ConnectionAction::default();
 
     ui.group(|ui| {
-        ui.label(RichText::new("Connection").color(theme::LAVENDER).strong().size(14.0));
+        ui.label(
+            RichText::new("Connection")
+                .color(theme::LAVENDER)
+                .strong()
+                .size(14.0),
+        );
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
@@ -59,12 +68,21 @@ pub fn show(
 
         ui.horizontal(|ui| {
             if connected {
-                if ui.button(RichText::new("Disconnect").color(theme::RED)).clicked() {
+                if ui
+                    .button(RichText::new("Disconnect").color(theme::RED))
+                    .clicked()
+                {
                     action.disconnect = true;
                 }
             } else {
                 let can_connect = !ports.is_empty();
-                if ui.add_enabled(can_connect, egui::Button::new(RichText::new("Connect").color(theme::GREEN))).clicked() {
+                if ui
+                    .add_enabled(
+                        can_connect,
+                        egui::Button::new(RichText::new("Connect").color(theme::GREEN)),
+                    )
+                    .clicked()
+                {
                     action.connect = true;
                 }
             }

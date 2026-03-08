@@ -1,4 +1,4 @@
-use egui::{Ui, RichText, TextureHandle};
+use egui::{Pos2, RichText, TextureHandle, Ui};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default)]
@@ -13,6 +13,8 @@ pub struct CameraAction {
     pub stop_point_align: bool,
     pub align_job_to_camera: bool,
     pub auto_detect_mark: bool,
+    pub auto_detect_markers: bool,
+    pub apply_detected_align: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -47,6 +49,10 @@ pub struct CameraState {
     pub point_align_pick_count: usize,
     pub opacity: f32,
     pub latest_rgba: Option<(usize, usize, Vec<u8>)>,
+    pub detected_cross_world: Option<Pos2>,
+    pub detected_circle_world: Option<Pos2>,
+    pub detection_status: String,
+    pub auto_detection_success_count: u32,
 }
 
 impl Default for CameraState {
@@ -64,6 +70,10 @@ impl Default for CameraState {
             point_align_pick_count: 0,
             opacity: 0.5,
             latest_rgba: None,
+            detected_cross_world: None,
+            detected_circle_world: None,
+            detection_status: "No marker detection run yet.".to_string(),
+            auto_detection_success_count: 0,
         }
     }
 }
@@ -102,12 +112,18 @@ pub fn show(ui: &mut Ui, state: &mut CameraState) -> CameraAction {
             ui.label("Device:");
             if devices.is_empty() {
                 ui.add(egui::DragValue::new(&mut state.device_index).range(0..=32).speed(1));
+                #[cfg(target_os = "windows")]
+                ui.label(
+                    RichText::new("No camera detected. Check Windows camera privacy settings and close other apps using the webcam.")
+                        .small()
+                        .color(crate::theme::PEACH),
+                );
             } else {
                 let selected_label = devices
                     .iter()
                     .find(|d| d.index as i32 == state.device_index)
                     .map(|d| d.label.clone())
-                    .unwrap_or_else(|| format!("/dev/video{}", state.device_index));
+                    .unwrap_or_else(|| format!("Camera {}", state.device_index));
                 egui::ComboBox::from_id_salt("camera_device_combo")
                     .selected_text(selected_label)
                     .show_ui(ui, |ui| {
@@ -152,7 +168,44 @@ pub fn show(ui: &mut Ui, state: &mut CameraState) -> CameraAction {
                 if ui.button("🎯 Align Job to Camera").clicked() {
                     action.align_job_to_camera = true;
                 }
+                if ui
+                    .add_enabled(state.texture.is_some(), egui::Button::new("🔎 Auto Detect Markers"))
+                    .clicked()
+                {
+                    action.auto_detect_markers = true;
+                }
             });
+
+            ui.label(
+                RichText::new(state.detection_status.as_str())
+                    .small()
+                    .color(crate::theme::SUBTEXT),
+            );
+
+            if let (Some(cross), Some(circle)) = (state.detected_cross_world, state.detected_circle_world) {
+                ui.label(
+                    RichText::new(format!(
+                        "Detected markers → Cross ({:.1}, {:.1}) mm, Circle ({:.1}, {:.1}) mm",
+                        cross.x, cross.y, circle.x, circle.y
+                    ))
+                    .small()
+                    .color(crate::theme::GREEN),
+                );
+                if ui.button("✅ Apply Detected Markers (2-point align)").clicked() {
+                    action.apply_detected_align = true;
+                }
+            } else {
+                ui.label(
+                    RichText::new("If detection fails, use Calibration Wizard / 2-Point Align for manual correction.")
+                        .small()
+                        .color(crate::theme::PEACH),
+                );
+            }
+            ui.label(
+                RichText::new(format!("Auto-detect validated captures: {}", state.auto_detection_success_count))
+                    .small()
+                    .color(crate::theme::SUBTEXT),
+            );
 
             ui.horizontal(|ui| {
                 if !state.calibration_wizard_active {
@@ -197,7 +250,7 @@ pub fn show(ui: &mut Ui, state: &mut CameraState) -> CameraAction {
                 };
                 ui.label(RichText::new(step_hint).small().color(crate::theme::PEACH));
             }
-            
+
             ui.collapsing("Calibration", |ui| {
                 egui::Grid::new("cam_calib").num_columns(2).show(ui, |ui| {
                     ui.label("Offset X:"); ui.add(egui::DragValue::new(&mut state.calibration.offset_x).speed(1.0));

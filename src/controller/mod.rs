@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use crate::grbl::{parser, protocol};
 use crate::grbl::types::{GPoint, GrblResponse, GrblState, JogDirection, MacStatus};
+use crate::grbl::{parser, protocol};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ControllerKind {
     Grbl,
+    Marlin,
     Ruida,
     Trocen,
 }
@@ -76,7 +77,10 @@ mod tests {
             Some("resume")
         );
         assert_eq!(backend.realtime_line(RealtimeCommand::Reset), Some("stop"));
-        assert_eq!(backend.realtime_line(RealtimeCommand::FeedOverridePlus10), None);
+        assert_eq!(
+            backend.realtime_line(RealtimeCommand::FeedOverridePlus10),
+            None
+        );
     }
 
     #[test]
@@ -120,6 +124,7 @@ impl ControllerKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Grbl => "GRBL",
+            Self::Marlin => "Marlin",
             Self::Ruida => "Ruida (beta)",
             Self::Trocen => "Trocen (beta)",
         }
@@ -272,13 +277,13 @@ impl ControllerBackend for LineProtocolBackend {
                 RealtimeCommand::Reset => Some("stop"),
                 _ => None,
             },
-            ControllerKind::Grbl => None,
+            ControllerKind::Grbl | ControllerKind::Marlin => None,
         }
     }
 
     fn jog_command(&self, dir: JogDirection, step: f32, speed: f32) -> Option<String> {
         match self.kind {
-            ControllerKind::Ruida | ControllerKind::Trocen => {
+            ControllerKind::Marlin | ControllerKind::Ruida | ControllerKind::Trocen => {
                 let cmd = match dir {
                     JogDirection::Home => format!("G90 G0 X0 Y0 F{speed}"),
                     JogDirection::Zup => format!("G91 G0 Z{step:.1} F{speed}"),
@@ -298,6 +303,9 @@ impl ControllerBackend for LineProtocolBackend {
 pub fn create_backend(kind: ControllerKind) -> Arc<dyn ControllerBackend> {
     match kind {
         ControllerKind::Grbl => Arc::new(GrblBackend),
+        ControllerKind::Marlin => Arc::new(LineProtocolBackend {
+            kind: ControllerKind::Marlin,
+        }),
         ControllerKind::Ruida => Arc::new(LineProtocolBackend {
             kind: ControllerKind::Ruida,
         }),

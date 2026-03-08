@@ -1,0 +1,191 @@
+name: Release
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - "main"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  APP_NAME: all4laser
+
+jobs:
+  build-linux:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: x86_64
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            arch: arm64
+            os: ubuntu-24.04-arm
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup update stable
+          rustup target add ${{ matrix.target }}
+          cargo install cargo-packager
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libudev-dev \
+            libasound2-dev \
+            libx11-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxinerama-dev \
+            libgl1-mesa-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev
+
+      - name: Build Linux release
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Linux release
+        run: cargo packager --release --target ${{ matrix.target }} -f deb,appimage
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: |
+            target/${{ matrix.target }}/release/*.deb
+            target/${{ matrix.target }}/release/*.AppImage
+
+  build-windows:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x86_64
+          - target: aarch64-pc-windows-msvc
+            arch: arm64
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup update stable
+          rustup target add ${{ matrix.target }}
+          cargo install cargo-packager
+
+      - name: Build Windows release
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Windows release
+        run: cargo packager --release --target ${{ matrix.target }} -f nsis
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/*.exe
+
+  build-macos:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            arch: x86_64
+            os: macos-14
+          - target: aarch64-apple-darwin
+            arch: arm64
+            os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: |
+          rustup update stable
+          rustup target add ${{ matrix.target }}
+          cargo install cargo-packager
+
+      - name: Build macOS release
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package macOS release
+        run: cargo packager --release --target ${{ matrix.target }} -f dmg
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/*.dmg
+
+  publish-release:
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout (for tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version tag
+        id: version
+        run: |
+          git fetch --tags --force
+          latest_tag=$(git tag --list "v*" --sort=-v:refname | head -n 1)
+
+          if [ -z "$latest_tag" ]; then
+            next_tag="v0.1.0"
+          else
+            current="${latest_tag#v}"
+            IFS='.' read -r major minor patch <<< "$current"
+            if [ -z "$major" ] || [ -z "$minor" ] || [ -z "$patch" ]; then
+              echo "Unexpected tag format: $latest_tag"
+              exit 1
+            fi
+            next_tag="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          echo "tag=$next_tag" >> "$GITHUB_OUTPUT"
+          echo "name=Release $next_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_artifacts
+
+      - name: Flatten artifact files
+        run: |
+          mkdir -p release downloaded_artifacts
+          find downloaded_artifacts -type f -name "*.deb" -exec cp {} release/ \;
+          find downloaded_artifacts -type f -name "*.AppImage" -exec cp {} release/ \;
+          find downloaded_artifacts -type f -name "*.exe" -exec cp {} release/ \;
+          find downloaded_artifacts -type f -name "*.dmg" -exec cp {} release/ \;
+          ls -la release
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.deb
+            release/*.AppImage
+            release/*.exe
+            release/*.dmg
+          generate_release_notes: true
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.version.outputs.name }}
+          draft: false
+          prerelease: false

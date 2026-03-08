@@ -1,5 +1,5 @@
 use egui::Color32;
-use serde::{Deserialize, Serialize, Serializer, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum CutMode {
@@ -15,33 +15,103 @@ impl Default for CutMode {
     }
 }
 
-fn default_min_power() -> f32 { 0.0 }
-fn default_fill_interval_mm() -> f32 { 0.1 }
-fn default_fill_bidirectional() -> bool { true }
-fn default_fill_overscan_mm() -> f32 { 0.0 }
-fn default_fill_angle_deg() -> f32 { 0.0 }
-fn default_output_order() -> i32 { 0 }
-fn default_lead_in_mm() -> f32 { 0.0 }
-fn default_lead_out_mm() -> f32 { 0.0 }
-fn default_kerf_mm() -> f32 { 0.0 }
+fn default_min_power() -> f32 {
+    0.0
+}
+fn default_fill_interval_mm() -> f32 {
+    0.1
+}
+fn default_fill_bidirectional() -> bool {
+    true
+}
+fn default_fill_overscan_mm() -> f32 {
+    0.0
+}
+fn default_fill_angle_deg() -> f32 {
+    0.0
+}
+fn default_output_order() -> i32 {
+    0
+}
+fn default_lead_in_mm() -> f32 {
+    0.0
+}
+fn default_lead_out_mm() -> f32 {
+    0.0
+}
+fn default_kerf_mm() -> f32 {
+    0.0
+}
+fn default_perf_cut_mm() -> f32 {
+    5.0
+}
+fn default_perf_gap_mm() -> f32 {
+    2.0
+}
+fn default_corner_power_pct() -> f32 {
+    100.0
+}
+fn default_corner_angle_threshold() -> f32 {
+    90.0
+}
+fn default_ramp_length_mm() -> f32 {
+    5.0
+}
+fn default_ramp_start_pct() -> f32 {
+    20.0
+}
+fn default_exhaust_post_delay() -> f32 {
+    5.0
+}
+fn default_pass_offset_mm() -> f32 {
+    0.0
+}
+fn default_contour_count() -> u32 {
+    3
+}
+fn default_contour_step() -> f32 {
+    0.5
+}
+fn default_relief_max_z() -> f32 {
+    5.0
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum FillPattern {
+    Horizontal,
+    Vertical,
+    Diagonal45,
+    Diagonal135,
+    Crosshatch,
+    Grid,
+}
+
+impl Default for FillPattern {
+    fn default() -> Self {
+        FillPattern::Horizontal
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CutLayer {
-    pub id: usize,          // 0-29
-    pub name: String,       // "C00", "C01", etc.
-    #[serde(serialize_with = "serialize_color", deserialize_with = "deserialize_color")]
-    pub color: Color32,     // Visual color
-    pub speed: f32,         // mm/min
-    pub power: f32,         // 0-1000 (S-value)
+    pub id: usize,    // 0-29
+    pub name: String, // "C00", "C01", etc.
+    #[serde(
+        serialize_with = "serialize_color",
+        deserialize_with = "deserialize_color"
+    )]
+    pub color: Color32, // Visual color
+    pub speed: f32,   // mm/min
+    pub power: f32,   // 0-1000 (S-value)
     pub passes: u32,
     pub mode: CutMode,
     pub air_assist: bool,
     pub z_offset: f32,
-    pub visible: bool,      // Output enabled?
+    pub visible: bool, // Output enabled?
 
     // Fill tuning (LightBurn-like)
     #[serde(default = "default_min_power")]
-    pub min_power: f32,     // 0-1000 (S-value) used on fill acceleration tails
+    pub min_power: f32, // 0-1000 (S-value) used on fill acceleration tails
     #[serde(default = "default_fill_interval_mm")]
     pub fill_interval_mm: f32,
     #[serde(default = "default_fill_bidirectional")]
@@ -65,8 +135,72 @@ pub struct CutLayer {
 
     // Tabs / Bridges
     pub tab_enabled: bool,
-    pub tab_spacing: f32,   // Distance between tabs in mm
-    pub tab_size: f32,      // Size of the gap in mm
+    pub tab_spacing: f32, // Distance between tabs in mm
+    pub tab_size: f32,    // Size of the gap in mm
+
+    // Perforation / dashed mode (F33)
+    #[serde(default)]
+    pub perforation_enabled: bool,
+    #[serde(default = "default_perf_cut_mm")]
+    pub perforation_cut_mm: f32,
+    #[serde(default = "default_perf_gap_mm")]
+    pub perforation_gap_mm: f32,
+
+    // Fill pattern (F85)
+    #[serde(default)]
+    pub fill_pattern: FillPattern,
+
+    // Multi-offset contour (F88)
+    #[serde(default)]
+    pub contour_offset_enabled: bool,
+    #[serde(default = "default_contour_count")]
+    pub contour_offset_count: u32,
+    #[serde(default = "default_contour_step")]
+    pub contour_offset_step_mm: f32,
+
+    // Print & Cut registration (F18)
+    #[serde(default)]
+    pub print_and_cut_marks: bool,
+
+    // Spiral fill (F74)
+    #[serde(default)]
+    pub spiral_fill_enabled: bool,
+
+    // 3D Relief / depth map (F13)
+    #[serde(default)]
+    pub relief_enabled: bool,
+    #[serde(default = "default_relief_max_z")]
+    pub relief_max_z_mm: f32,
+
+    // Construction geometry (F103)
+    #[serde(default)]
+    pub is_construction: bool,
+
+    // Multi-pass offset (F24)
+    #[serde(default = "default_pass_offset_mm")]
+    pub pass_offset_mm: f32,
+
+    // Ventilation / exhaust (F77)
+    #[serde(default)]
+    pub exhaust_enabled: bool,
+    #[serde(default = "default_exhaust_post_delay")]
+    pub exhaust_post_delay_s: f32,
+
+    // Power ramping (F12)
+    #[serde(default)]
+    pub ramp_enabled: bool,
+    #[serde(default = "default_ramp_length_mm")]
+    pub ramp_length_mm: f32,
+    #[serde(default = "default_ramp_start_pct")]
+    pub ramp_start_pct: f32, // % power at start/end of ramp (e.g. 20 = 20%)
+
+    // Corner power reduction (F40)
+    #[serde(default)]
+    pub corner_power_enabled: bool,
+    #[serde(default = "default_corner_power_pct")]
+    pub corner_power_pct: f32, // % of normal power at corners (e.g. 60 = 60%)
+    #[serde(default = "default_corner_angle_threshold")]
+    pub corner_angle_threshold: f32, // Angle below which power is reduced (degrees)
 }
 
 fn serialize_color<S>(color: &Color32, serializer: S) -> Result<S::Ok, S::Error>
@@ -82,7 +216,9 @@ where
     D: Deserializer<'de>,
 {
     let rgba: [u8; 4] = <[u8; 4]>::deserialize(deserializer)?;
-    Ok(Color32::from_rgba_premultiplied(rgba[0], rgba[1], rgba[2], rgba[3]))
+    Ok(Color32::from_rgba_premultiplied(
+        rgba[0], rgba[1], rgba[2], rgba[3],
+    ))
 }
 
 impl CutLayer {
@@ -145,6 +281,27 @@ impl CutLayer {
                 tab_enabled: false,
                 tab_spacing: 50.0,
                 tab_size: 0.5,
+                perforation_enabled: false,
+                perforation_cut_mm: 5.0,
+                perforation_gap_mm: 2.0,
+                fill_pattern: FillPattern::Horizontal,
+                contour_offset_enabled: false,
+                contour_offset_count: 3,
+                contour_offset_step_mm: 0.5,
+                print_and_cut_marks: false,
+                spiral_fill_enabled: false,
+                relief_enabled: false,
+                relief_max_z_mm: 5.0,
+                is_construction: false,
+                pass_offset_mm: 0.0,
+                exhaust_enabled: false,
+                exhaust_post_delay_s: 5.0,
+                ramp_enabled: false,
+                ramp_length_mm: 5.0,
+                ramp_start_pct: 20.0,
+                corner_power_enabled: false,
+                corner_power_pct: 60.0,
+                corner_angle_threshold: 90.0,
             });
         }
         layers

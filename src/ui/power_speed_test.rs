@@ -1,22 +1,21 @@
 /// Power/Speed Test Matrix Generator
 /// Produces a grid of small squares, each engraved at a different power/speed combination
-
 use crate::theme;
 
 pub struct PowerSpeedTestState {
     pub is_open: bool,
-    pub rows: u32,       // speed steps (Y axis)
-    pub cols: u32,       // power steps (X axis)
+    pub rows: u32, // speed steps (Y axis)
+    pub cols: u32, // power steps (X axis)
     pub speed_min: f32,
     pub speed_max: f32,
     pub power_min: f32,
     pub power_max: f32,
-    pub cell_size: f32,  // mm per cell
-    pub cell_gap: f32,   // gap between cells in mm
+    pub cell_size: f32, // mm per cell
+    pub cell_gap: f32,  // gap between cells in mm
     pub origin_x: f32,
     pub origin_y: f32,
     pub scan_bidirectional: bool, // unidirectional vs bidirectional
-    pub interval_mm: f32, // scan interval
+    pub interval_mm: f32,         // scan interval
 }
 
 impl Default for PowerSpeedTestState {
@@ -57,30 +56,74 @@ pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState) -> PowerSpeedT
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
-            egui::Grid::new("pst_grid").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                ui.label("Rows (speed steps):"); ui.add(egui::DragValue::new(&mut state.rows).range(1..=20)); ui.end_row();
-                ui.label("Cols (power steps):"); ui.add(egui::DragValue::new(&mut state.cols).range(1..=20)); ui.end_row();
-                ui.label("Speed min (mm/min):"); ui.add(egui::DragValue::new(&mut state.speed_min).speed(50.0)); ui.end_row();
-                ui.label("Speed max (mm/min):"); ui.add(egui::DragValue::new(&mut state.speed_max).speed(50.0)); ui.end_row();
-                ui.label("Power min (S):"); ui.add(egui::DragValue::new(&mut state.power_min).speed(10.0)); ui.end_row();
-                ui.label("Power max (S):"); ui.add(egui::DragValue::new(&mut state.power_max).speed(10.0)); ui.end_row();
-                ui.label("Cell size (mm):"); ui.add(egui::DragValue::new(&mut state.cell_size).range(2.0..=50.0)); ui.end_row();
-                ui.label("Gap (mm):"); ui.add(egui::DragValue::new(&mut state.cell_gap).range(0.5..=10.0)); ui.end_row();
-                ui.label("Interval (mm):"); ui.add(egui::DragValue::new(&mut state.interval_mm).range(0.01..=2.0).speed(0.01)); ui.end_row();
-                ui.label("Origin X:"); ui.add(egui::DragValue::new(&mut state.origin_x)); ui.end_row();
-                ui.label("Origin Y:"); ui.add(egui::DragValue::new(&mut state.origin_y)); ui.end_row();
-            });
+            egui::Grid::new("pst_grid")
+                .num_columns(2)
+                .spacing([12.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label("Rows (speed steps):");
+                    ui.add(egui::DragValue::new(&mut state.rows).range(1..=20));
+                    ui.end_row();
+                    ui.label("Cols (power steps):");
+                    ui.add(egui::DragValue::new(&mut state.cols).range(1..=20));
+                    ui.end_row();
+                    ui.label("Speed min (mm/min):");
+                    ui.add(egui::DragValue::new(&mut state.speed_min).speed(50.0));
+                    ui.end_row();
+                    ui.label("Speed max (mm/min):");
+                    ui.add(egui::DragValue::new(&mut state.speed_max).speed(50.0));
+                    ui.end_row();
+                    ui.label("Power min (S):");
+                    ui.add(egui::DragValue::new(&mut state.power_min).speed(10.0));
+                    ui.end_row();
+                    ui.label("Power max (S):");
+                    ui.add(egui::DragValue::new(&mut state.power_max).speed(10.0));
+                    ui.end_row();
+                    ui.label("Cell size (mm):");
+                    ui.add(egui::DragValue::new(&mut state.cell_size).range(2.0..=50.0));
+                    ui.end_row();
+                    ui.label("Gap (mm):");
+                    ui.add(egui::DragValue::new(&mut state.cell_gap).range(0.5..=10.0));
+                    ui.end_row();
+                    ui.label("Interval (mm):");
+                    ui.add(
+                        egui::DragValue::new(&mut state.interval_mm)
+                            .range(0.01..=2.0)
+                            .speed(0.01),
+                    );
+                    ui.end_row();
+                    ui.label("Origin X:");
+                    ui.add(egui::DragValue::new(&mut state.origin_x));
+                    ui.end_row();
+                    ui.label("Origin Y:");
+                    ui.add(egui::DragValue::new(&mut state.origin_y));
+                    ui.end_row();
+                });
             ui.horizontal(|ui| {
-                 ui.checkbox(&mut state.scan_bidirectional, "Bidirectional Scan");
+                ui.checkbox(&mut state.scan_bidirectional, "Bidirectional Scan");
             });
 
             let total_w = (state.cell_size + state.cell_gap) * state.cols as f32;
             let total_h = (state.cell_size + state.cell_gap) * state.rows as f32;
-            ui.label(egui::RichText::new(format!("Total size: {:.0}×{:.0}mm | {} squares", total_w, total_h, state.rows * state.cols)).small());
+            ui.label(
+                egui::RichText::new(format!(
+                    "Total size: {:.0}×{:.0}mm | {} squares",
+                    total_w,
+                    total_h,
+                    state.rows * state.cols
+                ))
+                .small(),
+            );
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button(egui::RichText::new("⚡ Generate & Load").color(theme::GREEN).strong()).clicked() {
+                if ui
+                    .button(
+                        egui::RichText::new("⚡ Generate & Load")
+                            .color(theme::GREEN)
+                            .strong(),
+                    )
+                    .clicked()
+                {
                     generate_clicked = true;
                 }
                 if ui.button("Close").clicked() {
@@ -99,14 +142,68 @@ pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState) -> PowerSpeedT
     action
 }
 
+/// Generate a Z focus test pattern (F93)
+/// Creates horizontal lines at different Z heights to find optimal focus
+pub fn generate_z_focus_test(
+    z_start: f32,
+    z_end: f32,
+    steps: u32,
+    line_length: f32,
+    speed: f32,
+    power: f32,
+    origin_x: f32,
+    origin_y: f32,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    lines.push("; Z Focus Test — generated by All4Laser (F93)".into());
+    lines.push("G90 G21".into());
+    lines.push("M5".into());
+
+    let steps = steps.max(2);
+    let z_step = (z_end - z_start) / (steps - 1) as f32;
+    let line_spacing = 5.0f32; // mm between lines
+
+    for i in 0..steps {
+        let z = z_start + i as f32 * z_step;
+        let y = origin_y + i as f32 * line_spacing;
+
+        lines.push(format!("; Step {} — Z={:.2}mm", i + 1, z));
+        lines.push(format!("G0 Z{:.2}", z));
+        lines.push(format!("G0 X{:.2} Y{:.2} F3000", origin_x, y));
+        lines.push(format!("M3 S{:.0}", power));
+        lines.push(format!(
+            "G1 X{:.2} Y{:.2} F{:.0}",
+            origin_x + line_length,
+            y,
+            speed
+        ));
+        lines.push("M5".into());
+        // Label: small text-like marker
+        lines.push(format!("; Label: Z={:.2}", z));
+    }
+
+    lines.push("M5".into());
+    lines.push("G0 Z0 F500".into());
+    lines.push("G0 X0 Y0 F3000".into());
+    lines
+}
+
 fn generate_gcode(s: &PowerSpeedTestState) -> Vec<String> {
     let mut lines = Vec::new();
     lines.push("; Power/Speed Test Matrix — generated by All4Laser".into());
     lines.push("G90 G21".into());
     lines.push("M5".into());
 
-    let speed_step = if s.rows > 1 { (s.speed_max - s.speed_min) / (s.rows - 1) as f32 } else { 0.0 };
-    let power_step = if s.cols > 1 { (s.power_max - s.power_min) / (s.cols - 1) as f32 } else { 0.0 };
+    let speed_step = if s.rows > 1 {
+        (s.speed_max - s.speed_min) / (s.rows - 1) as f32
+    } else {
+        0.0
+    };
+    let power_step = if s.cols > 1 {
+        (s.power_max - s.power_min) / (s.cols - 1) as f32
+    } else {
+        0.0
+    };
     let step = s.cell_size + s.cell_gap;
     let interval = s.interval_mm.max(0.01);
 
@@ -120,7 +217,10 @@ fn generate_gcode(s: &PowerSpeedTestState) -> Vec<String> {
             let x1 = x0 + s.cell_size;
             let y1 = y0 + s.cell_size;
 
-            lines.push(format!("; Row={} Col={} Speed={:.0} Power={:.0}", row, col, speed, power));
+            lines.push(format!(
+                "; Row={} Col={} Speed={:.0} Power={:.0}",
+                row, col, speed, power
+            ));
             lines.push(format!("M5"));
             lines.push(format!("G0 X{:.2} Y{:.2} F3000", x0, y0));
             lines.push(format!("M3 S{:.0}", power));
@@ -133,14 +233,14 @@ fn generate_gcode(s: &PowerSpeedTestState) -> Vec<String> {
 
                 // If bidirectional is OFF and we are on a "return" line (right to left), we should just move fast (G0)
                 if !s.scan_bidirectional && !left_to_right {
-                     lines.push(format!("M5"));
-                     lines.push(format!("G0 X{:.2} Y{:.2}", start_x, y));
-                     lines.push(format!("M3 S{:.0}", power));
-                     lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", end_x, y, speed));
+                    lines.push(format!("M5"));
+                    lines.push(format!("G0 X{:.2} Y{:.2}", start_x, y));
+                    lines.push(format!("M3 S{:.0}", power));
+                    lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", end_x, y, speed));
                 } else {
                     // Normal burn move
-                     lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", start_x, y, speed));
-                     lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", end_x, y, speed));
+                    lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", start_x, y, speed));
+                    lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", end_x, y, speed));
                 }
 
                 y += interval;
