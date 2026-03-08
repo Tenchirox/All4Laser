@@ -62,8 +62,8 @@ jobs:
         with:
           name: linux-${{ matrix.arch }}
           path: |
-            target/${{ matrix.target }}/release/out/*.deb
-            target/${{ matrix.target }}/release/out/*.AppImage
+            dist/*.deb
+            dist/*.AppImage
 
   build-windows:
     strategy:
@@ -94,7 +94,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}
-          path: target/${{ matrix.target }}/release/out/*.exe
+          path: dist/*.exe
 
   build-macos:
     strategy:
@@ -127,7 +127,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
-          path: target/${{ matrix.target }}/release/out/*.dmg
+          path: dist/*.dmg
 
   publish-release:
     needs: [build-linux, build-windows, build-macos]
@@ -168,7 +168,7 @@ jobs:
 
       - name: Flatten artifact files
         run: |
-          mkdir -p release
+          mkdir -p release downloaded_artifacts
           find downloaded_artifacts -type f -name "*.deb" -exec cp {} release/ \;
           find downloaded_artifacts -type f -name "*.AppImage" -exec cp {} release/ \;
           find downloaded_artifacts -type f -name "*.exe" -exec cp {} release/ \;
