@@ -16,6 +16,11 @@ pub struct GeneratorState {
     pub fiducial_feed: f32,
     pub fiducial_power: f32,
     pub fiducial_draw_frame: bool,
+    pub hinge_w: f32,
+    pub hinge_h: f32,
+    pub hinge_cut_length: f32,
+    pub hinge_gap: f32,
+    pub hinge_dist: f32,
 }
 
 impl Default for GeneratorState {
@@ -34,6 +39,11 @@ impl Default for GeneratorState {
             fiducial_feed: 1200.0,
             fiducial_power: 350.0,
             fiducial_draw_frame: true,
+            hinge_w: 50.0,
+            hinge_h: 80.0,
+            hinge_cut_length: 15.0,
+            hinge_gap: 3.0,
+            hinge_dist: 2.0,
         }
     }
 }
@@ -139,6 +149,25 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
                 ));
 
                 action.generate_shapes = Some(shapes);
+            }
+        });
+
+        ui.collapsing("🚪 Living Hinge", |ui| {
+            ui.add(egui::Slider::new(&mut state.hinge_w, 10.0..=500.0).text("Width (X)"));
+            ui.add(egui::Slider::new(&mut state.hinge_h, 10.0..=500.0).text("Height (Y)"));
+            ui.add(egui::Slider::new(&mut state.hinge_cut_length, 2.0..=100.0).text("Cut Length"));
+            ui.add(egui::Slider::new(&mut state.hinge_gap, 1.0..=50.0).text("Gap Between Cuts"));
+            ui.add(egui::Slider::new(&mut state.hinge_dist, 1.0..=20.0).text("Distance Between Rows"));
+
+            if ui.button("🚀 Generate Hinge").clicked() {
+                action.generate_shapes = Some(make_living_hinge(
+                    state.hinge_w,
+                    state.hinge_h,
+                    state.hinge_cut_length,
+                    state.hinge_gap,
+                    state.hinge_dist,
+                    active_layer,
+                ));
             }
         });
 
@@ -355,6 +384,75 @@ fn make_tabbed_face_shape(
     }
 }
 
+/// Generate shapes for a living hinge lattice pattern.
+fn make_living_hinge(
+    w: f32,
+    h: f32,
+    cut_len: f32,
+    gap: f32,
+    dist: f32,
+    layer_idx: usize,
+) -> Vec<ShapeParams> {
+    let mut shapes = Vec::new();
+
+    // The bounding box
+    shapes.push(ShapeParams {
+        shape: ShapeKind::Rectangle,
+        x: 0.0,
+        y: 0.0,
+        width: w,
+        height: h,
+        layer_idx,
+        ..Default::default()
+    });
+
+    if cut_len <= 0.0 || dist <= 0.0 || gap <= 0.0 {
+        return shapes;
+    }
+
+    let mut x = dist;
+    let mut is_staggered = false;
+    let period = cut_len + gap;
+
+    while x < w {
+        if is_staggered {
+            // First partial cut for staggered lines
+            let first_cut_len = (cut_len - gap) / 2.0;
+            if first_cut_len > 0.0 {
+                shapes.push(ShapeParams {
+                    shape: ShapeKind::Path(vec![(x, 0.0), (x, first_cut_len)]),
+                    x: 0.0,
+                    y: 0.0,
+                    layer_idx,
+                    ..Default::default()
+                });
+            }
+        }
+
+        let mut y = if is_staggered { period / 2.0 } else { 0.0 };
+
+        while y < h {
+            let next_y = (y + cut_len).min(h);
+
+            // Generate a line path for the cut
+            shapes.push(ShapeParams {
+                shape: ShapeKind::Path(vec![(x, y), (x, next_y)]),
+                x: 0.0, // Path coordinates are local and already set
+                y: 0.0,
+                layer_idx,
+                ..Default::default()
+            });
+
+            y += period;
+        }
+
+        x += dist;
+        is_staggered = !is_staggered;
+    }
+
+    shapes
+}
+
 /// Generate the points for one tabbed edge and append them to `pts`.
 /// (sx, sy) is the start corner (local coords), (dx, dy) is the direction vector.
 fn edge_points(
@@ -396,7 +494,28 @@ fn edge_points(
 
 #[cfg(test)]
 mod tests {
-    use super::{GeneratorState, generate_fiducials_gcode};
+    use super::{GeneratorState, generate_fiducials_gcode, make_living_hinge};
+    use crate::ui::drawing::ShapeKind;
+
+    #[test]
+    fn test_living_hinge_generation() {
+        let shapes = make_living_hinge(50.0, 50.0, 10.0, 2.0, 5.0, 0);
+
+        // Should have at least the bounding box and several cut lines
+        assert!(shapes.len() > 1);
+
+        // First shape should be the bounding box
+        assert_eq!(shapes[0].shape, ShapeKind::Rectangle);
+        assert_eq!(shapes[0].width, 50.0);
+        assert_eq!(shapes[0].height, 50.0);
+
+        // Second shape should be a path
+        if let ShapeKind::Path(pts) = &shapes[1].shape {
+            assert_eq!(pts.len(), 2);
+        } else {
+            panic!("Expected path for hinge cut");
+        }
+    }
 
     #[test]
     fn fiducials_generator_emits_four_marks() {
