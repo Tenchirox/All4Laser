@@ -1264,6 +1264,9 @@ Statuts:
 - 2026-03-02: F3 implémentée et validée (assistant kerf + application toolpath + tests).
 - 2026-03-02: F4 implémentée et validée (Job Queue batch, retry échec, auto-run, historique).
 - 2026-03-02: F5 implémentée et validée (thermal risk heatmap, overlay preview, threshold/cell UI, 2 tests).
+- 2026-03-02: F6 implémentée et validée (Alignement caméra vision auto-detect repères).
+- 2026-03-02: F7 implémentée et validée (Preflight contrôle qualité avant lancement).
+- 2026-03-02: F8 implémentée et validée (Macros / scripts utilisateur fiables via job execution).
 - 2026-03-03: F8 implémentée et validée (format macro JSON, validation d’édition, exécution séquentielle filtrée, erreurs claires + exemples par défaut).
 - 2026-03-03: F6 et F7 implémentées et validées (auto-détection repères caméra + mapping + alignement assisté manuel, preflight chemins/couches avec rapport UI et blocage optionnel des erreurs critiques).
 - 2026-03-04: F11 implémentée (profils machine multiples : MachineProfileStore CRUD, sélecteur combo, import/export JSON, migration legacy).

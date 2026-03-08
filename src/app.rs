@@ -142,6 +142,9 @@ pub struct All4LaserApp {
     // Shortcuts panel
     shortcuts: ui::shortcuts::ShortcutsState,
 
+    // Preflight
+    preflight_state: ui::preflight::PreflightState,
+
     // Tiling
     tiling: ui::tiling::TilingState,
     nesting_state: ui::nesting::NestingState,
@@ -276,6 +279,7 @@ impl All4LaserApp {
             last_error: None,
             gcode_editor: ui::gcode_editor::GCodeEditorState::default(),
             shortcuts: ui::shortcuts::ShortcutsState::default(),
+            preflight_state: ui::preflight::PreflightState::default(),
             tiling: ui::tiling::TilingState::default(),
             nesting_state: ui::nesting::NestingState::default(),
             job_queue_state: ui::job_queue::JobQueueState::default(),
@@ -1288,6 +1292,7 @@ impl All4LaserApp {
             self.camera_state.texture =
                 Some(ctx.load_texture("camera_live_stream", color_image, Default::default()));
         }
+        self.camera_state.latest_rgba = Some((frame.width, frame.height, frame.rgba.clone()));
     }
 
     fn poll_camera_stream(&mut self, ctx: &egui::Context) {
@@ -1459,6 +1464,46 @@ impl All4LaserApp {
             self.job_transform.offset_x, self.job_transform.offset_y, self.job_transform.rotation
         ));
         true
+    }
+
+    fn auto_detect_camera_mark(&mut self) {
+        if let Some((width, height, rgba)) = self.camera_state.latest_rgba.clone() {
+            if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, rgba) {
+                if let Some((cx, cy)) = crate::imaging::camera_vision::find_alignment_mark(&img) {
+                    let calib = &self.camera_state.calibration;
+                    let scale = calib.scale.max(0.01);
+                    let base_w = self.machine_profile.workspace_x_mm.max(1.0);
+                    let base_h = self.machine_profile.workspace_y_mm.max(1.0);
+                    let w = base_w * scale;
+                    let h = base_h * scale;
+
+                    // Map from [0..1] normalized image coordinate
+                    let nx = cx / (width as f32);
+                    let ny = cy / (height as f32);
+
+                    let (sin_a, cos_a) = calib.rotation.to_radians().sin_cos();
+                    let cx_rot = calib.offset_x + w * 0.5;
+                    let cy_rot = calib.offset_y + h * 0.5;
+
+                    let px = calib.offset_x + nx * w;
+                    let py = calib.offset_y + ny * h;
+
+                    let dx = px - cx_rot;
+                    let dy = py - cy_rot;
+                    let wx = cx_rot + dx * cos_a - dy * sin_a;
+                    let wy = cy_rot + dx * sin_a + dy * cos_a;
+
+                    self.log(format!("Auto-detected fiducial mark at ({wx:.2}, {wy:.2}) mm."));
+                    self.handle_camera_pick_point(egui::Pos2::new(wx, wy));
+                } else {
+                    self.show_error("No alignment fiducial (dark circle/cross) detected in the current frame.".into());
+                }
+            } else {
+                self.show_error("Failed to parse camera frame.".into());
+            }
+        } else {
+            self.show_error("No live camera frame available to auto-detect.".into());
+        }
     }
 
     fn handle_camera_pick_point(&mut self, point: egui::Pos2) {
@@ -1752,7 +1797,7 @@ impl All4LaserApp {
         }
     }
 
-    fn run_program(&mut self) {
+    fn run_program_with_preflight(&mut self) {
         if !self.is_connected() {
             self.show_error("Not connected".to_string());
             return;
@@ -1761,6 +1806,17 @@ impl All4LaserApp {
             self.show_error("No file loaded".to_string());
             return;
         }
+        let issues = ui::preflight::run_checks(&self.drawing_state.shapes, &self.layers);
+        if issues.is_empty() || self.preflight_state.bypass {
+            self.preflight_state.bypass = false; // Ensure it doesn't stay permanently bypassed
+            self.run_program_internal();
+        } else {
+            self.preflight_state.issues = issues;
+            self.preflight_state.is_open = true;
+        }
+    }
+
+    fn run_program_internal(&mut self) {
         self.program_index = 0;
         self.running = true;
         self.notify_job_done = false;
@@ -1857,7 +1913,7 @@ impl All4LaserApp {
             return;
         }
         self.active_queue_job = Some(job.clone());
-        self.run_program();
+        self.run_program_internal(); // Assume enqueued jobs are preflighted
         self.log(format!("Queue start: #{} {}", job.id, job.name));
     }
 
@@ -2841,6 +2897,12 @@ impl All4LaserApp {
                     {
                         self.job_transform.rotation = 0.0;
                     }
+
+                    ui.add_space(4.0);
+                    if ui.button("🔍 Preflight Check").clicked() {
+                        self.preflight_state.issues = ui::preflight::run_checks(&self.drawing_state.shapes, &self.layers);
+                        self.preflight_state.is_open = true;
+                    }
                 });
                 if ui.button("Center Job").clicked() {
                     if let Some(file) = &self.loaded_file {
@@ -2899,6 +2961,78 @@ impl All4LaserApp {
                             self.drawing_state.current = shape.clone();
                         }
                     }
+                }
+
+                ui.add_space(4.0);
+
+                let ws = self.renderer.workspace_size;
+                ui::alignment::show(ui, &mut self.drawing_state, &selection, ws);
+
+                ui.add_space(6.0);
+                self.ui_shape_properties(ui, &selection);
+
+                ui.add_space(6.0);
+                let prev_cam_enabled = self.camera_state.enabled;
+                let prev_cam_opacity = self.camera_state.opacity;
+                let prev_cam_calib = self.camera_state.calibration.clone();
+                let prev_cam_device_index = self.camera_state.device_index;
+                let prev_cam_live_streaming = self.camera_state.live_streaming;
+                let camera_action = ui::camera::show(ui, &mut self.camera_state);
+                if camera_action.load_snapshot {
+                    self.load_camera_snapshot(ui.ctx());
+                    self.sync_settings();
+                }
+                if camera_action.start_live_stream {
+                    self.start_live_camera();
+                    self.sync_settings();
+                }
+                if camera_action.stop_live_stream {
+                    self.stop_live_camera();
+                    self.sync_settings();
+                    self.log("Live camera stopped.".into());
+                }
+                if camera_action.start_calibration_wizard {
+                    self.start_camera_calibration_wizard();
+                }
+                if camera_action.stop_calibration_wizard {
+                    self.stop_camera_calibration_wizard();
+                }
+                if camera_action.start_point_align {
+                    self.start_camera_point_align();
+                }
+                if camera_action.stop_point_align {
+                    self.stop_camera_point_align();
+                }
+                if self.camera_state.live_streaming
+                    && self.camera_state.device_index != prev_cam_device_index
+                {
+                    self.start_live_camera();
+                    self.sync_settings();
+                }
+                if camera_action.clear_snapshot {
+                    self.stop_live_camera();
+                    self.camera_state.texture = None;
+                    self.camera_state.snapshot_path = None;
+                    self.sync_settings();
+                    self.log("Camera image cleared.".into());
+                }
+                if camera_action.align_job_to_camera {
+                    self.align_job_to_camera();
+                }
+                if camera_action.auto_detect_mark {
+                    self.auto_detect_camera_mark();
+                }
+                if self.camera_state.enabled != prev_cam_enabled
+                    || (self.camera_state.opacity - prev_cam_opacity).abs() > f32::EPSILON
+                    || self.camera_state.calibration.offset_x != prev_cam_calib.offset_x
+                    || self.camera_state.calibration.offset_y != prev_cam_calib.offset_y
+                    || self.camera_state.calibration.scale != prev_cam_calib.scale
+                    || self.camera_state.calibration.rotation != prev_cam_calib.rotation
+                    || self.camera_state.device_index != prev_cam_device_index
+                    || self.camera_state.live_streaming != prev_cam_live_streaming
+                {
+                    self.sync_settings();
+                }
 
                     self.regenerate_drawing_gcode();
                     self.log(format!("Added {added} text path shape(s)."));
@@ -3018,6 +3152,61 @@ impl All4LaserApp {
         ui.add_space(6.0);
 
         if !self.beginner_mode {
+            egui::CollapsingHeader::new(
+                RichText::new(format!("🛠 {}", crate::i18n::tr("Advanced Tools")))
+                    .color(theme::LAVENDER)
+                    .strong(),
+            )
+                .default_open(false)
+                .show(ui, |ui| {
+                ui.add_space(6.0);
+
+                let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
+                if let Some(gcode) = macros_action.execute_macro {
+                    let lines: Vec<String> = gcode.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                    if !lines.is_empty() {
+                        let temp_file = GCodeFile::from_lines("Macro Execution", &lines);
+                        self.set_loaded_file(temp_file, lines);
+                        self.preflight_state.bypass = true; // Macros are user scripts, don't block them with preflight
+                        self.run_program_with_preflight();
+                        self.log("Macro execution started.".into());
+                    }
+                }
+
+                ui.add_space(6.0);
+
+                let console_action = ui::console::show(ui, &self.console_log, &mut self.console_input);
+                if let Some(cmd) = console_action.send_command {
+                    self.send_command(&cmd);
+                }
+
+                ui.add_space(6.0);
+
+                let mat_context = self.materials_ui_context();
+                let mat_action = ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
+                self.apply_material_action(mat_action);
+
+                ui.add_space(6.0);
+
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
+                    });
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("⇊ Run Z-Probe").on_hover_text("Search for surface using G38.2 and set Z0").clicked() {
+                            self.send_command("G38.2 Z-50 F100");
+                            self.send_command("G4 P0.5");
+                            self.send_command("G92 Z0");
+                            self.send_command("G0 Z5 F500");
+                            self.log("Probing complete. Z set to 5mm above surface.".into());
+                        }
+                        if ui.button("🎯 Focus Point").on_hover_text("Move to Z focusing position (e.g. 20mm)").clicked() {
+                            self.send_command("G0 Z20 F1000");
+                        }
+                    });
+                });
+                });
             self.ui_advanced_tools(ui, connected);
         } else {
             ui.label(
@@ -3930,6 +4119,17 @@ impl All4LaserApp {
             }
         }
 
+                    ui.add_space(8.0);
+                    // Macros
+                    let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
+                    if let Some(gcode) = macros_action.execute_macro {
+                        let lines: Vec<String> = gcode.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                        if !lines.is_empty() {
+                            let temp_file = GCodeFile::from_lines("Macro Execution", &lines);
+                            self.set_loaded_file(temp_file, lines);
+                            self.preflight_state.bypass = true; // Macros are user scripts, don't block them with preflight
+                            self.run_program_with_preflight();
+                            self.log("Macro execution started.".into());
         // === Handle Settings Modal ===
         let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
         let mut settings_write_blocked = false;
@@ -5017,6 +5217,33 @@ impl eframe::App for All4LaserApp {
             }
         }
 
+        // === Preflight Modal ===
+        let preflight_action = ui::preflight::show(ctx, &mut self.preflight_state);
+        if preflight_action.proceed {
+            self.preflight_state.bypass = true;
+            self.run_program_with_preflight();
+        }
+
+        // === Handle Settings Modal ===
+        let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
+        let mut settings_write_blocked = false;
+        if let Some(state) = &mut self.settings_state {
+            ui::settings_dialog::show(ctx, state);
+            if !state.is_open {
+                self.settings_state = None;
+            } else {
+                // If there are pending writes, send them
+                if !state.pending_writes.is_empty() {
+                    if !supports_grbl_settings {
+                        settings_write_blocked = true;
+                        state.pending_writes.clear();
+                    } else {
+                        let writes = std::mem::take(&mut state.pending_writes);
+                        for (id, val) in writes {
+                            if id == -1 && val == "$$" {
+                                self.send_command("$$"); // Refresh
+                            } else {
+                                self.send_command(&format!("${}={}", id, val));
         // === Update Notification ===
         let mut close_update = false;
         let mut log_message = None;
@@ -5100,6 +5327,160 @@ impl eframe::App for All4LaserApp {
             actions.merge(menu_actions);
             ui.add_space(4.0);
 
+            if actions.connect_toggle {
+                if is_connected { self.disconnect(); } else { self.connect(); }
+            }
+            if actions.open_file { self.open_file(); }
+            if let Some(path) = actions.open_recent { self.load_file_path(&path); }
+            if actions.save_file { self.save_file(); }
+            if actions.run_program { self.run_program_with_preflight(); }
+            if actions.frame_bbox { self.frame_bbox(); }
+            if actions.abort_program { self.abort_program(); }
+            if actions.hold {
+                self.send_realtime_or_warn(RealtimeCommand::FeedHold, "Feed hold");
+            }
+            if actions.resume {
+                self.send_realtime_or_warn(RealtimeCommand::CycleStart, "Cycle start");
+            }
+            if actions.home { self.send_command("$H"); }
+            if actions.unlock { self.send_command("$X"); }
+            if actions.set_zero { self.send_command("G92X0Y0Z0"); }
+            if actions.reset {
+                self.send_realtime_or_warn(RealtimeCommand::Reset, "Reset");
+            }
+            if let Some(t) = actions.set_theme {
+                self.ui_theme = t;
+                self.apply_theme(ctx);
+                self.sync_settings();
+            }
+            if let Some(l) = actions.set_layout {
+                self.ui_layout = l;
+                self.sync_settings();
+            }
+            if let Some(lang) = actions.set_language {
+                self.language = lang;
+                crate::i18n::set_language(lang);
+                self.sync_settings();
+            }
+            if actions.toggle_light_mode {
+                self.light_mode = !self.light_mode;
+                self.apply_theme(ctx);
+                self.sync_settings();
+            }
+            if actions.toggle_beginner_mode {
+                self.beginner_mode = !self.beginner_mode;
+                self.sync_settings();
+            }
+            if actions.open_power_speed_test {
+                self.power_speed_test.is_open = true;
+            }
+            if actions.open_gcode_editor {
+                self.gcode_editor.is_open = true;
+            }
+            if actions.open_shortcuts {
+                self.shortcuts.is_open = true;
+            }
+            if actions.open_tiling {
+                self.tiling.is_open = true;
+            }
+            if actions.open_nesting {
+                self.nesting_state.is_open = true;
+            }
+            if actions.open_job_queue {
+                self.job_queue_state.is_open = true;
+            }
+            if actions.open_test_fire {
+                self.test_fire_open = true;
+            }
+            if actions.open_project {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("All4Laser Project", &["a4l"])
+                    .pick_file()
+                {
+                    let path_str = path.to_string_lossy().to_string();
+                    match crate::config::project::ProjectFile::load(&path_str) {
+                        Ok(proj) => {
+                            self.job_offset_x = proj.offset_x;
+                            self.job_offset_y = proj.offset_y;
+                            self.job_rotation = proj.rotation_deg;
+                            if let Some(mp) = proj.machine_profile {
+                                let previous_kind = self.machine_profile.controller_kind;
+                                self.machine_profile = mp;
+                                self.apply_controller_kind_change(previous_kind);
+                            }
+                            self.camera_state.enabled = proj.camera_enabled;
+                            self.camera_state.opacity = proj.camera_opacity;
+                            self.camera_state.calibration = proj.camera_calibration;
+                            self.camera_state.device_index = proj.camera_device_index;
+                            self.camera_state.live_streaming = proj.camera_live_streaming;
+                            self.camera_state.snapshot_path = proj.camera_snapshot_path.clone();
+                            if let Some(preset_name) = proj.material_selected_preset.as_deref() {
+                                self.materials_state.select_preset_by_name(preset_name);
+                            }
+                            if self.camera_state.live_streaming {
+                                self.start_live_camera();
+                            } else if let Some(path) = proj.camera_snapshot_path {
+                                if self.load_camera_snapshot_from_path(ctx, &path).is_err() {
+                                    self.camera_state.texture = None;
+                                }
+                            } else {
+                                self.camera_state.texture = None;
+                            }
+                            if let Some(gc_path) = proj.gcode_path {
+                                self.load_file_path(&gc_path);
+                            } else if let Some(content) = proj.gcode_content {
+                                let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+                                let file = GCodeFile::from_lines("project", &lines);
+                                self.set_loaded_file(file, lines);
+                            }
+                            self.sync_settings();
+                            self.log("Project loaded.".into());
+                        }
+                        Err(e) => self.show_error(format!("Project load failed: {e}")),
+                    }
+                }
+            }
+            if actions.save_project {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("All4Laser Project", &["a4l"])
+                    .set_file_name("project.a4l")
+                    .save_file()
+                {
+                    let path_str = path.to_string_lossy().to_string();
+                    let proj = crate::config::project::ProjectFile {
+                        version: 1,
+                        gcode_content: Some(self.program_lines.join("\n")),
+                        gcode_path: None,
+                        offset_x: self.job_offset_x,
+                        offset_y: self.job_offset_y,
+                        rotation_deg: self.job_rotation,
+                        machine_profile: Some(self.machine_profile.clone()),
+                        camera_enabled: self.camera_state.enabled,
+                        camera_opacity: self.camera_state.opacity,
+                        camera_calibration: self.camera_state.calibration.clone(),
+                        camera_snapshot_path: self.camera_state.snapshot_path.clone(),
+                        camera_device_index: self.camera_state.device_index,
+                        camera_live_streaming: self.camera_state.live_streaming,
+                        material_selected_preset: self
+                            .materials_state
+                            .selected_preset_name()
+                            .map(str::to_string),
+                    };
+                    match crate::config::project::ProjectFile::save(&path_str, &proj) {
+                        Ok(_) => self.log(format!("Project saved: {path_str}")),
+                        Err(e) => self.show_error(format!("Project save failed: {e}")),
+                    }
+                }
+            }
+            if actions.open_settings {
+                if self.settings_state.is_none() {
+                    let mut state = ui::settings_dialog::SettingsDialogState::default();
+                    state.is_open = true;
+                    // Trigger a refresh automatically on open
+                    state.pending_writes.push((-1, "$$".to_string()));
+                    self.settings_state = Some(state);
+                }
+            }
             self.handle_toolbar_actions(ctx, actions);
         });
 

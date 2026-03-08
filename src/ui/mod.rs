@@ -33,4 +33,5 @@ pub mod text;
 pub mod tiling;
 pub mod toolbar;
 pub mod vector_edit;
+pub mod preflight;
 pub mod wizard;

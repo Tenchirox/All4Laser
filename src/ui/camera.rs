@@ -12,6 +12,7 @@ pub struct CameraAction {
     pub start_point_align: bool,
     pub stop_point_align: bool,
     pub align_job_to_camera: bool,
+    pub auto_detect_mark: bool,
     pub auto_detect_markers: bool,
     pub apply_detected_align: bool,
 }
@@ -47,6 +48,7 @@ pub struct CameraState {
     pub point_align_active: bool,
     pub point_align_pick_count: usize,
     pub opacity: f32,
+    pub latest_rgba: Option<(usize, usize, Vec<u8>)>,
     pub detected_cross_world: Option<Pos2>,
     pub detected_circle_world: Option<Pos2>,
     pub detection_status: String,
@@ -67,6 +69,7 @@ impl Default for CameraState {
             point_align_active: false,
             point_align_pick_count: 0,
             opacity: 0.5,
+            latest_rgba: None,
             detected_cross_world: None,
             detected_circle_world: None,
             detection_status: "No marker detection run yet.".to_string(),
@@ -221,6 +224,14 @@ pub fn show(ui: &mut Ui, state: &mut CameraState) -> CameraAction {
                     action.stop_point_align = true;
                 }
             });
+
+            if state.calibration_wizard_active || state.point_align_active {
+                ui.horizontal(|ui| {
+                    if ui.button("✨ Auto-Detect Mark").clicked() {
+                        action.auto_detect_mark = true;
+                    }
+                });
+            }
 
             if state.calibration_wizard_active {
                 let step_hint = match state.calibration_pick_count {
