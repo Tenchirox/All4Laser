@@ -184,6 +184,9 @@ pub struct All4LaserApp {
     // Shortcuts panel
     shortcuts: ui::shortcuts::ShortcutsState,
 
+    // Preflight
+    preflight_state: ui::preflight::PreflightState,
+
     // Tiling
     tiling: ui::tiling::TilingState,
     nesting_state: ui::nesting::NestingState,
@@ -297,6 +300,7 @@ impl All4LaserApp {
             last_error: None,
             gcode_editor: ui::gcode_editor::GCodeEditorState::default(),
             shortcuts: ui::shortcuts::ShortcutsState::default(),
+            preflight_state: ui::preflight::PreflightState::default(),
             tiling: ui::tiling::TilingState::default(),
             nesting_state: ui::nesting::NestingState::default(),
             job_queue_state: ui::job_queue::JobQueueState::default(),
@@ -1051,6 +1055,7 @@ impl All4LaserApp {
                 Default::default(),
             ));
         }
+        self.camera_state.latest_rgba = Some((frame.width, frame.height, frame.rgba.clone()));
     }
 
     fn poll_camera_stream(&mut self, ctx: &egui::Context) {
@@ -1221,6 +1226,46 @@ impl All4LaserApp {
         true
     }
 
+    fn auto_detect_camera_mark(&mut self) {
+        if let Some((width, height, rgba)) = self.camera_state.latest_rgba.clone() {
+            if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, rgba) {
+                if let Some((cx, cy)) = crate::imaging::camera_vision::find_alignment_mark(&img) {
+                    let calib = &self.camera_state.calibration;
+                    let scale = calib.scale.max(0.01);
+                    let base_w = self.machine_profile.workspace_x_mm.max(1.0);
+                    let base_h = self.machine_profile.workspace_y_mm.max(1.0);
+                    let w = base_w * scale;
+                    let h = base_h * scale;
+
+                    // Map from [0..1] normalized image coordinate
+                    let nx = cx / (width as f32);
+                    let ny = cy / (height as f32);
+
+                    let (sin_a, cos_a) = calib.rotation.to_radians().sin_cos();
+                    let cx_rot = calib.offset_x + w * 0.5;
+                    let cy_rot = calib.offset_y + h * 0.5;
+
+                    let px = calib.offset_x + nx * w;
+                    let py = calib.offset_y + ny * h;
+
+                    let dx = px - cx_rot;
+                    let dy = py - cy_rot;
+                    let wx = cx_rot + dx * cos_a - dy * sin_a;
+                    let wy = cy_rot + dx * sin_a + dy * cos_a;
+
+                    self.log(format!("Auto-detected fiducial mark at ({wx:.2}, {wy:.2}) mm."));
+                    self.handle_camera_pick_point(egui::Pos2::new(wx, wy));
+                } else {
+                    self.show_error("No alignment fiducial (dark circle/cross) detected in the current frame.".into());
+                }
+            } else {
+                self.show_error("Failed to parse camera frame.".into());
+            }
+        } else {
+            self.show_error("No live camera frame available to auto-detect.".into());
+        }
+    }
+
     fn handle_camera_pick_point(&mut self, point: egui::Pos2) {
         if self.camera_state.calibration_wizard_active {
             self.camera_calibration_picks.push(point);
@@ -1384,7 +1429,7 @@ impl All4LaserApp {
         }
     }
 
-    fn run_program(&mut self) {
+    fn run_program_with_preflight(&mut self) {
         if !self.is_connected() {
             self.show_error("Not connected".to_string());
             return;
@@ -1393,6 +1438,17 @@ impl All4LaserApp {
             self.show_error("No file loaded".to_string());
             return;
         }
+        let issues = ui::preflight::run_checks(&self.drawing_state.shapes, &self.layers);
+        if issues.is_empty() || self.preflight_state.bypass {
+            self.preflight_state.bypass = false; // Ensure it doesn't stay permanently bypassed
+            self.run_program_internal();
+        } else {
+            self.preflight_state.issues = issues;
+            self.preflight_state.is_open = true;
+        }
+    }
+
+    fn run_program_internal(&mut self) {
         self.program_index = 0;
         self.running = true;
         self.notify_job_done = false;
@@ -1448,7 +1504,7 @@ impl All4LaserApp {
         let file = GCodeFile::from_lines(&job.name, &job.lines);
         self.set_loaded_file(file, job.lines.clone());
         self.active_queue_job = Some(job.clone());
-        self.run_program();
+        self.run_program_internal(); // Assume enqueued jobs are preflighted
         self.log(format!("Queue start: #{} {}", job.id, job.name));
     }
 
@@ -2055,6 +2111,12 @@ impl All4LaserApp {
                             }
                         }
                     }
+
+                    ui.add_space(4.0);
+                    if ui.button("🔍 Preflight Check").clicked() {
+                        self.preflight_state.issues = ui::preflight::run_checks(&self.drawing_state.shapes, &self.layers);
+                        self.preflight_state.is_open = true;
+                    }
                 });
             });
 
@@ -2155,6 +2217,9 @@ impl All4LaserApp {
                 }
                 if camera_action.align_job_to_camera {
                     self.align_job_to_camera();
+                }
+                if camera_action.auto_detect_mark {
+                    self.auto_detect_camera_mark();
                 }
                 if self.camera_state.enabled != prev_cam_enabled
                     || (self.camera_state.opacity - prev_cam_opacity).abs() > f32::EPSILON
@@ -2389,11 +2454,13 @@ impl All4LaserApp {
 
                 let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
                 if let Some(gcode) = macros_action.execute_macro {
-                    for line in gcode.lines() {
-                        let trimmed = line.trim();
-                        if !trimmed.is_empty() {
-                            self.send_command(trimmed);
-                        }
+                    let lines: Vec<String> = gcode.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                    if !lines.is_empty() {
+                        let temp_file = GCodeFile::from_lines("Macro Execution", &lines);
+                        self.set_loaded_file(temp_file, lines);
+                        self.preflight_state.bypass = true; // Macros are user scripts, don't block them with preflight
+                        self.run_program_with_preflight();
+                        self.log("Macro execution started.".into());
                     }
                 }
 
@@ -2676,7 +2743,14 @@ impl All4LaserApp {
                     // Macros
                     let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
                     if let Some(gcode) = macros_action.execute_macro {
-                        for line in gcode.lines() { self.send_command(line.trim()); }
+                        let lines: Vec<String> = gcode.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+                        if !lines.is_empty() {
+                            let temp_file = GCodeFile::from_lines("Macro Execution", &lines);
+                            self.set_loaded_file(temp_file, lines);
+                            self.preflight_state.bypass = true; // Macros are user scripts, don't block them with preflight
+                            self.run_program_with_preflight();
+                            self.log("Macro execution started.".into());
+                        }
                     }
                 }
             }
@@ -3075,6 +3149,13 @@ impl eframe::App for All4LaserApp {
             }
         }
 
+        // === Preflight Modal ===
+        let preflight_action = ui::preflight::show(ctx, &mut self.preflight_state);
+        if preflight_action.proceed {
+            self.preflight_state.bypass = true;
+            self.run_program_with_preflight();
+        }
+
         // === Handle Settings Modal ===
         let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
         let mut settings_write_blocked = false;
@@ -3138,7 +3219,7 @@ impl eframe::App for All4LaserApp {
             if actions.open_file { self.open_file(); }
             if let Some(path) = actions.open_recent { self.load_file_path(&path); }
             if actions.save_file { self.save_file(); }
-            if actions.run_program { self.run_program(); }
+            if actions.run_program { self.run_program_with_preflight(); }
             if actions.frame_bbox { self.frame_bbox(); }
             if actions.abort_program { self.abort_program(); }
             if actions.hold {
