@@ -24,10 +24,6 @@
 *   **Camera Overlay**: Framework for real-time workspace alignment with calibration controls (offset, scale, rotation).
 *   **Console & Macros**: Fully featured GRBL console with command history and customizable JSON macros.
 
-### 🎨 Modern & Flexible UI
-*   **Dual Layouts**: Switch between a **Modern** unified sidebar or a **Classic (Industrial)** layout inspired by industry standards like LightBurn.
-*   **Custom Themes**: Beautiful dark/light modes (Catppuccin inspired) or high-contrast "Mercury/Cobalt" industrial themes.
-*   **Integrated GCode Editor**: Tweak and apply changes to your programs directly within the app.
 
 ---
 
@@ -46,6 +42,7 @@ $env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
 rustup default stable-x86_64-pc-windows-gnu
 cargo run
 ```
+Or use windows sdk...
 
 For camera live preview on Windows:
 - Enable **Camera access** in Windows Privacy settings.
@@ -63,55 +60,6 @@ For camera live preview on Windows:
     cargo run --release
     ```
 
-### Multi-platform build helpers
-
-Build Windows + Linux in parallel from Windows:
-
-```powershell
-# PowerShell script
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-dual.ps1
-
-# or batch wrapper
-.\build-dual.bat
-```
-
-Useful flags:
-
-```powershell
-# show planned commands without compiling
-.\build-dual.bat -DryRun
-
-# release profile
-.\build-dual.bat -Release
-
-# force Linux builder choice
-.\build-dual.bat -LinuxBuilder cargo
-.\build-dual.bat -LinuxBuilder cross
-```
-
-Logs are written to `target/build-logs`.
-
-### GitHub release workflow
-
-Workflow file: `.github/workflows/release-dual.yml`
-
-It builds and packages:
-- Linux (`x86_64-unknown-linux-gnu`) → `.tar.gz`
-- Windows (`x86_64-pc-windows-msvc`) → `.zip`
-
-Triggers:
-- Push tag `v*` (example: `v1.2.0`) to auto-publish a release
-- Manual run via **Actions > Dual Platform Release** (`workflow_dispatch`)
-
----
-
-## 🛠 Technology Stack
-*   **Language**: [Rust](https://www.rust-lang.org/) (Safety and Performance).
-*   **GUI Framework**: [egui](https://github.com/emilk/egui) (Instant-mode, GPU accelerated).
-*   **Serial**: [serialport-rs](https://github.com/serialport/serialport-rs) for robust machine communication.
-*   **Config**: Persistent JSON-based settings for machine profiles and material libraries.
-
----
 
 ## 🤝 Contributing
 Contributions are welcome! Please feel free to submit Pull Requests or open issues for feature requests and bug reports.
@@ -120,4 +68,5 @@ Contributions are welcome! Please feel free to submit Pull Requests or open issu
 This project is licensed under the GNU GPL V3.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
-*Built with ❤️ for the laser community using Rust.*
+
+It's a work in progress, so expect things to break !
