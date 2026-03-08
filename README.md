@@ -1,6 +1,6 @@
 # All4Laser ⚡
 
-**All4Laser** is a high-performance, professional-grade laser control and GCode sender built with **Rust** and **egui**. Designed for efficiency and precision, it provides a modern alternative to traditional laser software with a focus on speed, cross-platform compatibility, and advanced job preparation tools.
+**All4Laser** is a high-performance, laser control and GCode sender built with **Rust** and **egui**. Designed for efficiency and precision, it provides a modern alternative to traditional laser software with a focus on speed, cross-platform compatibility, and advanced job preparation tools.
 
 ---
 
