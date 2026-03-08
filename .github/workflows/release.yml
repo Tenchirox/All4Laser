@@ -33,6 +33,7 @@ jobs:
         run: |
           rustup update stable
           rustup target add ${{ matrix.target }}
+          cargo install cargo-packager
 
       - name: Install Linux build dependencies
         run: |
@@ -53,17 +54,16 @@ jobs:
       - name: Build Linux release
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package Linux artifact
-        run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/${APP_NAME} dist/${APP_NAME}
-          tar -C dist -czf ${APP_NAME}-linux-${{ matrix.arch }}.tar.gz ${APP_NAME}
+      - name: Package Linux release
+        run: cargo packager --release --target ${{ matrix.target }} -f deb,appimage
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.arch }}
-          path: ${{ env.APP_NAME }}-linux-${{ matrix.arch }}.tar.gz
+          path: |
+            target/${{ matrix.target }}/release/out/*.deb
+            target/${{ matrix.target }}/release/out/*.AppImage
 
   build-windows:
     strategy:
@@ -79,23 +79,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        run: rustup target add ${{ matrix.target }}
+        run: |
+          rustup update stable
+          rustup target add ${{ matrix.target }}
+          cargo install cargo-packager
 
       - name: Build Windows release
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package Windows artifact
-        shell: powershell
-        run: |
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          Copy-Item "target\${{ matrix.target }}\release\$env:APP_NAME.exe" "dist\$env:APP_NAME.exe"
-          Compress-Archive -Path "dist\$env:APP_NAME.exe" -DestinationPath "$env:APP_NAME-windows-${{ matrix.arch }}.zip" -Force
+      - name: Package Windows release
+        run: cargo packager --release --target ${{ matrix.target }} -f nsis
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}
-          path: ${{ env.APP_NAME }}-windows-${{ matrix.arch }}.zip
+          path: target/${{ matrix.target }}/release/out/*.exe
 
   build-macos:
     strategy:
@@ -113,23 +112,22 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        run: rustup target add ${{ matrix.target }}
+        run: |
+          rustup update stable
+          rustup target add ${{ matrix.target }}
+          cargo install cargo-packager
 
       - name: Build macOS release
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package macOS artifact
-        run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/${APP_NAME} dist/${APP_NAME}
-          cd dist
-          zip ../${APP_NAME}-macos-${{ matrix.arch }}.zip ${APP_NAME}
+      - name: Package macOS release
+        run: cargo packager --release --target ${{ matrix.target }} -f dmg
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
-          path: ${{ env.APP_NAME }}-macos-${{ matrix.arch }}.zip
+          path: target/${{ matrix.target }}/release/out/*.dmg
 
   publish-release:
     needs: [build-linux, build-windows, build-macos]
@@ -171,16 +169,20 @@ jobs:
       - name: Flatten artifact files
         run: |
           mkdir -p release
-          find dist -type f -name "*.zip" -exec cp {} release/ \;
-          find dist -type f -name "*.tar.gz" -exec cp {} release/ \;
+          find dist -type f -name "*.deb" -exec cp {} release/ \;
+          find dist -type f -name "*.AppImage" -exec cp {} release/ \;
+          find dist -type f -name "*.exe" -exec cp {} release/ \;
+          find dist -type f -name "*.dmg" -exec cp {} release/ \;
           ls -la release
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/*.zip
-            release/*.tar.gz
+            release/*.deb
+            release/*.AppImage
+            release/*.exe
+            release/*.dmg
           generate_release_notes: true
           tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: ${{ github.sha }}

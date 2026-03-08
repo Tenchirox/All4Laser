@@ -41,5 +41,10 @@ strip = true
 [[test]]
 name = "test_fonts"
 path = "src/test_fonts.rs"
+
 [build-dependencies]
 winres = "0.1"
+
+[package.metadata.packager]
+formats = ["deb", "appimage", "nsis", "dmg"]
+icons = ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"]
