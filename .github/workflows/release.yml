@@ -164,15 +164,15 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          path: dist
+          path: downloaded_artifacts
 
       - name: Flatten artifact files
         run: |
           mkdir -p release
-          find dist -type f -name "*.deb" -exec cp {} release/ \;
-          find dist -type f -name "*.AppImage" -exec cp {} release/ \;
-          find dist -type f -name "*.exe" -exec cp {} release/ \;
-          find dist -type f -name "*.dmg" -exec cp {} release/ \;
+          find downloaded_artifacts -type f -name "*.deb" -exec cp {} release/ \;
+          find downloaded_artifacts -type f -name "*.AppImage" -exec cp {} release/ \;
+          find downloaded_artifacts -type f -name "*.exe" -exec cp {} release/ \;
+          find downloaded_artifacts -type f -name "*.dmg" -exec cp {} release/ \;
           ls -la release
 
       - name: Create GitHub release
