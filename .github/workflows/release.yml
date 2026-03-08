@@ -62,8 +62,8 @@ jobs:
         with:
           name: linux-${{ matrix.arch }}
           path: |
-            dist/*.deb
-            dist/*.AppImage
+            target/${{ matrix.target }}/release/out/*.deb
+            target/${{ matrix.target }}/release/out/*.AppImage
 
   build-windows:
     strategy:
@@ -94,7 +94,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}
-          path: dist/*.exe
+          path: target/${{ matrix.target }}/release/out/*.exe
 
   build-macos:
     strategy:
@@ -127,7 +127,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
-          path: dist/*.dmg
+          path: target/${{ matrix.target }}/release/out/*.dmg
 
   publish-release:
     needs: [build-linux, build-windows, build-macos]
