@@ -103,9 +103,11 @@ jobs:
         include:
           - target: x86_64-apple-darwin
             arch: x86_64
+            os: macos-13
           - target: aarch64-apple-darwin
             arch: arm64
-    runs-on: macos-latest
+            os: macos-14
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
