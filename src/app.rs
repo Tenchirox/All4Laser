@@ -6,7 +6,7 @@ use egui::{CentralPanel, RichText, SidePanel, TopBottomPanel};
 
 use crate::app_types::{
     AutosaveState, CameraLiveState, JobTransform, TestFireState, WizardState,
-    path_is_closed_for_fill, shape_fill_warning,
+    shape_fill_warning,
 };
 use crate::config::machine_profile::{MachineProfile, MachineProfileStore};
 use crate::config::recent_files::RecentFiles;
@@ -125,9 +125,6 @@ pub struct All4LaserApp {
 
     // Job Transform
     job_transform: JobTransform,
-
-    // Air Assist
-    air_assist_on: bool,
 
     // End-of-job notification
     notify_job_done: bool,
@@ -273,7 +270,6 @@ impl All4LaserApp {
             profile_store,
             controller_backend,
             job_transform: JobTransform::default(),
-            air_assist_on: false,
             notify_job_done: false,
             notify_sound_enabled: true,
             last_error: None,
@@ -800,6 +796,10 @@ impl All4LaserApp {
             .add_filter("SVG", &["svg"])
             .add_filter("Images", &["png", "jpg", "jpeg", "bmp"])
             .add_filter("LightBurn Project", &["lbrn", "lbrn2"])
+            .add_filter("DXF", &["dxf"])
+            .add_filter("HPGL / PLT", &["plt", "hpgl"])
+            .add_filter("PDF", &["pdf"])
+            .add_filter("Adobe Illustrator", &["ai"])
             .add_filter("All files", &["*"])
             .pick_file()
         {
@@ -899,7 +899,7 @@ impl All4LaserApp {
                     Ok((shapes, layer_overrides)) => {
                         self.drawing_state.shapes = shapes;
                         for ovr in layer_overrides {
-                            if let Some(mut layer) = self.layers.iter_mut().find(|l| l.id == ovr.index) {
+                            if let Some(layer) = self.layers.iter_mut().find(|l| l.id == ovr.index) {
                                 layer.speed = ovr.speed;
                                 layer.power = ovr.power;
                                 layer.mode = ovr.mode;
@@ -958,6 +958,42 @@ impl All4LaserApp {
                         self.log(format!("LightBurn imported: {filename}"));
                     }
                     Err(e) => self.show_error(format!("LightBurn import failed: {e}")),
+                }
+            }
+            "pdf" | "ai" => {
+                let data = match std::fs::read(path) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        self.show_error(format!("Error reading file: {e}"));
+                        return;
+                    }
+                };
+                match crate::imaging::pdf::parse_pdf(&data, 0) {
+                    Ok(shapes) => {
+                        self.push_node_undo_snapshot();
+                        self.drawing_state.shapes.extend(shapes);
+                        self.regenerate_drawing_gcode();
+                        self.log(format!("PDF/AI imported: {filename}"));
+                    }
+                    Err(e) => self.show_error(format!("PDF/AI import failed: {e}")),
+                }
+            }
+            "plt" | "hpgl" => {
+                let data = match std::fs::read_to_string(path) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        self.show_error(format!("Error reading HPGL file: {e}"));
+                        return;
+                    }
+                };
+                match crate::imaging::hpgl::parse_hpgl(&data, 0) {
+                    Ok(shapes) => {
+                        self.push_node_undo_snapshot();
+                        self.drawing_state.shapes.extend(shapes);
+                        self.regenerate_drawing_gcode();
+                        self.log(format!("HPGL imported: {filename}"));
+                    }
+                    Err(e) => self.show_error(format!("HPGL import failed: {e}")),
                 }
             }
             _ => {
@@ -2678,6 +2714,32 @@ impl All4LaserApp {
             profile_changed |= self.ui_profile_import_export(ui);
             ui.separator();
             profile_changed |= self.ui_profile_settings(ui);
+
+            // Maintenance alerts & tracking (F27/F97)
+            ui.add_space(6.0);
+            ui.group(|ui| {
+                ui.label(egui::RichText::new("🔧 Maintenance").strong());
+                let wear = self.machine_profile.tube_wear_pct();
+                let wear_color = if wear > 90.0 { crate::theme::RED } else if wear > 70.0 { crate::theme::PEACH } else { crate::theme::GREEN };
+                ui.label(egui::RichText::new(format!("Tube wear: {wear:.1}% ({:.1}h / {:.0}h)", self.machine_profile.tube_hours_total, self.machine_profile.tube_life_hours)).color(wear_color));
+                ui.label(egui::RichText::new(format!("Jobs completed: {}", self.machine_profile.total_jobs_completed)).small().color(crate::theme::SUBTEXT));
+
+                let alerts = self.machine_profile.maintenance_alerts();
+                for alert in &alerts {
+                    ui.label(egui::RichText::new(format!("⚠ {alert}")).color(crate::theme::PEACH));
+                }
+
+                ui.horizontal(|ui| {
+                    if ui.button("✅ Lens Cleaned").on_hover_text("Reset lens cleaning counter").clicked() {
+                        self.machine_profile.reset_lens_clean();
+                        profile_changed = true;
+                    }
+                    if ui.button("✅ Belt Checked").on_hover_text("Reset belt check counter").clicked() {
+                        self.machine_profile.reset_belt_check();
+                        profile_changed = true;
+                    }
+                });
+            });
         });
 
         if profile_changed {
@@ -2724,6 +2786,9 @@ impl All4LaserApp {
         }
         if camera_action.stop_point_align {
             self.stop_camera_point_align();
+        }
+        if camera_action.auto_detect_mark {
+            self.auto_detect_camera_mark();
         }
         if camera_action.auto_detect_markers {
             self.auto_detect_camera_markers();
@@ -2961,78 +3026,6 @@ impl All4LaserApp {
                             self.drawing_state.current = shape.clone();
                         }
                     }
-                }
-
-                ui.add_space(4.0);
-
-                let ws = self.renderer.workspace_size;
-                ui::alignment::show(ui, &mut self.drawing_state, &selection, ws);
-
-                ui.add_space(6.0);
-                self.ui_shape_properties(ui, &selection);
-
-                ui.add_space(6.0);
-                let prev_cam_enabled = self.camera_state.enabled;
-                let prev_cam_opacity = self.camera_state.opacity;
-                let prev_cam_calib = self.camera_state.calibration.clone();
-                let prev_cam_device_index = self.camera_state.device_index;
-                let prev_cam_live_streaming = self.camera_state.live_streaming;
-                let camera_action = ui::camera::show(ui, &mut self.camera_state);
-                if camera_action.load_snapshot {
-                    self.load_camera_snapshot(ui.ctx());
-                    self.sync_settings();
-                }
-                if camera_action.start_live_stream {
-                    self.start_live_camera();
-                    self.sync_settings();
-                }
-                if camera_action.stop_live_stream {
-                    self.stop_live_camera();
-                    self.sync_settings();
-                    self.log("Live camera stopped.".into());
-                }
-                if camera_action.start_calibration_wizard {
-                    self.start_camera_calibration_wizard();
-                }
-                if camera_action.stop_calibration_wizard {
-                    self.stop_camera_calibration_wizard();
-                }
-                if camera_action.start_point_align {
-                    self.start_camera_point_align();
-                }
-                if camera_action.stop_point_align {
-                    self.stop_camera_point_align();
-                }
-                if self.camera_state.live_streaming
-                    && self.camera_state.device_index != prev_cam_device_index
-                {
-                    self.start_live_camera();
-                    self.sync_settings();
-                }
-                if camera_action.clear_snapshot {
-                    self.stop_live_camera();
-                    self.camera_state.texture = None;
-                    self.camera_state.snapshot_path = None;
-                    self.sync_settings();
-                    self.log("Camera image cleared.".into());
-                }
-                if camera_action.align_job_to_camera {
-                    self.align_job_to_camera();
-                }
-                if camera_action.auto_detect_mark {
-                    self.auto_detect_camera_mark();
-                }
-                if self.camera_state.enabled != prev_cam_enabled
-                    || (self.camera_state.opacity - prev_cam_opacity).abs() > f32::EPSILON
-                    || self.camera_state.calibration.offset_x != prev_cam_calib.offset_x
-                    || self.camera_state.calibration.offset_y != prev_cam_calib.offset_y
-                    || self.camera_state.calibration.scale != prev_cam_calib.scale
-                    || self.camera_state.calibration.rotation != prev_cam_calib.rotation
-                    || self.camera_state.device_index != prev_cam_device_index
-                    || self.camera_state.live_streaming != prev_cam_live_streaming
-                {
-                    self.sync_settings();
-                }
 
                     self.regenerate_drawing_gcode();
                     self.log(format!("Added {added} text path shape(s)."));
@@ -3152,61 +3145,6 @@ impl All4LaserApp {
         ui.add_space(6.0);
 
         if !self.beginner_mode {
-            egui::CollapsingHeader::new(
-                RichText::new(format!("🛠 {}", crate::i18n::tr("Advanced Tools")))
-                    .color(theme::LAVENDER)
-                    .strong(),
-            )
-                .default_open(false)
-                .show(ui, |ui| {
-                ui.add_space(6.0);
-
-                let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
-                if let Some(gcode) = macros_action.execute_macro {
-                    let lines: Vec<String> = gcode.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
-                    if !lines.is_empty() {
-                        let temp_file = GCodeFile::from_lines("Macro Execution", &lines);
-                        self.set_loaded_file(temp_file, lines);
-                        self.preflight_state.bypass = true; // Macros are user scripts, don't block them with preflight
-                        self.run_program_with_preflight();
-                        self.log("Macro execution started.".into());
-                    }
-                }
-
-                ui.add_space(6.0);
-
-                let console_action = ui::console::show(ui, &self.console_log, &mut self.console_input);
-                if let Some(cmd) = console_action.send_command {
-                    self.send_command(&cmd);
-                }
-
-                ui.add_space(6.0);
-
-                let mat_context = self.materials_ui_context();
-                let mat_action = ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
-                self.apply_material_action(mat_action);
-
-                ui.add_space(6.0);
-
-                ui.group(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("📏 {}", crate::i18n::tr("Z-Probe"))).color(theme::LAVENDER).strong());
-                    });
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("⇊ Run Z-Probe").on_hover_text("Search for surface using G38.2 and set Z0").clicked() {
-                            self.send_command("G38.2 Z-50 F100");
-                            self.send_command("G4 P0.5");
-                            self.send_command("G92 Z0");
-                            self.send_command("G0 Z5 F500");
-                            self.log("Probing complete. Z set to 5mm above surface.".into());
-                        }
-                        if ui.button("🎯 Focus Point").on_hover_text("Move to Z focusing position (e.g. 20mm)").clicked() {
-                            self.send_command("G0 Z20 F1000");
-                        }
-                    });
-                });
-                });
             self.ui_advanced_tools(ui, connected);
         } else {
             ui.label(
@@ -3848,37 +3786,39 @@ impl All4LaserApp {
             self.active_tab = RightPanelTab::Cuts;
         }
 
-        ui.horizontal(|ui| {
-            if ui
-                .selectable_value(&mut self.active_tab, RightPanelTab::Cuts, tr("Cuts"))
-                .changed()
-            {
-                self.sync_settings();
-            }
-            if ui
-                .selectable_value(&mut self.active_tab, RightPanelTab::Move, tr("Move"))
-                .changed()
-            {
-                self.sync_settings();
-            }
-            if ui
-                .selectable_value(&mut self.active_tab, RightPanelTab::Console, tr("Console"))
-                .changed()
-            {
-                self.sync_settings();
-            }
-            if ui
-                .selectable_value(&mut self.active_tab, RightPanelTab::Laser, tr("Laser"))
-                .changed()
-            {
-                self.sync_settings();
-            }
-            if ui
-                .selectable_value(&mut self.active_tab, RightPanelTab::Notes, "📝")
-                .changed()
-            {
-                self.sync_settings();
-            }
+        egui::ScrollArea::horizontal().id_salt("tab_bar_scroll").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_value(&mut self.active_tab, RightPanelTab::Cuts, tr("Cuts"))
+                    .changed()
+                {
+                    self.sync_settings();
+                }
+                if ui
+                    .selectable_value(&mut self.active_tab, RightPanelTab::Move, tr("Move"))
+                    .changed()
+                {
+                    self.sync_settings();
+                }
+                if ui
+                    .selectable_value(&mut self.active_tab, RightPanelTab::Console, tr("Console"))
+                    .changed()
+                {
+                    self.sync_settings();
+                }
+                if ui
+                    .selectable_value(&mut self.active_tab, RightPanelTab::Laser, tr("Laser"))
+                    .changed()
+                {
+                    self.sync_settings();
+                }
+                if ui
+                    .selectable_value(&mut self.active_tab, RightPanelTab::Notes, "📝")
+                    .changed()
+                {
+                    self.sync_settings();
+                }
+            });
         });
         ui.separator();
 
@@ -3978,18 +3918,19 @@ impl All4LaserApp {
                         });
                     }
                     RightPanelTab::Console => {
-                        let console_action = ui::console::show(
-                            ui,
-                            self.console_log.make_contiguous(),
-                            &mut self.console_input,
-                        );
-                        if let Some(cmd) = console_action.send_command {
-                            self.send_command(&cmd);
-                        }
+                        ui.push_id("classic_console", |ui| {
+                            let console_action = ui::console::show(
+                                ui,
+                                self.console_log.make_contiguous(),
+                                &mut self.console_input,
+                            );
+                            if let Some(cmd) = console_action.send_command {
+                                self.send_command(&cmd);
+                            }
+                        });
 
                         ui.separator();
-                        // Show GCode here too?
-                        self.ui_right_content(ui); // The GCode list
+                        self.ui_right_content(ui);
                     }
                     RightPanelTab::Art => {}
                     RightPanelTab::Notes => {
@@ -4023,14 +3964,17 @@ impl All4LaserApp {
                         }
 
                         ui.add_space(8.0);
-                        self.ui_machine_profile_editor(ui);
+                        ui.push_id("classic_profile_editor", |ui| {
+                            self.ui_machine_profile_editor(ui);
+                        });
 
                         ui.add_space(8.0);
-                        // Macros
-                        let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
-                        if let Some(mac) = macros_action.execute_macro {
-                            self.execute_macro_script(&mac.label, &mac.gcode);
-                        }
+                        ui.push_id("classic_macros", |ui| {
+                            let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
+                            if let Some(mac) = macros_action.execute_macro {
+                                self.execute_macro_script(&mac.label, &mac.gcode);
+                            }
+                        });
 
                         ui.add_space(8.0);
                         ui.group(|ui| {
@@ -4119,17 +4063,6 @@ impl All4LaserApp {
             }
         }
 
-                    ui.add_space(8.0);
-                    // Macros
-                    let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
-                    if let Some(gcode) = macros_action.execute_macro {
-                        let lines: Vec<String> = gcode.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
-                        if !lines.is_empty() {
-                            let temp_file = GCodeFile::from_lines("Macro Execution", &lines);
-                            self.set_loaded_file(temp_file, lines);
-                            self.preflight_state.bypass = true; // Macros are user scripts, don't block them with preflight
-                            self.run_program_with_preflight();
-                            self.log("Macro execution started.".into());
         // === Handle Settings Modal ===
         let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
         let mut settings_write_blocked = false;
@@ -4200,7 +4133,7 @@ impl All4LaserApp {
         if actions.run_program {
             self.is_dry_run = false;
             if self.run_preflight("run", true) {
-                self.run_program();
+                self.run_program_internal();
             }
         }
         if actions.frame_bbox {
@@ -4209,7 +4142,7 @@ impl All4LaserApp {
         if actions.dry_run {
             self.is_dry_run = true;
             if self.run_preflight("dry-run", true) {
-                self.run_program();
+                self.run_program_internal();
             } else {
                 self.is_dry_run = false;
             }
@@ -4312,6 +4245,95 @@ impl All4LaserApp {
         if actions.open_about {
             self.about_open = true;
         }
+        if actions.export_lbrn2 {
+            self.handle_export_lbrn2();
+        }
+        if actions.export_job_report {
+            self.handle_export_job_report();
+        }
+        if actions.save_job_template {
+            self.handle_save_job_template();
+        }
+        if actions.load_job_template {
+            self.handle_load_job_template();
+        }
+    }
+
+    fn handle_save_job_template(&mut self) {
+        let name = format!("template_{}", self.layers.len());
+        let template = crate::config::project::JobTemplate {
+            name: name.clone(),
+            layers: self.layers.clone(),
+            description: String::new(),
+        };
+        match crate::config::project::JobTemplate::save(&template) {
+            Ok(()) => self.log(format!("Layer template saved: {name}")),
+            Err(e) => self.show_error(format!("Template save failed: {e}")),
+        }
+    }
+
+    fn handle_load_job_template(&mut self) {
+        let names = crate::config::project::JobTemplate::list_templates();
+        if names.is_empty() {
+            self.show_error("No saved templates found.".into());
+            return;
+        }
+        // Load the most recently saved template
+        if let Some(name) = names.last() {
+            match crate::config::project::JobTemplate::load(name) {
+                Ok(template) => {
+                    self.layers = template.layers;
+                    self.log(format!("Loaded layer template: {}", template.name));
+                    self.regenerate_drawing_gcode();
+                }
+                Err(e) => self.show_error(format!("Template load failed: {e}")),
+            }
+        }
+    }
+
+    fn handle_export_job_report(&mut self) {
+        let filename = self.loaded_file
+            .as_ref()
+            .map(|f| f.filename.as_str())
+            .unwrap_or("unknown");
+        let csv = crate::gcode::estimation::generate_job_report_csv(
+            filename,
+            &self.estimation,
+            &self.layers,
+            &self.machine_profile.name,
+            self.program_lines.len(),
+        );
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("CSV Report", &["csv"])
+            .set_file_name("job_report.csv")
+            .save_file()
+        {
+            match std::fs::write(&path, &csv) {
+                Ok(()) => self.log(format!("Job report exported: {}", path.display())),
+                Err(e) => self.show_error(format!("Report export failed: {e}")),
+            }
+        }
+    }
+
+    fn handle_export_lbrn2(&mut self) {
+        if self.drawing_state.shapes.is_empty() {
+            self.show_error("No shapes to export.".into());
+            return;
+        }
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("LightBurn Project", &["lbrn2"])
+            .set_file_name("export.lbrn2")
+            .save_file()
+        {
+            let xml = crate::gcode::lbrn_import::export_lbrn2(
+                &self.drawing_state.shapes,
+                &self.layers,
+            );
+            match std::fs::write(&path, &xml) {
+                Ok(()) => self.log(format!("Exported .lbrn2: {}", path.display())),
+                Err(e) => self.show_error(format!("Export failed: {e}")),
+            }
+        }
     }
 
     fn handle_open_project(&mut self, ctx: &egui::Context) {
@@ -4392,7 +4414,13 @@ impl All4LaserApp {
                 project_notes: self.project_notes.clone(),
             };
             match crate::config::project::ProjectFile::save(&path_str, &proj) {
-                Ok(_) => self.log(format!("Project saved: {path_str}")),
+                Ok(_) => {
+                    // Record revision in project history (F110)
+                    let mut history = crate::config::project::ProjectHistory::load(&path_str);
+                    history.add_revision("Project saved");
+                    let _ = history.save(&path_str);
+                    self.log(format!("Project saved: {path_str}"));
+                }
                 Err(e) => self.show_error(format!("Project save failed: {e}")),
             }
         }
@@ -4475,6 +4503,15 @@ impl All4LaserApp {
             InteractiveAction::SelectShape(idx, _is_multi) => {
                 if let Some(shape) = self.drawing_state.shapes.get(idx) {
                     self.drawing_state.current = shape.clone();
+                }
+                // Auto-expand selection to include all shapes in the same group
+                let group_indices = crate::ui::drawing::expand_group_selection(
+                    &self.drawing_state.shapes, idx,
+                );
+                if group_indices.len() > 1 {
+                    for gi in group_indices {
+                        self.renderer.selected_shape_idx.insert(gi);
+                    }
                 }
             }
             InteractiveAction::Deselect => {}
@@ -4623,6 +4660,18 @@ impl All4LaserApp {
                 let selected_indices: Vec<usize> =
                     self.renderer.selected_shape_idx.iter().copied().collect();
                 crate::ui::drawing::group_shapes(&mut self.drawing_state.shapes, &selected_indices);
+            }
+            InteractiveAction::ContextCopy => {
+                self.copy_selected_shapes_to_clipboard();
+            }
+            InteractiveAction::ContextCut => {
+                self.push_node_undo_snapshot();
+                self.copy_selected_shapes_to_clipboard();
+                self.delete_selected_shapes();
+                self.regenerate_drawing_gcode();
+            }
+            InteractiveAction::ContextPaste => {
+                self.handle_paste_selection();
             }
             InteractiveAction::ContextDeleteSelection => {
                 self.push_node_undo_snapshot();
@@ -5244,6 +5293,16 @@ impl eframe::App for All4LaserApp {
                                 self.send_command("$$"); // Refresh
                             } else {
                                 self.send_command(&format!("${}={}", id, val));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if settings_write_blocked {
+            self.log("GRBL settings write not supported by this controller.".into());
+        }
+
         // === Update Notification ===
         let mut close_update = false;
         let mut log_message = None;
@@ -5327,160 +5386,6 @@ impl eframe::App for All4LaserApp {
             actions.merge(menu_actions);
             ui.add_space(4.0);
 
-            if actions.connect_toggle {
-                if is_connected { self.disconnect(); } else { self.connect(); }
-            }
-            if actions.open_file { self.open_file(); }
-            if let Some(path) = actions.open_recent { self.load_file_path(&path); }
-            if actions.save_file { self.save_file(); }
-            if actions.run_program { self.run_program_with_preflight(); }
-            if actions.frame_bbox { self.frame_bbox(); }
-            if actions.abort_program { self.abort_program(); }
-            if actions.hold {
-                self.send_realtime_or_warn(RealtimeCommand::FeedHold, "Feed hold");
-            }
-            if actions.resume {
-                self.send_realtime_or_warn(RealtimeCommand::CycleStart, "Cycle start");
-            }
-            if actions.home { self.send_command("$H"); }
-            if actions.unlock { self.send_command("$X"); }
-            if actions.set_zero { self.send_command("G92X0Y0Z0"); }
-            if actions.reset {
-                self.send_realtime_or_warn(RealtimeCommand::Reset, "Reset");
-            }
-            if let Some(t) = actions.set_theme {
-                self.ui_theme = t;
-                self.apply_theme(ctx);
-                self.sync_settings();
-            }
-            if let Some(l) = actions.set_layout {
-                self.ui_layout = l;
-                self.sync_settings();
-            }
-            if let Some(lang) = actions.set_language {
-                self.language = lang;
-                crate::i18n::set_language(lang);
-                self.sync_settings();
-            }
-            if actions.toggle_light_mode {
-                self.light_mode = !self.light_mode;
-                self.apply_theme(ctx);
-                self.sync_settings();
-            }
-            if actions.toggle_beginner_mode {
-                self.beginner_mode = !self.beginner_mode;
-                self.sync_settings();
-            }
-            if actions.open_power_speed_test {
-                self.power_speed_test.is_open = true;
-            }
-            if actions.open_gcode_editor {
-                self.gcode_editor.is_open = true;
-            }
-            if actions.open_shortcuts {
-                self.shortcuts.is_open = true;
-            }
-            if actions.open_tiling {
-                self.tiling.is_open = true;
-            }
-            if actions.open_nesting {
-                self.nesting_state.is_open = true;
-            }
-            if actions.open_job_queue {
-                self.job_queue_state.is_open = true;
-            }
-            if actions.open_test_fire {
-                self.test_fire_open = true;
-            }
-            if actions.open_project {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("All4Laser Project", &["a4l"])
-                    .pick_file()
-                {
-                    let path_str = path.to_string_lossy().to_string();
-                    match crate::config::project::ProjectFile::load(&path_str) {
-                        Ok(proj) => {
-                            self.job_offset_x = proj.offset_x;
-                            self.job_offset_y = proj.offset_y;
-                            self.job_rotation = proj.rotation_deg;
-                            if let Some(mp) = proj.machine_profile {
-                                let previous_kind = self.machine_profile.controller_kind;
-                                self.machine_profile = mp;
-                                self.apply_controller_kind_change(previous_kind);
-                            }
-                            self.camera_state.enabled = proj.camera_enabled;
-                            self.camera_state.opacity = proj.camera_opacity;
-                            self.camera_state.calibration = proj.camera_calibration;
-                            self.camera_state.device_index = proj.camera_device_index;
-                            self.camera_state.live_streaming = proj.camera_live_streaming;
-                            self.camera_state.snapshot_path = proj.camera_snapshot_path.clone();
-                            if let Some(preset_name) = proj.material_selected_preset.as_deref() {
-                                self.materials_state.select_preset_by_name(preset_name);
-                            }
-                            if self.camera_state.live_streaming {
-                                self.start_live_camera();
-                            } else if let Some(path) = proj.camera_snapshot_path {
-                                if self.load_camera_snapshot_from_path(ctx, &path).is_err() {
-                                    self.camera_state.texture = None;
-                                }
-                            } else {
-                                self.camera_state.texture = None;
-                            }
-                            if let Some(gc_path) = proj.gcode_path {
-                                self.load_file_path(&gc_path);
-                            } else if let Some(content) = proj.gcode_content {
-                                let lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
-                                let file = GCodeFile::from_lines("project", &lines);
-                                self.set_loaded_file(file, lines);
-                            }
-                            self.sync_settings();
-                            self.log("Project loaded.".into());
-                        }
-                        Err(e) => self.show_error(format!("Project load failed: {e}")),
-                    }
-                }
-            }
-            if actions.save_project {
-                if let Some(path) = rfd::FileDialog::new()
-                    .add_filter("All4Laser Project", &["a4l"])
-                    .set_file_name("project.a4l")
-                    .save_file()
-                {
-                    let path_str = path.to_string_lossy().to_string();
-                    let proj = crate::config::project::ProjectFile {
-                        version: 1,
-                        gcode_content: Some(self.program_lines.join("\n")),
-                        gcode_path: None,
-                        offset_x: self.job_offset_x,
-                        offset_y: self.job_offset_y,
-                        rotation_deg: self.job_rotation,
-                        machine_profile: Some(self.machine_profile.clone()),
-                        camera_enabled: self.camera_state.enabled,
-                        camera_opacity: self.camera_state.opacity,
-                        camera_calibration: self.camera_state.calibration.clone(),
-                        camera_snapshot_path: self.camera_state.snapshot_path.clone(),
-                        camera_device_index: self.camera_state.device_index,
-                        camera_live_streaming: self.camera_state.live_streaming,
-                        material_selected_preset: self
-                            .materials_state
-                            .selected_preset_name()
-                            .map(str::to_string),
-                    };
-                    match crate::config::project::ProjectFile::save(&path_str, &proj) {
-                        Ok(_) => self.log(format!("Project saved: {path_str}")),
-                        Err(e) => self.show_error(format!("Project save failed: {e}")),
-                    }
-                }
-            }
-            if actions.open_settings {
-                if self.settings_state.is_none() {
-                    let mut state = ui::settings_dialog::SettingsDialogState::default();
-                    state.is_open = true;
-                    // Trigger a refresh automatically on open
-                    state.pending_writes.push((-1, "$$".to_string()));
-                    self.settings_state = Some(state);
-                }
-            }
             self.handle_toolbar_actions(ctx, actions);
         });
 
@@ -5592,9 +5497,11 @@ impl eframe::App for All4LaserApp {
         SidePanel::left("left_panel")
             .resizable(true)
             .default_width(left_panel_width)
+            .width_range(120.0..=600.0)
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical()
+                egui::ScrollArea::both()
                     .id_salt("left_scroll")
+                    .auto_shrink([true, false])
                     .show(ui, |ui| {
                         self.ui_left_content(ui, connected);
                     });
@@ -5609,6 +5516,7 @@ impl eframe::App for All4LaserApp {
         SidePanel::right("right_panel")
             .resizable(true)
             .default_width(right_panel_width)
+            .width_range(120.0..=600.0)
             .show(ctx, |ui| {
                 if self.ui_layout == theme::UiLayout::Modern {
                     self.ui_right_content(ui);

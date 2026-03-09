@@ -1,4 +1,5 @@
-use egui::{Ui, RichText, Window};
+use egui::{RichText, Window};
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::drawing::{ShapeParams, ShapeKind};
 use crate::ui::layers_new::{CutLayer, CutMode};
@@ -158,13 +159,13 @@ pub fn show(
 
                 ui.horizontal(|ui| {
                     if has_errors && state.block_on_critical {
-                        ui.label(RichText::new("Cannot launch job with critical errors.").color(theme::RED));
+                        ui.label(RichText::new(tr("Cannot launch job with critical errors.")).color(theme::RED));
                     } else {
-                        if ui.button(RichText::new("Launch Anyway").color(theme::GREEN)).clicked() {
+                        if ui.button(RichText::new(tr("Launch Anyway")).color(theme::GREEN)).clicked() {
                             action.proceed = true;
                         }
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(tr("Cancel")).clicked() {
                         action.cancel = true;
                     }
                 });
@@ -177,10 +178,10 @@ pub fn show(
 
     state.is_open = is_open;
     action
+}
+
 use crate::config::machine_profile::MachineProfile;
 use crate::gcode::file::GCodeFile;
-use crate::ui::drawing::{ShapeKind, ShapeParams};
-use crate::ui::layers_new::{CutLayer, CutMode};
 use std::collections::{HashMap, HashSet};
 
 type SegmentKey = ((i32, i32), (i32, i32));
@@ -195,15 +196,6 @@ pub fn normalized_segment_key(a: (f32, f32), b: (f32, f32)) -> SegmentKey {
     if qa <= qb { (qa, qb) } else { (qb, qa) }
 }
 
-fn path_is_closed(pts: &[(f32, f32)]) -> bool {
-    if pts.len() < 3 {
-        return false;
-    }
-    let first = pts.first().unwrap();
-    let last = pts.last().unwrap();
-    (first.0 - last.0).abs() < 0.01 && (first.1 - last.1).abs() < 0.01
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PreflightSeverity {
     Critical,
@@ -211,26 +203,26 @@ pub enum PreflightSeverity {
 }
 
 #[derive(Clone, Debug)]
-pub struct PreflightIssue {
+pub struct ReportIssue {
     pub severity: PreflightSeverity,
     pub message: String,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct PreflightReport {
-    pub issues: Vec<PreflightIssue>,
+    pub issues: Vec<ReportIssue>,
 }
 
 impl PreflightReport {
     pub fn add_critical(&mut self, message: impl Into<String>) {
-        self.issues.push(PreflightIssue {
+        self.issues.push(ReportIssue {
             severity: PreflightSeverity::Critical,
             message: message.into(),
         });
     }
 
     pub fn add_warning(&mut self, message: impl Into<String>) {
-        self.issues.push(PreflightIssue {
+        self.issues.push(ReportIssue {
             severity: PreflightSeverity::Warning,
             message: message.into(),
         });

@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::drawing::{DrawingState, ShapeKind, ShapeParams};
 use egui::{RichText, Ui};
@@ -25,7 +28,7 @@ pub fn show(
     }
 
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Align:").small().color(theme::SUBTEXT));
+        ui.label(RichText::new(tr("Align:")).small().color(theme::SUBTEXT));
 
         if ui.button("⇤").on_hover_text("Align Left").clicked() {
             apply_align(state, selection, AlignCmd::Left, workspace_size);

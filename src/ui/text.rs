@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::ui::drawing::{ShapeKind, ShapeParams};
 use egui::{RichText, Ui};
 use font_kit::family_name::FamilyName;

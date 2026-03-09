@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::gcode::generator::GCodeBuilder;
 /// Scanline Fill Generator
 /// Generates a raster-style hatch fill for closed shapes (Rectangle, Circle, etc.)

@@ -1,6 +1,9 @@
+#![allow(dead_code)]
+
 use egui::RichText;
 use std::sync::Arc;
 
+use crate::i18n::tr;
 use crate::theme;
 
 #[derive(Clone, Debug)]
@@ -260,15 +263,38 @@ pub fn show(
 
             ui.horizontal(|ui| {
                 ui.checkbox(&mut state.auto_run_next, "Auto-run next queued job");
+                let (total, completed, failed) = state.stats_summary();
                 ui.label(
                     RichText::new(format!(
-                        "Pending: {} | History: {}",
+                        "Pending: {} | Done: {} | Failed: {} | Total: {}",
                         state.queue.len(),
-                        state.history.len()
+                        completed,
+                        failed,
+                        total,
                     ))
                     .small()
                     .color(theme::SUBTEXT),
                 );
+            });
+
+            ui.horizontal(|ui| {
+                if ui.button("📂 Batch Import").on_hover_text("Load multiple GCode files into the queue").clicked() {
+                    if let Some(paths) = rfd::FileDialog::new()
+                        .add_filter("GCode", &["gcode", "nc", "gc", "ngc", "txt"])
+                        .pick_files()
+                    {
+                        let ids = state.batch_enqueue_from_paths(&paths);
+                        if !ids.is_empty() {
+                            // IDs are generated, jobs are queued
+                        }
+                    }
+                }
+                if ui.button("💾 Save History").on_hover_text("Save job history to disk").clicked() {
+                    state.save_history();
+                }
+                if ui.button("📂 Load History").on_hover_text("Restore saved job history").clicked() {
+                    state.load_history();
+                }
             });
 
             if let Some(name) = active_job_name {
@@ -280,13 +306,13 @@ pub fn show(
             }
 
             ui.add_space(8.0);
-            ui.label(RichText::new("Pending Queue").strong());
+            ui.label(RichText::new(tr("Pending Queue")).strong());
             egui::ScrollArea::vertical()
                 .max_height(180.0)
                 .show(ui, |ui| {
                     if state.queue.is_empty() {
                         ui.label(
-                            RichText::new("No queued jobs.")
+                            RichText::new(tr("No queued jobs."))
                                 .small()
                                 .color(theme::SUBTEXT),
                         );
@@ -333,7 +359,7 @@ pub fn show(
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Execution History").strong());
+                ui.label(RichText::new(tr("Execution History")).strong());
                 if ui.button("🧹 Clear").clicked() {
                     state.history.clear();
                 }
@@ -344,7 +370,7 @@ pub fn show(
                 .show(ui, |ui| {
                     if state.history.is_empty() {
                         ui.label(
-                            RichText::new("No history yet.")
+                            RichText::new(tr("No history yet."))
                                 .small()
                                 .color(theme::SUBTEXT),
                         );

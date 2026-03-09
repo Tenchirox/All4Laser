@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+
+use crate::i18n::tr;
 use crate::ui::drawing::{ShapeKind, ShapeParams};
 use egui::{RichText, Ui};
 use qrcode::QrCode;
@@ -61,42 +64,46 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
 
     ui.group(|ui| {
         ui.label(
-            RichText::new("📦 Object Generators")
+            RichText::new(format!("📦 {}", tr("Object Generators")))
                 .color(crate::theme::LAVENDER)
                 .strong(),
         );
         ui.add_space(4.0);
 
-        ui.collapsing("🔗 QR Code Generator", |ui| {
+        ui.collapsing(format!("🔗 {}", tr("QR Code Generator")), |ui| {
             ui.horizontal(|ui| {
                 ui.label("Data/URL:");
                 ui.text_edit_singleline(&mut state.qr_text);
             });
-            if ui.button("🚀 Generate QR GCode").clicked() {
+            if ui.button("🚀 Generate QR Code").clicked() {
                 if let Ok(code) = QrCode::new(&state.qr_text) {
-                    let mut gcode = Vec::new();
-                    gcode.push(format!("; QR: {}", state.qr_text));
-                    let size = 1.0; // 1mm per module
+                    let size = 1.0_f32; // 1mm per module
                     let pixels = code.to_colors();
                     let width = code.width();
+                    let group_id = (std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis()
+                        & 0xFFFF_FFFF) as u32;
 
-                    gcode.push("G90".to_string());
-                    gcode.push("M5".to_string());
+                    let mut shapes = Vec::new();
                     for (i, color) in pixels.into_iter().enumerate() {
-                        let x = (i % width) as f32 * size;
-                        let y = (width - 1 - (i / width)) as f32 * size; // Flip Y
                         if color == qrcode::Color::Dark {
-                            // Rectangle module
-                            gcode.push(format!("G0 X{} Y{}", x, y));
-                            gcode.push("M3 S800".to_string());
-                            gcode.push(format!("G1 X{} Y{} F2000", x + size, y));
-                            gcode.push(format!("G1 X{} Y{} ", x + size, y + size));
-                            gcode.push(format!("G1 X{} Y{} ", x, y + size));
-                            gcode.push(format!("G1 X{} Y{} ", x, y));
-                            gcode.push("M5".to_string());
+                            let x = (i % width) as f32 * size;
+                            let y = (width - 1 - (i / width)) as f32 * size;
+                            shapes.push(ShapeParams {
+                                shape: ShapeKind::Rectangle,
+                                x,
+                                y,
+                                width: size,
+                                height: size,
+                                layer_idx: active_layer,
+                                group_id: Some(group_id),
+                                ..ShapeParams::default()
+                            });
                         }
                     }
-                    action.generate_gcode = Some(gcode);
+                    action.generate_shapes = Some(shapes);
                 }
             }
         });
@@ -171,7 +178,7 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
             }
         });
 
-        ui.collapsing("🎯 Print & Cut Fiducials", |ui| {
+        ui.collapsing(format!("🎯 {}", tr("Print & Cut Fiducials")), |ui| {
             ui.label("Generate 4 registration marks + optional outer frame.");
             ui.add_space(4.0);
 
@@ -212,7 +219,7 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
             ui.checkbox(&mut state.fiducial_draw_frame, "Include outer frame");
 
             if ui.button("🚀 Generate Fiducials").clicked() {
-                action.generate_gcode = Some(generate_fiducials_gcode(state));
+                action.generate_shapes = Some(generate_fiducials_shapes(state, active_layer));
             }
         });
     });
@@ -220,6 +227,70 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
     action
 }
 
+fn generate_fiducials_shapes(state: &GeneratorState, active_layer: usize) -> Vec<ShapeParams> {
+    let w = state.fiducial_width.max(20.0);
+    let h = state.fiducial_height.max(20.0);
+    let margin = state.fiducial_margin.clamp(1.0, (w.min(h) * 0.45).max(1.0));
+    let mark = state.fiducial_mark_size.clamp(1.0, 100.0);
+    let half = mark * 0.5;
+    let group_id = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        & 0xFFFF_FFFF) as u32;
+
+    let mut shapes = Vec::new();
+
+    // Optional outer frame (closed rectangle path)
+    if state.fiducial_draw_frame {
+        shapes.push(ShapeParams {
+            shape: ShapeKind::Path(vec![
+                (0.0, 0.0),
+                (w, 0.0),
+                (w, h),
+                (0.0, h),
+                (0.0, 0.0),
+            ]),
+            x: 0.0,
+            y: 0.0,
+            layer_idx: active_layer,
+            group_id: Some(group_id),
+            ..ShapeParams::default()
+        });
+    }
+
+    // 4 corner crosshairs
+    let corners = [
+        (margin, margin),
+        (w - margin, margin),
+        (w - margin, h - margin),
+        (margin, h - margin),
+    ];
+    for (cx, cy) in corners {
+        // Horizontal line
+        shapes.push(ShapeParams {
+            shape: ShapeKind::Path(vec![(0.0, 0.0), (mark, 0.0)]),
+            x: cx - half,
+            y: cy,
+            layer_idx: active_layer,
+            group_id: Some(group_id),
+            ..ShapeParams::default()
+        });
+        // Vertical line
+        shapes.push(ShapeParams {
+            shape: ShapeKind::Path(vec![(0.0, 0.0), (0.0, mark)]),
+            x: cx,
+            y: cy - half,
+            layer_idx: active_layer,
+            group_id: Some(group_id),
+            ..ShapeParams::default()
+        });
+    }
+
+    shapes
+}
+
+#[allow(dead_code)]
 fn generate_fiducials_gcode(state: &GeneratorState) -> Vec<String> {
     let mut gcode = Vec::new();
     let w = state.fiducial_width.max(20.0);

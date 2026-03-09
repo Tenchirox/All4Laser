@@ -1,4 +1,5 @@
 use crate::grbl::types::JogDirection;
+use crate::i18n::tr;
 use crate::theme;
 use egui::{RichText, Ui, Vec2};
 
@@ -17,7 +18,7 @@ pub fn show(
 
     ui.group(|ui| {
         ui.label(
-            RichText::new("Jog Control")
+            RichText::new(tr("Jog Control"))
                 .color(theme::LAVENDER)
                 .strong()
                 .size(14.0),
@@ -113,7 +114,7 @@ pub fn show(
 
         // Step size selector
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Step:").color(theme::SUBTEXT));
+            ui.label(RichText::new(tr("Step:")).color(theme::SUBTEXT));
             for &s in &[0.1_f32, 1.0, 5.0, 10.0] {
                 let label = if s < 1.0 {
                     format!("{s}")
@@ -130,7 +131,7 @@ pub fn show(
 
         // Feed rate
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Feed:").color(theme::SUBTEXT));
+            ui.label(RichText::new(tr("Feed:")).color(theme::SUBTEXT));
             ui.add(
                 egui::DragValue::new(feed)
                     .range(10.0..=10000.0)

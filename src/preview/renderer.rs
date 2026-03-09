@@ -1,4 +1,7 @@
+#![allow(dead_code)]
+
 use crate::gcode::types::PreviewSegment;
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::ui::layers_new::{CutLayer, CutMode};
@@ -122,6 +125,9 @@ pub enum InteractiveAction {
     },
     CameraPickPoint(Pos2),
     // Context menu actions (right-click)
+    ContextCopy,
+    ContextCut,
+    ContextPaste,
     ContextDeleteSelection,
     ContextDuplicateSelection,
     ContextGroupSelection,
@@ -1072,7 +1078,7 @@ impl PreviewRenderer {
     }
 
     /// Convert screen coordinates to world coordinates (mm)
-    pub fn screen_to_world(&self, screen: Pos2, rect: Rect) -> (f32, f32) {
+    pub fn screen_to_world(&self, screen: Pos2, _rect: Rect) -> (f32, f32) {
         let wx = (screen.x - self.pan.x) / self.zoom;
         let wy = -(screen.y - self.pan.y) / self.zoom;
         (wx, wy)
@@ -1169,6 +1175,23 @@ impl PreviewRenderer {
                 return InteractiveAction::None;
             }
 
+            // ── Measurement tool (F50): intercept clicks before selection ──
+            if self.measure_mode {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+            }
+            if self.measure_mode && response.clicked_by(egui::PointerButton::Primary) {
+                if self.measure_start.is_none() {
+                    self.measure_start = Some((wx, wy));
+                } else if self.measure_end.is_none() {
+                    self.measure_end = Some((wx, wy));
+                } else {
+                    // Third click: start a new measurement
+                    self.measure_start = Some((wx, wy));
+                    self.measure_end = None;
+                }
+                return action;
+            }
+
             if response.clicked_by(egui::PointerButton::Secondary) {
                 // Right click actions could be handled here or returned as a new InteractiveAction type later
             }
@@ -1235,9 +1258,15 @@ impl PreviewRenderer {
                     && self.hover_shape_idx.is_none()
                     && !self.node_edit_mode
                 {
-                    self.selection_box_start = Some(Pos2::new(wx, wy));
-                    self.selection_box_end = Some(Pos2::new(wx, wy));
-                    self.selection_box_additive = is_multi;
+                    if is_multi {
+                        // Ctrl/Shift + drag on empty space → selection box
+                        self.selection_box_start = Some(Pos2::new(wx, wy));
+                        self.selection_box_end = Some(Pos2::new(wx, wy));
+                        self.selection_box_additive = is_multi;
+                    } else {
+                        // Plain drag on empty space → pan the view
+                        self._drag_start = Some(Pos2::new(wx, wy));
+                    }
                 }
             }
 
@@ -1337,9 +1366,14 @@ impl PreviewRenderer {
             }
         }
 
-        // ── Left mouse drag: shape/node operations ──
+        // ── Left mouse drag: pan / shape/node operations ──
         if response.dragged_by(egui::PointerButton::Primary) {
-            if self.selection_box_start.is_some() {
+            if self._drag_start.is_some() {
+                // Pan the view (left-drag on empty space)
+                let delta = response.drag_delta();
+                self.pan += delta;
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            } else if self.selection_box_start.is_some() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     let ex = (pos.x - self.pan.x) / self.zoom;
                     let ey = -(pos.y - self.pan.y) / self.zoom;
@@ -1444,6 +1478,7 @@ impl PreviewRenderer {
                     self.selection_box_additive = false;
                 }
             }
+            self._drag_start = None;
             self.dragging_rotation = None;
             self.dragging_node_handle = None;
         }
@@ -1465,26 +1500,41 @@ impl PreviewRenderer {
         let mut ctx_action = InteractiveAction::None;
         response.clone().context_menu(|ui| {
             if has_selection {
-                if ui.button("🗑  Supprimer la sélection").clicked() {
-                    ctx_action = InteractiveAction::ContextDeleteSelection;
+                if ui.button(format!("�  {}", tr("Copy"))).clicked() {
+                    ctx_action = InteractiveAction::ContextCopy;
                     ui.close_menu();
                 }
-                if ui.button("📋  Dupliquer").clicked() {
+                if ui.button(format!("✂  {}", tr("Cut"))).clicked() {
+                    ctx_action = InteractiveAction::ContextCut;
+                    ui.close_menu();
+                }
+            }
+            if ui.button(format!("📌  {}", tr("Paste"))).clicked() {
+                ctx_action = InteractiveAction::ContextPaste;
+                ui.close_menu();
+            }
+            if has_selection {
+                ui.separator();
+                if ui.button(format!("📋  {}", tr("Duplicate"))).clicked() {
                     ctx_action = InteractiveAction::ContextDuplicateSelection;
                     ui.close_menu();
                 }
+                if ui.button(format!("�  {}", tr("Delete"))).clicked() {
+                    ctx_action = InteractiveAction::ContextDeleteSelection;
+                    ui.close_menu();
+                }
                 ui.separator();
-                if ui.button("🔗  Grouper").clicked() {
+                if ui.button(format!("🔗  {}", tr("Group"))).clicked() {
                     ctx_action = InteractiveAction::ContextGroupSelection;
                     ui.close_menu();
                 }
-                if ui.button("✂  Dégrouper").clicked() {
+                if ui.button(format!("✂  {}", tr("Ungroup"))).clicked() {
                     ctx_action = InteractiveAction::ContextUngroupSelection;
                     ui.close_menu();
                 }
-                ui.separator();
             }
-            if ui.button("☑  Tout sélectionner").clicked() {
+            ui.separator();
+            if ui.button(format!("☑  {}", tr("Select All"))).clicked() {
                 ctx_action = InteractiveAction::ContextSelectAll;
                 ui.close_menu();
             }

@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 use egui::{RichText, Ui};
 use serde::{Deserialize, Serialize};
@@ -70,14 +71,14 @@ pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosActi
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Macros").color(theme::LAVENDER).strong());
+            ui.label(RichText::new(tr("Macros")).color(theme::LAVENDER).strong());
             if ui.button("+").clicked() {
                 state.items.push(MacroDef {
-                    label: "New Macro".into(),
+                    label: tr("New Macro"),
                     gcode: "".into(),
                 });
                 state.editing_idx = Some(state.items.len() - 1);
-                state.edit_label = "New Macro".into();
+                state.edit_label = tr("New Macro");
                 state.edit_gcode = "".into();
                 state.save();
             }
@@ -112,7 +113,7 @@ pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosActi
                         if ui
                             .add_enabled(
                                 save_enabled,
-                                egui::Button::new(RichText::new("Save").color(theme::GREEN)),
+                                egui::Button::new(RichText::new(tr("Save")).color(theme::GREEN)),
                             )
                             .clicked()
                         {
@@ -121,11 +122,11 @@ pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosActi
                             state.editing_idx = None;
                             state.save();
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button(tr("Cancel")).clicked() {
                             state.editing_idx = None;
                         }
                         if ui
-                            .button(RichText::new("Delete").color(theme::RED))
+                            .button(RichText::new(tr("Delete")).color(theme::RED))
                             .clicked()
                         {
                             delete_idx = Some(i);

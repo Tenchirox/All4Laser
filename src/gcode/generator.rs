@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 fn chrono_lite_date() -> String {
     let elapsed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

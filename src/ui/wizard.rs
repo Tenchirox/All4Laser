@@ -2,7 +2,7 @@ use crate::app_types::WizardState;
 use crate::config::machine_profile::MachineProfile;
 use crate::controller::ControllerKind;
 /// Startup wizard UI (F43) — extracted from app.rs for maintainability
-use crate::i18n::Language;
+use crate::i18n::{tr, Language};
 
 pub struct WizardContext<'a> {
     pub wizard: &'a mut WizardState,
@@ -25,7 +25,7 @@ pub fn show_wizard(ctx: &egui::Context, wctx: &mut WizardContext) -> WizardResul
         return result;
     }
 
-    egui::Window::new("🚀 Welcome to All4Laser")
+    egui::Window::new(format!("🚀 {}", tr("Startup Wizard")))
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
@@ -33,7 +33,7 @@ pub fn show_wizard(ctx: &egui::Context, wctx: &mut WizardContext) -> WizardResul
             match wctx.wizard.step {
                 0 => {
                     ui.label(
-                        egui::RichText::new("Step 1/3 — Language")
+                        egui::RichText::new(format!("Step 1/3 — {}", tr("Language")))
                             .size(16.0)
                             .strong(),
                     );
@@ -68,7 +68,7 @@ pub fn show_wizard(ctx: &egui::Context, wctx: &mut WizardContext) -> WizardResul
                 }
                 1 => {
                     ui.label(
-                        egui::RichText::new("Step 2/3 — Machine Dimensions")
+                        egui::RichText::new(format!("Step 2/3 — {}", tr("Settings")))
                             .size(16.0)
                             .strong(),
                     );

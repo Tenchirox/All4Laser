@@ -100,14 +100,14 @@ pub fn show(
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Feed:").color(theme::SUBTEXT));
+            ui.label(RichText::new(tr("Feed:")).color(theme::SUBTEXT));
             ui.label(
                 RichText::new(format!("{:.0} mm/min", state.feed_rate))
                     .color(theme::YELLOW)
                     .monospace(),
             );
             ui.add_space(12.0);
-            ui.label(RichText::new("Spindle:").color(theme::SUBTEXT));
+            ui.label(RichText::new(tr("Spindle:")).color(theme::SUBTEXT));
             ui.label(
                 RichText::new(format!("{:.0} RPM", state.spindle_speed))
                     .color(theme::MAUVE)
@@ -139,7 +139,7 @@ pub fn show(
 
         ui.add_space(8.0);
         ui.label(
-            RichText::new("Quick Move (Bounds)")
+            RichText::new(tr("Quick Move (Bounds)"))
                 .color(theme::LAVENDER)
                 .strong(),
         );

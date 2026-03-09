@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::gcode::generator::GCodeBuilder;
 use crate::imaging::raster::RasterParams;
 use crate::theme;
@@ -219,7 +221,7 @@ pub fn align_shapes(shapes: &mut [ShapeParams], selection: &[usize], op: AlignOp
             }
         }
         AlignOp::Top => {
-            let target = bounds.iter().map(|b| b.1 + 0.0).fold(f32::MAX, f32::min);
+            let _target = bounds.iter().map(|b| b.1 + 0.0).fold(f32::MAX, f32::min);
             let target_y = bounds.iter().map(|b| b.2).fold(f32::MAX, f32::min);
             for &(i, _, min_y, _, _) in &bounds {
                 shapes[i].y += target_y - min_y;

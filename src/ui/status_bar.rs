@@ -40,26 +40,31 @@ pub fn show(
 ) -> StatusBarAction {
     let mut action = StatusBarAction::default();
 
-    ui.horizontal(|ui| {
+    let avail = ui.available_width();
+    let compact = avail < 700.0;
+    let sz = if compact { 10.0 } else { 11.0 };
+
+    ui.horizontal_wrapped(|ui| {
         // Status badge
         let (badge_text, badge_color) = status_badge(state.status);
-        let badge = RichText::new(format!(" {badge_text} "))
+        let badge_str = if compact {
+            badge_text[..3.min(badge_text.len())].to_string()
+        } else {
+            format!(" {badge_text} ")
+        };
+        let badge = RichText::new(badge_str)
             .color(theme::CRUST)
             .background_color(badge_color)
             .strong()
-            .size(12.0);
+            .size(sz);
         ui.label(badge);
 
         ui.separator();
 
         // Override controls
-        ui.label(RichText::new("Feed:").color(theme::SUBTEXT).size(11.0));
-        ui.label(
-            RichText::new(format!("{}%", state.override_feed))
-                .color(theme::TEXT)
-                .monospace()
-                .size(11.0),
-        );
+        let sep = if compact { "" } else { ":" };
+
+        ui.label(RichText::new(format!("F{sep}{}%", state.override_feed)).color(theme::TEXT).monospace().size(sz));
         if ui
             .add_enabled(caps.supports_feed_override, egui::Button::new("▲").small())
             .on_hover_text("Increase feed override (+10%)")
@@ -77,13 +82,7 @@ pub fn show(
 
         ui.separator();
 
-        ui.label(RichText::new("Rapid:").color(theme::SUBTEXT).size(11.0));
-        ui.label(
-            RichText::new(format!("{}%", state.override_rapid))
-                .color(theme::TEXT)
-                .monospace()
-                .size(11.0),
-        );
+        ui.label(RichText::new(format!("R{sep}{}%", state.override_rapid)).color(theme::TEXT).monospace().size(sz));
         if ui
             .add_enabled(caps.supports_rapid_override, egui::Button::new("▲").small())
             .on_hover_text("Set rapid override to 100%")
@@ -101,13 +100,7 @@ pub fn show(
 
         ui.separator();
 
-        ui.label(RichText::new("Spindle:").color(theme::SUBTEXT).size(11.0));
-        ui.label(
-            RichText::new(format!("{}%", state.override_spindle))
-                .color(theme::TEXT)
-                .monospace()
-                .size(11.0),
-        );
+        ui.label(RichText::new(format!("S{sep}{}%", state.override_spindle)).color(theme::TEXT).monospace().size(sz));
         if ui
             .add_enabled(
                 caps.supports_spindle_override,
@@ -141,39 +134,39 @@ pub fn show(
             action.toggle_unit = true;
         }
 
-        // File info on the right
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if let Some((cost, currency)) = cost_estimate {
-                if cost > 0.0 {
-                    ui.label(
-                        RichText::new(format!("~{cost:.2}{currency}"))
-                            .color(theme::GREEN)
-                            .size(11.0),
-                    );
-                }
-            }
-            if let Some((filename, lines, est)) = file_info {
+        // File info
+        if let Some((current, total)) = progress {
+            let pct = if total > 0 {
+                (current as f32 / total as f32) * 100.0
+            } else {
+                0.0
+            };
+            ui.label(
+                RichText::new(format!("{current}/{total} ({pct:.0}%)"))
+                    .color(theme::YELLOW)
+                    .monospace()
+                    .size(sz),
+            );
+        }
+        if let Some((filename, lines, est)) = file_info {
+            if !compact {
                 let time_str = format_duration(est);
                 ui.label(
                     RichText::new(format!("{filename} | {lines} lines | ~{time_str}"))
                         .color(theme::SUBTEXT)
-                        .size(11.0),
+                        .size(sz),
                 );
             }
-            if let Some((current, total)) = progress {
-                let pct = if total > 0 {
-                    (current as f32 / total as f32) * 100.0
-                } else {
-                    0.0
-                };
+        }
+        if let Some((cost, currency)) = cost_estimate {
+            if cost > 0.0 {
                 ui.label(
-                    RichText::new(format!("{current}/{total} ({pct:.0}%)"))
-                        .color(theme::YELLOW)
-                        .monospace()
-                        .size(11.0),
+                    RichText::new(format!("~{cost:.2}{currency}"))
+                        .color(theme::GREEN)
+                        .size(sz),
                 );
             }
-        });
+        }
     });
 
     action
