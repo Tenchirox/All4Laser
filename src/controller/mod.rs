@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::sync::Arc;
 
 use crate::grbl::types::{GPoint, GrblResponse, GrblState, JogDirection, MacStatus};

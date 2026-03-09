@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::ui::drawing::{DrawingState, ShapeKind};
 
 const JOIN_EPS: f32 = 1e-3;

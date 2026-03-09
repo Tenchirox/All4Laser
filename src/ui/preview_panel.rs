@@ -1,4 +1,5 @@
 use crate::gcode::types::PreviewSegment;
+use crate::i18n::tr;
 use crate::preview::renderer::{InteractiveAction, PreviewRenderer};
 use crate::theme;
 use crate::ui::drawing::ShapeParams;
@@ -36,34 +37,45 @@ pub fn show(
 ) -> PreviewAction {
     let mut action = PreviewAction::default();
 
-    // Zoom toolbar
-    ui.horizontal(|ui| {
-        ui.label(
-            RichText::new("Preview")
-                .color(theme::LAVENDER)
-                .strong()
-                .size(14.0),
-        );
-        ui.checkbox(&mut renderer.show_rapids, "Rapids");
-        ui.checkbox(&mut renderer.show_fill_preview, "Fill");
-        ui.checkbox(&mut renderer.show_thermal_risk, "Risk");
-        ui.checkbox(&mut renderer.realistic_preview, "Realistic");
+    // Zoom toolbar — adaptive sizing
+    let avail = ui.available_width();
+    let compact = avail < 600.0;
+
+    ui.horizontal_wrapped(|ui| {
+        if !compact {
+            ui.label(
+                RichText::new(tr("Preview"))
+                    .color(theme::LAVENDER)
+                    .strong()
+                    .size(14.0),
+            );
+        }
+        let l_rapids = tr("Rapids");
+        let l_fill = tr("Fill");
+        let l_risk = tr("Risk");
+        let l_realistic = tr("Realistic");
+        ui.checkbox(&mut renderer.show_rapids, if compact { "R" } else { &l_rapids });
+        ui.checkbox(&mut renderer.show_fill_preview, if compact { "F" } else { &l_fill });
+        ui.checkbox(&mut renderer.show_thermal_risk, if compact { "!" } else { &l_risk });
+        ui.checkbox(&mut renderer.realistic_preview, if compact { "3D" } else { &l_realistic });
 
         if !segments.is_empty() {
             ui.separator();
             let mut sim_on = renderer.simulation_progress.is_some();
-            if ui.checkbox(&mut sim_on, "Simulation").changed() {
+            let l_sim = tr("Simulation");
+            if ui.checkbox(&mut sim_on, if compact { "Sim" } else { &l_sim }).changed() {
                 renderer.simulation_progress = if sim_on { Some(0.0) } else { None };
             }
             if let Some(progress) = renderer.simulation_progress.as_mut() {
+                let slider_w = if compact { 60.0 } else { 120.0 };
                 ui.add_sized(
-                    egui::vec2(120.0, 0.0),
+                    egui::vec2(slider_w, 0.0),
                     egui::Slider::new(progress, 0.0..=1.0)
                         .show_value(false)
-                        .text("Progress"),
+                        .text(""),
                 );
                 if ui
-                    .button("Reset")
+                    .button("↺")
                     .on_hover_text("Reset simulation progress to start")
                     .clicked()
                 {
@@ -74,22 +86,21 @@ pub fn show(
 
         if renderer.show_thermal_risk {
             ui.separator();
-            ui.label(RichText::new("Risk Thr").small().color(theme::SUBTEXT));
+            let slider_w = if compact { 50.0 } else { 90.0 };
             ui.add_sized(
-                egui::vec2(90.0, 0.0),
+                egui::vec2(slider_w, 0.0),
                 egui::Slider::new(&mut renderer.risk_threshold, 1.0..=80.0)
                     .show_value(false)
-                    .text("Risk Thr"),
+                    .text(""),
             );
-            ui.label(RichText::new("Cell").small().color(theme::SUBTEXT));
             ui.add(
                 egui::DragValue::new(&mut renderer.risk_cell_mm)
                     .speed(0.1)
                     .range(0.5..=20.0)
-                    .suffix(" mm"),
+                    .suffix("mm"),
             );
             ui.label(
-                RichText::new(format!("⚠ {}", renderer.last_risk_alert_cells))
+                RichText::new(format!("⚠{}", renderer.last_risk_alert_cells))
                     .small()
                     .color(if renderer.last_risk_alert_cells > 0 {
                         theme::PEACH
@@ -99,21 +110,20 @@ pub fn show(
             );
         }
 
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .button("⊞ Fit")
-                .on_hover_text("Fit the full job in the preview")
-                .clicked()
-            {
-                action.auto_fit = true;
-            }
-            if ui.button("🔍−").on_hover_text("Zoom out").clicked() {
-                action.zoom_out = true;
-            }
-            if ui.button("🔍+").on_hover_text("Zoom in").clicked() {
-                action.zoom_in = true;
-            }
-        });
+        ui.separator();
+        if ui.button("🔍+").on_hover_text(tr("Zoom in")).clicked() {
+            action.zoom_in = true;
+        }
+        if ui.button("🔍−").on_hover_text(tr("Zoom out")).clicked() {
+            action.zoom_out = true;
+        }
+        if ui
+            .button("⊞")
+            .on_hover_text(tr("Fit"))
+            .clicked()
+        {
+            action.auto_fit = true;
+        }
     });
 
     // Render preview

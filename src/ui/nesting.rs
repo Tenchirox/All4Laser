@@ -1,7 +1,10 @@
+#![allow(dead_code)]
+
 use std::cmp::Ordering;
 
 use egui::RichText;
 
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::drawing::{DrawingState, ShapeKind, ShapeParams};
 
@@ -138,7 +141,7 @@ pub fn show(
             );
             if state.selection_only && selected_count == 0 {
                 ui.label(
-                    RichText::new("No selection: fallback to all shapes.")
+                    RichText::new(tr("No selection: fallback to all shapes."))
                         .small()
                         .color(theme::PEACH),
                 );

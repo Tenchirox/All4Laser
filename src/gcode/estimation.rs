@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::gcode::types::{GCodeLine, ModalState};
 use std::time::Duration;
 

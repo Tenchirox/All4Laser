@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::types::JogDirection;
 
 /// Build a jog command for GRBL v1.1+ ($J= syntax)

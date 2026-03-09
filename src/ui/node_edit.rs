@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::ui::drawing::ShapeParams;
 /// Node editing undo/redo helpers and snapshot types.
 /// Extracted from app.rs for maintainability.

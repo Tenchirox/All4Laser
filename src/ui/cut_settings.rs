@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::theme;
 use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::ui::layers_new::{CutLayer, CutMode};
@@ -354,6 +356,48 @@ pub fn show(
                         }
                     }
                 }
+
+                // Parameter comparison snapshot (F91)
+                ui.add_space(8.0);
+                ui.group(|ui| {
+                    ui.label(RichText::new("📸 Parameter Snapshot").strong());
+                    ui.horizontal(|ui| {
+                        if ui.button("Take Snapshot").on_hover_text("Save current parameters for comparison").clicked() {
+                            state.snapshot_layer = Some(layer.clone());
+                        }
+                        let has_snapshot = state.snapshot_layer.is_some();
+                        if ui.add_enabled(has_snapshot, egui::Button::new(if state.show_comparison { "Hide Compare" } else { "Show Compare" })).clicked() {
+                            state.show_comparison = !state.show_comparison;
+                        }
+                        if ui.add_enabled(has_snapshot, egui::Button::new("Clear")).clicked() {
+                            state.snapshot_layer = None;
+                            state.show_comparison = false;
+                        }
+                    });
+                    if state.show_comparison {
+                        if let Some(snap) = &state.snapshot_layer {
+                            ui.add_space(4.0);
+                            ui.label(RichText::new("Current → Snapshot").small().color(theme::SUBTEXT));
+                            egui::Grid::new("snapshot_compare_grid").num_columns(3).spacing([8.0, 2.0]).show(ui, |ui| {
+                                let comparisons: Vec<(&str, f32, f32)> = vec![
+                                    ("Speed", layer.speed, snap.speed),
+                                    ("Power", layer.power, snap.power),
+                                    ("Passes", layer.passes as f32, snap.passes as f32),
+                                    ("Fill Interval", layer.fill_interval_mm, snap.fill_interval_mm),
+                                    ("Kerf", layer.kerf_mm, snap.kerf_mm),
+                                ];
+                                for (name, current, previous) in &comparisons {
+                                    let diff = current - previous;
+                                    let color = if diff.abs() < 1e-4 { theme::SUBTEXT } else if diff > 0.0 { theme::GREEN } else { theme::RED };
+                                    ui.label(*name);
+                                    ui.label(format!("{current:.1}"));
+                                    ui.label(RichText::new(if diff.abs() < 1e-4 { "=".into() } else { format!("{diff:+.1}") }).color(color));
+                                    ui.end_row();
+                                }
+                            });
+                        }
+                    }
+                });
 
                 ui.add_space(16.0);
                 ui.horizontal(|ui| {

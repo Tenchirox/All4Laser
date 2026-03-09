@@ -98,6 +98,7 @@ impl GCodeLine {
 }
 
 /// A line segment for preview rendering
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct PreviewSegment {
     pub x1: f32,
@@ -109,6 +110,7 @@ pub struct PreviewSegment {
     pub layer_id: usize,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct LayerSettings {
     pub name: String,

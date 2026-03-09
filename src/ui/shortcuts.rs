@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+
+use crate::i18n::tr;
 use crate::theme;
 /// Keyboard shortcuts help panel
 use egui::{Key, Modifiers, RichText, Ui};
@@ -50,8 +53,8 @@ pub fn show(ui: &mut Ui, state: &mut ShortcutsState) {
                 .spacing([20.0, 6.0])
                 .striped(true)
                 .show(ui, |ui| {
-                    ui.label(RichText::new("Key").color(theme::LAVENDER).strong());
-                    ui.label(RichText::new("Action").color(theme::LAVENDER).strong());
+                    ui.label(RichText::new(tr("Key")).color(theme::LAVENDER).strong());
+                    ui.label(RichText::new(tr("Action")).color(theme::LAVENDER).strong());
                     ui.end_row();
 
                     for (key, desc) in SHORTCUTS {
@@ -61,7 +64,7 @@ pub fn show(ui: &mut Ui, state: &mut ShortcutsState) {
                     }
                 });
             ui.separator();
-            if ui.button("Close").clicked() {
+            if ui.button(tr("Close")).clicked() {
                 close = true;
             }
         });

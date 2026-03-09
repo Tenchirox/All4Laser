@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// SVG to GCode conversion using usvg for parsing
 ///
 /// Extracts path segments from SVG and converts them to GCode move/cut commands.

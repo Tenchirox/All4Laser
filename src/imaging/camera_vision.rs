@@ -1,4 +1,6 @@
-use image::{Luma, RgbaImage, GrayImage, ImageBuffer};
+#![allow(dead_code)]
+
+use image::{Luma, RgbaImage, GrayImage};
 
 /// Attempts to find an alignment mark (a dark circle or crosshair) in an image.
 /// Returns the (x, y) coordinates of the center if found.

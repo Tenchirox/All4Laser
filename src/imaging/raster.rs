@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use image::{GrayImage, Luma};
 
 /// Parameters for a cutting frame (outline) around the image
@@ -332,8 +334,6 @@ fn atkinson_dither(img: &GrayImage) -> GrayImage {
 
 /// Apply brightness and contrast adjustments
 pub fn preprocess_image(img: &image::DynamicImage, params: &RasterParams) -> image::DynamicImage {
-    let mut processed = img.clone();
-
     // Grayscale first to make processing faster and consistent
     let mut processed = image::DynamicImage::ImageLuma8(img.to_luma8());
 

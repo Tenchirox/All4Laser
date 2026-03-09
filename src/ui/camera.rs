@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use egui::{Pos2, RichText, TextureHandle, Ui};
 use serde::{Deserialize, Serialize};
 
@@ -83,7 +84,7 @@ pub fn show(ui: &mut Ui, state: &mut CameraState) -> CameraAction {
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("📷 Camera Overlay").color(crate::theme::LAVENDER).strong());
+            ui.label(RichText::new(format!("📷 {}", tr("Camera"))).color(crate::theme::LAVENDER).strong());
             ui.checkbox(&mut state.enabled, "Enabled");
         });
 
@@ -138,7 +139,7 @@ pub fn show(ui: &mut Ui, state: &mut CameraState) -> CameraAction {
             }
 
             if state.live_streaming {
-                ui.label(RichText::new("Live stream active").small().color(crate::theme::GREEN));
+                ui.label(RichText::new(tr("Live stream active")).small().color(crate::theme::GREEN));
             }
         });
 

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /// DXF file importer — converts LINE, ARC, CIRCLE, LWPOLYLINE to GCode
 
 pub struct DxfParams {

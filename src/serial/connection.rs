@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use serialport::SerialPort;
 use std::io::{BufRead, BufReader, Write};

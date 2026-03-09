@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::config::machine_profile::MachineProfile;
 use crate::ui::camera::CameraCalibration;
 use serde::{Deserialize, Serialize};
