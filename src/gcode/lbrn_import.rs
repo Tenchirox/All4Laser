@@ -502,44 +502,23 @@ pub fn export_lbrn2(shapes: &[ShapeParams], layers: &[CutLayer]) -> String {
     x += "<LightBurnProject AppVersion=\"All4Laser\" FormatVersion=\"1\" \
           MirrorX=\"False\" MirrorY=\"False\">\n";
 
-    // Check which layers contain image shapes
-    let mut image_layers: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
-    for s in shapes {
-        if matches!(&s.shape, ShapeKind::RasterImage { .. }) {
-            image_layers.insert(s.layer_idx);
-        }
-    }
-
     // Only emit CutSettings for layers referenced by shapes
     for &i in &used {
         if let Some(l) = layers.get(i) {
-            if image_layers.contains(&i) {
-                // Image layer uses CutSetting_Img
-                x += "    <CutSetting_Img type=\"Image\">\n";
-                x += &format!("        <index Value=\"{i}\"/>\n");
-                x += &format!("        <name Value=\"{}\"/>\n", l.name);
-                x += &format!("        <maxPower Value=\"{:.6}\"/>\n", l.power / 10.0);
-                x += &format!("        <maxPower2 Value=\"{:.6}\"/>\n", l.power / 10.0);
-                x += &format!("        <speed Value=\"{:.6}\"/>\n", l.speed);
-                x += &format!("        <priority Value=\"0\"/>\n");
-                x += "        <ditherMode Value=\"stucki\"/>\n";
-                x += "    </CutSetting_Img>\n";
-            } else {
-                let ms = match l.mode {
-                    CutMode::Line => "Cut",
-                    CutMode::Fill => "Scan",
-                    CutMode::FillAndLine => "Scan+Cut",
-                    CutMode::Offset => "Cut",
-                };
-                x += &format!("    <CutSetting type=\"{ms}\">\n");
-                x += &format!("        <index Value=\"{i}\"/>\n");
-                x += &format!("        <name Value=\"{}\"/>\n", l.name);
-                x += &format!("        <maxPower Value=\"{:.6}\"/>\n", l.power / 10.0);
-                x += &format!("        <maxPower2 Value=\"{:.6}\"/>\n", l.power / 10.0);
-                x += &format!("        <speed Value=\"{:.6}\"/>\n", l.speed);
-                x += &format!("        <priority Value=\"0\"/>\n");
-                x += "    </CutSetting>\n";
-            }
+            let ms = match l.mode {
+                CutMode::Line => "Cut",
+                CutMode::Fill => "Scan",
+                CutMode::FillAndLine => "Scan+Cut",
+                CutMode::Offset => "Cut",
+            };
+            x += &format!("    <CutSetting type=\"{ms}\">\n");
+            x += &format!("        <index Value=\"{i}\"/>\n");
+            x += &format!("        <name Value=\"{}\"/>\n", l.name);
+            x += &format!("        <maxPower Value=\"{:.6}\"/>\n", l.power / 10.0);
+            x += &format!("        <maxPower2 Value=\"{:.6}\"/>\n", l.power / 10.0);
+            x += &format!("        <speed Value=\"{:.6}\"/>\n", l.speed);
+            x += &format!("        <priority Value=\"0\"/>\n");
+            x += "    </CutSetting>\n";
         }
     }
 
@@ -645,45 +624,6 @@ pub fn export_lbrn2(shapes: &[ShapeParams], layers: &[CutLayer]) -> String {
 
     x += "        </Children>\n";
     x += "    </Shape>\n";
-
-    // Export bitmap shapes outside the group (LightBurn format)
-    for s in shapes {
-        if let ShapeKind::RasterImage { data, params } = &s.shape {
-            let (img_w, img_h) = (data.0.width(), data.0.height());
-            let sx = params.width_mm / img_w as f32;
-            let sy = params.height_mm / img_h as f32;
-
-            // Encode image to PNG base64 (keep as stored, already Y-flipped)
-            let mut png_buf = Vec::new();
-            {
-                let cursor = std::io::Cursor::new(&mut png_buf);
-                let _ = data.0.write_to(
-                    &mut std::io::BufWriter::new(cursor),
-                    image::ImageFormat::Png,
-                );
-            }
-            use base64::Engine;
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&png_buf);
-
-            // LightBurn XForm uses centered pixel coords: (tx, ty) = image center
-            let cx = s.x + params.width_mm / 2.0;
-            let cy = s.y + params.height_mm / 2.0;
-
-            x += &format!(
-                "    <Shape Type=\"Bitmap\" CutIndex=\"{}\" W=\"{}\" H=\"{}\" \
-                 Gamma=\"1\" Contrast=\"0\" Brightness=\"0\" \
-                 File=\"\" SourceHash=\"0\" Data=\"{}\">",
-                s.layer_idx, img_w, img_h, b64
-            );
-            x += "\n";
-            x += &format!(
-                "        <XForm>{:.6} 0 0 {:.6} {:.6} {:.6}</XForm>\n",
-                sx, sy, cx, cy
-            );
-            x += "    </Shape>\n";
-        }
-    }
-
     x += "    <Notes ShowOnLoad=\"0\" Notes=\"\"/>\n";
     x += "</LightBurnProject>\n";
     x
