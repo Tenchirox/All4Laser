@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::ui::layers_new::{CutLayer, CutMode};
+use std::collections::HashMap;
 
 #[derive(Clone,Debug)]
 struct XForm{a:f32,b:f32,c:f32,d:f32,tx:f32,ty:f32}
@@ -57,6 +58,63 @@ fn parse_primlist(t:&str)->Vec<Pm>{
     }
     o
 }
+/// Parse <V vx="..." vy="..." c0x="..." c0y="..." c1x="..." c1y="..."/> elements (.lbrn v1 format)
+fn parse_v_elements(inner: &str) -> Vec<Vtx> {
+    let mut vs = Vec::new();
+    let mut pos = 0;
+    while pos < inner.len() {
+        let s = match inner[pos..].find("<V ") {
+            Some(p) => pos + p,
+            None => break,
+        };
+        let e = match inner[s..].find("/>") {
+            Some(p) => s + p + 2,
+            None => break,
+        };
+        let tag = &inner[s..e];
+        let vx = ea(tag, "vx").and_then(|s| s.parse::<f32>().ok());
+        let vy = ea(tag, "vy").and_then(|s| s.parse::<f32>().ok());
+        if let (Some(x), Some(y)) = (vx, vy) {
+            vs.push(Vtx {
+                x, y,
+                c0x: ea(tag, "c0x").and_then(|s| s.parse().ok()),
+                c0y: ea(tag, "c0y").and_then(|s| s.parse().ok()),
+                c1x: ea(tag, "c1x").and_then(|s| s.parse().ok()),
+                c1y: ea(tag, "c1y").and_then(|s| s.parse().ok()),
+            });
+        }
+        pos = e;
+    }
+    vs
+}
+
+/// Parse <P T="B" p0="0" p1="1"/> elements (.lbrn v1 format)
+fn parse_p_elements(inner: &str) -> Vec<Pm> {
+    let mut ps = Vec::new();
+    let mut pos = 0;
+    while pos < inner.len() {
+        let s = match inner[pos..].find("<P ") {
+            Some(p) => pos + p,
+            None => break,
+        };
+        let e = match inner[s..].find("/>") {
+            Some(p) => s + p + 2,
+            None => break,
+        };
+        let tag = &inner[s..e];
+        let t = ea(tag, "T").unwrap_or_default();
+        let p0: usize = ea(tag, "p0").and_then(|s| s.parse().ok()).unwrap_or(0);
+        let p1: usize = ea(tag, "p1").and_then(|s| s.parse().ok()).unwrap_or(0);
+        match t.as_str() {
+            "B" => ps.push(Pm::B(p0, p1)),
+            "L" => ps.push(Pm::L(p0, p1)),
+            _ => {}
+        }
+        pos = e;
+    }
+    ps
+}
+
 fn fbz(p0:(f32,f32),c0:(f32,f32),c1:(f32,f32),p1:(f32,f32),n:usize)->Vec<(f32,f32)>{
     (0..=n).map(|i|{let t=i as f32/n as f32;let m=1.0-t;
         let m2=m*m;let m3=m2*m;let t2=t*t;let t3=t2*t;
@@ -77,13 +135,29 @@ fn build_path(vs:&[Vtx],ps:&[Pm],xf:&XForm)->Vec<(f32,f32)>{
         Pm::B(i0,i1)=>{
             let v0=&vs[(*i0).min(vs.len()-1)];let v1=&vs[(*i1).min(vs.len()-1)];
             let p0=xf.apply(v0.x,v0.y);let p1=xf.apply(v1.x,v1.y);
-            let cp0=match(v0.c1x,v0.c1y){(Some(a),Some(b))=>xf.apply(a,b),_=>p0};
-            let cp1=match(v1.c0x,v1.c0y){(Some(a),Some(b))=>xf.apply(a,b),_=>p1};
-            let bz=fbz(p0,cp0,cp1,p1,8);
+            // c0 = outgoing control point from start vertex, c1 = incoming to end vertex
+            let cp0=xf.apply(v0.c0x.unwrap_or(v0.x),v0.c0y.unwrap_or(v0.y));
+            let cp1=xf.apply(v1.c1x.unwrap_or(v1.x),v1.c1y.unwrap_or(v1.y));
+            let bz=fbz(p0,cp0,cp1,p1,32);
             let s=if!pts.is_empty()&&pts.last()==bz.first(){1}else{0};
             pts.extend_from_slice(&bz[s..]);
         }
     }}
+    // Close path if last primitive connects back to first vertex
+    if pts.len()>=3{
+        if let(Some(first),Some(last))=(pts.first(),pts.last()){
+            if(first.0-last.0).abs()>0.001||(first.1-last.1).abs()>0.001{
+                // Check if the path *should* be closed (last prim ends at first prim's start vertex)
+                if let(Some(first_p),Some(last_p))=(ps.first(),ps.last()){
+                    let fi=match first_p{Pm::L(i,_)|Pm::B(i,_)=>*i};
+                    let li=match last_p{Pm::L(_,i)|Pm::B(_,i)=>*i};
+                    if fi==li{
+                        pts.push(*first);
+                    }
+                }
+            }
+        }
+    }
     pts
 }
 fn p2s(pts:&[(f32,f32)],li:usize)->Option<ShapeParams>{
@@ -126,12 +200,55 @@ fn pm(s: &str) -> CutMode {
     }
 }
 
+/// Pre-scan content to collect shared PrimLists indexed by PrimID attribute
+fn collect_shared_primlists(content: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let mut pos = 0;
+    while pos < content.len() {
+        let ss = match content[pos..].find("<Shape ") {
+            Some(p) => pos + p,
+            None => break,
+        };
+        let te = match content[ss..].find('>') {
+            Some(p) => ss + p,
+            None => break,
+        };
+        let otag = &content[ss..=te];
+        if otag.ends_with("/>") {
+            pos = te + 1;
+            continue;
+        }
+        let is = te + 1;
+        let co = match fc(&content[is..], "<Shape ", "</Shape>") {
+            Some(o) => o,
+            None => { pos = is; continue; }
+        };
+        let inner = &content[is..is + co];
+        let bend = is + co + "</Shape>".len();
+        if let Some(pid) = ea(otag, "PrimID") {
+            if let Some(pt) = tc(inner, "PrimList") {
+                map.entry(pid).or_insert_with(|| pt.to_string());
+            }
+        }
+        // Recurse into Children
+        if let Some(ch) = tc(inner, "Children") {
+            let child_map = collect_shared_primlists(ch);
+            for (k, v) in child_map {
+                map.entry(k).or_insert(v);
+            }
+        }
+        pos = bend;
+    }
+    map
+}
+
 /// Parse a .lbrn2 XML file and extract shapes + layer overrides
 pub fn import_lbrn2(content: &str) -> Result<(Vec<ShapeParams>, Vec<LbrnLayerOverride>), String> {
     let mut shapes = Vec::new();
     let mut lo = Vec::new();
     pcs(content, &mut lo);
-    psh(content, &XForm::default(), &mut shapes);
+    let shared_prims = collect_shared_primlists(content);
+    psh(content, &XForm::default(), &shared_prims, &mut shapes);
     if shapes.is_empty() {
         psc(content, &mut shapes);
     }
@@ -210,7 +327,7 @@ fn fc(c: &str, otag: &str, ctag: &str) -> Option<usize> {
     None
 }
 
-fn psh(content: &str, pxf: &XForm, out: &mut Vec<ShapeParams>) {
+fn psh(content: &str, pxf: &XForm, shared_prims: &HashMap<String, String>, out: &mut Vec<ShapeParams>) {
     let mut pos = 0;
     while pos < content.len() {
         let ss = match content[pos..].find("<Shape ") {
@@ -229,7 +346,7 @@ fn psh(content: &str, pxf: &XForm, out: &mut Vec<ShapeParams>) {
             .unwrap_or(0);
 
         if otag.ends_with("/>") {
-            pil(otag, ci, out);
+            pil(otag, ci, pxf, out);
             pos = te + 1;
             continue;
         }
@@ -251,19 +368,41 @@ fn psh(content: &str, pxf: &XForm, out: &mut Vec<ShapeParams>) {
         match st.as_str() {
             "Group" => {
                 if let Some(ch) = tc(inner, "Children") {
-                    psh(ch, &cxf, out);
+                    psh(ch, &cxf, shared_prims, out);
                 }
             }
             _ => {
+                let mut found = false;
+                // Try .lbrn2 packed format first
                 if let Some(vt) = tc(inner, "VertList") {
                     let vs = parse_vertlist(vt);
-                    if let Some(pt) = tc(inner, "PrimList") {
-                        let ps = parse_primlist(pt);
+                    // Try local PrimList first, then shared by PrimID
+                    let pt_str = tc(inner, "PrimList").map(|s| s.to_string())
+                        .or_else(|| ea(otag, "PrimID").and_then(|pid| shared_prims.get(&pid).cloned()));
+                    if let Some(pt) = pt_str {
+                        let ps = parse_primlist(&pt);
                         let pts = build_path(&vs, &ps, &cxf);
                         if let Some(s) = p2s(&pts, ci) {
                             out.push(s);
+                            found = true;
                         }
                     }
+                }
+                // Try .lbrn v1 element format (<V .../> and <P .../>)
+                if !found {
+                    let vs = parse_v_elements(inner);
+                    let ps = parse_p_elements(inner);
+                    if !vs.is_empty() && !ps.is_empty() {
+                        let pts = build_path(&vs, &ps, &cxf);
+                        if let Some(s) = p2s(&pts, ci) {
+                            out.push(s);
+                            found = true;
+                        }
+                    }
+                }
+                // Fallback: try parsing as inline shape with the composed transform
+                if !found {
+                    pil(otag, ci, &cxf, out);
                 }
             }
         }
@@ -271,7 +410,7 @@ fn psh(content: &str, pxf: &XForm, out: &mut Vec<ShapeParams>) {
     }
 }
 
-fn pil(tag: &str, li: usize, out: &mut Vec<ShapeParams>) {
+fn pil(tag: &str, li: usize, xf: &XForm, out: &mut Vec<ShapeParams>) {
     let st = ea(tag, "Type").unwrap_or_default();
     match st.as_str() {
         "Rect" => {
@@ -281,11 +420,25 @@ fn pil(tag: &str, li: usize, out: &mut Vec<ShapeParams>) {
             ) {
                 let w: f32 = ea(tag, "W").and_then(|s| s.parse().ok()).unwrap_or(10.0);
                 let h: f32 = ea(tag, "H").and_then(|s| s.parse().ok()).unwrap_or(10.0);
-                out.push(ShapeParams {
-                    shape: ShapeKind::Rectangle,
-                    x, y, width: w, height: h, layer_idx: li,
-                    ..Default::default()
-                });
+                // If transform is non-identity, emit as Path to preserve rotation/skew
+                if !xf_is_identity(xf) {
+                    let corners = vec![
+                        xf.apply(x, y),
+                        xf.apply(x + w, y),
+                        xf.apply(x + w, y + h),
+                        xf.apply(x, y + h),
+                        xf.apply(x, y),
+                    ];
+                    if let Some(s) = p2s(&corners, li) {
+                        out.push(s);
+                    }
+                } else {
+                    out.push(ShapeParams {
+                        shape: ShapeKind::Rectangle,
+                        x, y, width: w, height: h, layer_idx: li,
+                        ..Default::default()
+                    });
+                }
             }
         }
         "Ellipse" => {
@@ -294,18 +447,36 @@ fn pil(tag: &str, li: usize, out: &mut Vec<ShapeParams>) {
                 ea(tag, "CY").and_then(|s| s.parse::<f32>().ok()),
             ) {
                 let rx: f32 = ea(tag, "Rx").and_then(|s| s.parse().ok()).unwrap_or(10.0);
-                out.push(ShapeParams {
-                    shape: ShapeKind::Circle,
-                    x: cx, y: cy, radius: rx, layer_idx: li,
-                    ..Default::default()
-                });
+                let ry: f32 = ea(tag, "Ry").and_then(|s| s.parse().ok()).unwrap_or(rx);
+                // Always emit ellipse as Path for accuracy (handles Ry != Rx, transforms)
+                let steps = 64;
+                let mut pts = Vec::with_capacity(steps + 1);
+                for i in 0..=steps {
+                    let angle = 2.0 * std::f32::consts::PI * i as f32 / steps as f32;
+                    let px = cx + rx * angle.cos();
+                    let py = cy + ry * angle.sin();
+                    pts.push(xf.apply(px, py));
+                }
+                if let Some(s) = p2s(&pts, li) {
+                    out.push(s);
+                }
             }
         }
         _ => {}
     }
 }
 
+fn xf_is_identity(xf: &XForm) -> bool {
+    (xf.a - 1.0).abs() < 1e-6
+        && xf.b.abs() < 1e-6
+        && xf.c.abs() < 1e-6
+        && (xf.d - 1.0).abs() < 1e-6
+        && xf.tx.abs() < 1e-6
+        && xf.ty.abs() < 1e-6
+}
+
 fn psc(content: &str, out: &mut Vec<ShapeParams>) {
+    let id_xf = XForm::default();
     for line in content.lines() {
         let t = line.trim();
         if t.starts_with("<Shape ") && t.ends_with("/>") {
@@ -313,59 +484,147 @@ fn psc(content: &str, out: &mut Vec<ShapeParams>) {
                 .or_else(|| ea(t, "Layer"))
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
-            pil(t, li, out);
+            pil(t, li, &id_xf, out);
         }
     }
 }
 
 /// Export shapes to .lbrn2 XML
 pub fn export_lbrn2(shapes: &[ShapeParams], layers: &[CutLayer]) -> String {
+    // Collect layer indices actually used by shapes
+    let mut used: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    for s in shapes {
+        used.insert(s.layer_idx);
+    }
+
     let mut x = String::new();
     x += "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-    x += "<LightBurnProject AppVersion=\"All4Laser Export\">\n";
-    for (i, l) in layers.iter().enumerate() {
-        let ms = match l.mode {
-            CutMode::Line => "Cut",
-            CutMode::Fill => "Scan",
-            CutMode::FillAndLine => "Scan+Cut",
-            CutMode::Offset => "Cut",
-        };
-        x += &format!(
-            "  <CutSetting type=\"{ms}\" index=\"{i}\" \
-             speed=\"{:.1}\" maxPower=\"{:.1}\" passes=\"{}\"/>\n",
-            l.speed,
-            l.power / 10.0,
-            l.passes
-        );
+    x += "<LightBurnProject AppVersion=\"All4Laser\" FormatVersion=\"1\" \
+          MirrorX=\"False\" MirrorY=\"False\">\n";
+
+    // Only emit CutSettings for layers referenced by shapes
+    for &i in &used {
+        if let Some(l) = layers.get(i) {
+            let ms = match l.mode {
+                CutMode::Line => "Cut",
+                CutMode::Fill => "Scan",
+                CutMode::FillAndLine => "Scan+Cut",
+                CutMode::Offset => "Cut",
+            };
+            x += &format!("    <CutSetting type=\"{ms}\">\n");
+            x += &format!("        <index Value=\"{i}\"/>\n");
+            x += &format!("        <name Value=\"{}\"/>\n", l.name);
+            x += &format!("        <maxPower Value=\"{:.6}\"/>\n", l.power / 10.0);
+            x += &format!("        <maxPower2 Value=\"{:.6}\"/>\n", l.power / 10.0);
+            x += &format!("        <speed Value=\"{:.6}\"/>\n", l.speed);
+            x += &format!("        <priority Value=\"0\"/>\n");
+            x += "    </CutSetting>\n";
+        }
     }
+
+    // Wrap all shapes in a Group
+    x += "    <Shape Type=\"Group\" CutIndex=\"0\">\n";
+    x += "        <XForm>1 0 0 1 0 0</XForm>\n";
+    x += "        <Children>\n";
+
+    let mut vid: usize = 0;
+    let mut pid: usize = 0;
     for s in shapes {
         match &s.shape {
             ShapeKind::Rectangle => {
+                let (x0, y0) = (s.x, s.y);
+                let pts = vec![
+                    (x0, y0), (x0 + s.width, y0),
+                    (x0 + s.width, y0 + s.height), (x0, y0 + s.height),
+                ];
                 x += &format!(
-                    "  <Shape Type=\"Rect\" X=\"{:.3}\" Y=\"{:.3}\" \
-                     W=\"{:.3}\" H=\"{:.3}\" CutIndex=\"{}\"/>\n",
-                    s.x, s.y, s.width, s.height, s.layer_idx
+                    "            <Shape Type=\"Path\" CutIndex=\"{}\" VertID=\"{}\" PrimID=\"{}\">\n",
+                    s.layer_idx, vid, pid
                 );
+                x += "                <XForm>1 0 0 1 0 0</XForm>\n";
+                x += "                <VertList>";
+                for p in &pts {
+                    x += &format!("V{:.6} {:.6}", p.0, p.1);
+                }
+                x += "</VertList>\n";
+                x += "                <PrimList>L0 1L1 2L2 3L3 0</PrimList>\n";
+                x += "            </Shape>\n";
+                vid += 1;
+                pid += 1;
             }
             ShapeKind::Circle => {
+                let steps = 64usize;
                 x += &format!(
-                    "  <Shape Type=\"Ellipse\" CX=\"{:.3}\" CY=\"{:.3}\" \
-                     Rx=\"{:.3}\" CutIndex=\"{}\"/>\n",
-                    s.x, s.y, s.radius, s.layer_idx
+                    "            <Shape Type=\"Path\" CutIndex=\"{}\" VertID=\"{}\" PrimID=\"{}\">\n",
+                    s.layer_idx, vid, pid
                 );
+                x += "                <XForm>1 0 0 1 0 0</XForm>\n";
+                x += "                <VertList>";
+                for i in 0..steps {
+                    let angle = 2.0 * std::f32::consts::PI * i as f32 / steps as f32;
+                    let na = 2.0 * std::f32::consts::PI * ((i + 1) % steps) as f32 / steps as f32;
+                    let px = s.x + s.radius * angle.cos();
+                    let py = s.y + s.radius * angle.sin();
+                    let k = 4.0 / 3.0 * ((std::f32::consts::PI / steps as f32 / 2.0).tan());
+                    let c0x = px - s.radius * k * angle.sin();
+                    let c0y = py + s.radius * k * angle.cos();
+                    let npx = s.x + s.radius * na.cos();
+                    let npy = s.y + s.radius * na.sin();
+                    let c1x = npx + s.radius * k * na.sin();
+                    let c1y = npy - s.radius * k * na.cos();
+                    x += &format!(
+                        "V{px:.6} {py:.6}c0x{c0x:.6}c0y{c0y:.6}c1x{c1x:.6}c1y{c1y:.6}"
+                    );
+                }
+                x += "</VertList>\n";
+                x += "                <PrimList>";
+                for i in 0..steps {
+                    let ni = (i + 1) % steps;
+                    x += &format!("B{i} {ni}");
+                }
+                x += "</PrimList>\n";
+                x += "            </Shape>\n";
+                vid += 1;
+                pid += 1;
             }
             ShapeKind::Path(pts) if pts.len() >= 2 => {
-                x += &format!("  <Shape Type=\"Path\" CutIndex=\"{}\">\n", s.layer_idx);
-                for (i, p) in pts.iter().enumerate() {
+                x += &format!(
+                    "            <Shape Type=\"Path\" CutIndex=\"{}\" VertID=\"{}\" PrimID=\"{}\">\n",
+                    s.layer_idx, vid, pid
+                );
+                x += "                <XForm>1 0 0 1 0 0</XForm>\n";
+                x += "                <VertList>";
+                for p in pts {
                     let (wx, wy) = s.world_pos(p.0, p.1);
-                    let cmd = if i == 0 { "M" } else { "L" };
-                    x += &format!("    <V vx=\"{wx:.3}\" vy=\"{wy:.3}\" c=\"{cmd}\"/>\n");
+                    x += &format!("V{wx:.6} {wy:.6}");
                 }
-                x += "  </Shape>\n";
+                x += "</VertList>\n";
+                x += "                <PrimList>";
+                let n = pts.len();
+                let closed = n >= 3
+                    && (pts[0].0 - pts[n - 1].0).abs() < 0.01
+                    && (pts[0].1 - pts[n - 1].1).abs() < 0.01;
+                if closed {
+                    for i in 0..n - 1 {
+                        x += &format!("L{} {}", i, (i + 1) % (n - 1));
+                    }
+                } else {
+                    for i in 0..n - 1 {
+                        x += &format!("L{} {}", i, i + 1);
+                    }
+                }
+                x += "</PrimList>\n";
+                x += "            </Shape>\n";
+                vid += 1;
+                pid += 1;
             }
             _ => {}
         }
     }
+
+    x += "        </Children>\n";
+    x += "    </Shape>\n";
+    x += "    <Notes ShowOnLoad=\"0\" Notes=\"\"/>\n";
     x += "</LightBurnProject>\n";
     x
 }
