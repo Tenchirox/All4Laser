@@ -4698,7 +4698,8 @@ impl All4LaserApp {
             InteractiveAction::ContextDuplicateSelection => {
                 self.push_node_undo_snapshot();
                 let indices: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
-                let mut new_indices = Vec::new();
+                let mut new_indices = Vec::with_capacity(indices.len());
+                self.drawing_state.shapes.reserve(indices.len());
                 for idx in &indices {
                     if let Some(shape) = self.drawing_state.shapes.get(*idx) {
                         let mut dup = shape.clone();
