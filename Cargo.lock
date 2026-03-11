@@ -160,6 +160,7 @@ dependencies = [
 name = "all4laser"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "crossbeam-channel",
  "eframe",
  "egui",

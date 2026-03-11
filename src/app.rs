@@ -800,6 +800,7 @@ impl All4LaserApp {
             .add_filter("HPGL / PLT", &["plt", "hpgl"])
             .add_filter("PDF", &["pdf"])
             .add_filter("Adobe Illustrator", &["ai"])
+            .add_filter("xTool Creative Space", &["xcs"])
             .add_filter("All files", &["*"])
             .pick_file()
         {
@@ -976,6 +977,24 @@ impl All4LaserApp {
                         self.log(format!("PDF/AI imported: {filename}"));
                     }
                     Err(e) => self.show_error(format!("PDF/AI import failed: {e}")),
+                }
+            }
+            "xcs" => {
+                let data = match std::fs::read_to_string(path) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        self.show_error(format!("Error reading XCS file: {e}"));
+                        return;
+                    }
+                };
+                match crate::gcode::xcs_import::import_xcs(&data) {
+                    Ok(shapes) => {
+                        self.push_node_undo_snapshot();
+                        self.drawing_state.shapes.extend(shapes);
+                        self.regenerate_drawing_gcode();
+                        self.log(format!("XCS imported: {filename}"));
+                    }
+                    Err(e) => self.show_error(format!("XCS import failed: {e}")),
                 }
             }
             "plt" | "hpgl" => {
