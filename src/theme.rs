@@ -91,6 +91,8 @@ pub const DARK_SURFACE1: Color32 = Color32::from_rgb(69, 71, 90);
 pub const DARK_SURFACE2: Color32 = Color32::from_rgb(88, 91, 112);
 pub const DARK_TEXT: Color32 = Color32::from_rgb(205, 214, 244);
 pub const DARK_SUBTEXT: Color32 = Color32::from_rgb(166, 173, 200);
+pub const DARK_OVERLAY0: Color32 = Color32::from_rgb(108, 112, 134); // #6C7086
+pub const DARK_OVERLAY2: Color32 = Color32::from_rgb(147, 153, 178); // #9399B2
 
 // Light (Latte)
 pub const LIGHT_BASE: Color32 = Color32::from_rgb(248, 249, 252);
@@ -124,8 +126,8 @@ pub const CRUST: Color32 = DARK_CRUST;
 pub const SURFACE0: Color32 = DARK_SURFACE0;
 pub const SURFACE1: Color32 = DARK_SURFACE1;
 pub const SURFACE2: Color32 = DARK_SURFACE2;
-pub const OVERLAY0: Color32 = Color32::from_rgb(108, 112, 134); // #6C7086
-pub const OVERLAY2: Color32 = Color32::from_rgb(147, 153, 178); // #9399B2 - Added this for cut_palette.rs
+pub const OVERLAY0: Color32 = DARK_OVERLAY0;
+pub const OVERLAY2: Color32 = DARK_OVERLAY2;
 pub const TEXT: Color32 = DARK_TEXT;
 pub const SUBTEXT: Color32 = DARK_SUBTEXT;
 
