@@ -4,6 +4,8 @@
 ///
 /// Extracts path segments from SVG and converts them to GCode move/cut commands.
 
+use tiny_skia::Transform;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SvgLayer {
     pub color_ha: String,
@@ -139,6 +141,31 @@ fn collect_paths(
     layer: &SvgLayer,
     out: &mut Vec<Vec<(f32, f32)>>,
 ) {
+    fn lerp(a: f32, b: f32, t: f32) -> f32 {
+        a + (b - a) * t
+    }
+
+    fn quad_at(p0: (f32, f32), p1: (f32, f32), p2: (f32, f32), t: f32) -> (f32, f32) {
+        let a = (lerp(p0.0, p1.0, t), lerp(p0.1, p1.1, t));
+        let b = (lerp(p1.0, p2.0, t), lerp(p1.1, p2.1, t));
+        (lerp(a.0, b.0, t), lerp(a.1, b.1, t))
+    }
+
+    fn cubic_at(
+        p0: (f32, f32),
+        p1: (f32, f32),
+        p2: (f32, f32),
+        p3: (f32, f32),
+        t: f32,
+    ) -> (f32, f32) {
+        let a = (lerp(p0.0, p1.0, t), lerp(p0.1, p1.1, t));
+        let b = (lerp(p1.0, p2.0, t), lerp(p1.1, p2.1, t));
+        let c = (lerp(p2.0, p3.0, t), lerp(p2.1, p3.1, t));
+        let d = (lerp(a.0, b.0, t), lerp(a.1, b.1, t));
+        let e = (lerp(b.0, c.0, t), lerp(b.1, c.1, t));
+        (lerp(d.0, e.0, t), lerp(d.1, e.1, t))
+    }
+
     match node {
         usvg::Node::Group(group) => {
             for child in group.children() {
@@ -169,20 +196,62 @@ fn collect_paths(
             }
 
             if matches_layer {
+                // Apply all SVG transforms (including group transforms) before extracting segments.
+                // Otherwise imported geometry can be missing/misplaced.
+                let abs_ts = path.abs_transform();
+                let ts = Transform::from_row(
+                    abs_ts.sx,
+                    abs_ts.ky,
+                    abs_ts.kx,
+                    abs_ts.sy,
+                    abs_ts.tx,
+                    abs_ts.ty,
+                );
+                let p0 = path.data().clone();
+                let p = p0.clone().transform(ts).unwrap_or(p0);
+
                 let mut current_path = Vec::new();
-                for seg in path.data().segments() {
+                let mut current_pos: Option<(f32, f32)> = None;
+                let mut subpath_first: Option<(f32, f32)> = None;
+                for seg in p.segments() {
                     match seg {
                         tiny_skia::PathSegment::MoveTo(pt) => {
                             if !current_path.is_empty() {
                                 out.push(current_path);
                                 current_path = Vec::new();
                             }
-                            current_path.push((pt.x * params.scale, pt.y * params.scale));
+                            let p0 = (pt.x * params.scale, pt.y * params.scale);
+                            current_path.push(p0);
+                            current_pos = Some(p0);
+                            subpath_first = Some(p0);
                         }
-                        tiny_skia::PathSegment::LineTo(pt)
-                        | tiny_skia::PathSegment::QuadTo(_, pt)
-                        | tiny_skia::PathSegment::CubicTo(_, _, pt) => {
-                            current_path.push((pt.x * params.scale, pt.y * params.scale));
+                        tiny_skia::PathSegment::LineTo(pt) => {
+                            let p1 = (pt.x * params.scale, pt.y * params.scale);
+                            current_path.push(p1);
+                            current_pos = Some(p1);
+                        }
+                        tiny_skia::PathSegment::QuadTo(ctrl, to) => {
+                            let p0 = current_pos.unwrap_or((ctrl.x * params.scale, ctrl.y * params.scale));
+                            let p1 = (ctrl.x * params.scale, ctrl.y * params.scale);
+                            let p2 = (to.x * params.scale, to.y * params.scale);
+                            let steps = 16;
+                            for i in 1..=steps {
+                                let t = i as f32 / steps as f32;
+                                current_path.push(quad_at(p0, p1, p2, t));
+                            }
+                            current_pos = Some(p2);
+                        }
+                        tiny_skia::PathSegment::CubicTo(c1, c2, to) => {
+                            let p0 = current_pos.unwrap_or((c1.x * params.scale, c1.y * params.scale));
+                            let p1 = (c1.x * params.scale, c1.y * params.scale);
+                            let p2 = (c2.x * params.scale, c2.y * params.scale);
+                            let p3 = (to.x * params.scale, to.y * params.scale);
+                            let steps = 16;
+                            for i in 1..=steps {
+                                let t = i as f32 / steps as f32;
+                                current_path.push(cubic_at(p0, p1, p2, p3, t));
+                            }
+                            current_pos = Some(p3);
                         }
                         tiny_skia::PathSegment::Close => {
                             if !current_path.is_empty() {
@@ -192,12 +261,15 @@ fn collect_paths(
                                     if (first.0 - last.0).abs() > 0.0001
                                         || (first.1 - last.1).abs() > 0.0001
                                     {
-                                        current_path.push(first);
+                                        // Prefer closing to the actual subpath start if known.
+                                        current_path.push(subpath_first.unwrap_or(first));
                                     }
                                 }
                                 out.push(current_path);
                                 current_path = Vec::new();
                             }
+                            current_pos = None;
+                            subpath_first = None;
                         }
                     }
                 }
