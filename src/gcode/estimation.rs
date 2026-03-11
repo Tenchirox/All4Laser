@@ -131,3 +131,21 @@ pub fn estimate(lines: &[GCodeLine]) -> EstimationResult {
 
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_estimation_result_duration() {
+        let result = EstimationResult {
+            estimated_seconds: 123.45,
+            ..Default::default()
+        };
+        let duration = result.duration();
+        assert_eq!(duration, Duration::from_secs_f32(123.45));
+
+        let result_zero = EstimationResult::default();
+        assert_eq!(result_zero.duration(), Duration::from_secs(0));
+    }
+}
