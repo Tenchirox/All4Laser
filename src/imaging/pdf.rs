@@ -6,7 +6,7 @@
 /// h (closepath), re (rectangle), S/s (stroke), f/F (fill).
 /// Modern Adobe Illustrator (.ai) files are PDF internally.
 
-use crate::ui::drawing::{ShapeKind, ShapeParams};
+use crate::ui::drawing::{PathData, PathSegment, ShapeKind, ShapeParams};
 use lopdf::Document;
 
 /// Default PDF unit is 1/72 inch = 0.3528 mm
@@ -44,7 +44,9 @@ fn extract_paths_from_ops(
     layer_idx: usize,
 ) -> Vec<ShapeParams> {
     let mut shapes: Vec<ShapeParams> = Vec::new();
-    let mut current_path: Vec<(f32, f32)> = Vec::new();
+    let mut segments: Vec<PathSegment> = Vec::new();
+    let mut sub_start: (f32, f32) = (0.0, 0.0);
+    let mut has_curves = false;
     let mut subpath_start: Option<(f32, f32)> = None;
     let mut cx: f32 = 0.0;
     let mut cy: f32 = 0.0;
@@ -57,6 +59,52 @@ fn extract_paths_from_ops(
         let tx = ctm[0] * x + ctm[2] * y + ctm[4];
         let ty = ctm[1] * x + ctm[3] * y + ctm[5];
         (tx * PDF_UNIT_MM, ty * PDF_UNIT_MM)
+    };
+
+    let flush = |segments: &mut Vec<PathSegment>, sub_start: &(f32, f32), has_curves: &mut bool, shapes: &mut Vec<ShapeParams>, layer_idx: usize| {
+        if segments.is_empty() { return; }
+        let pd = if *has_curves {
+            PathData::from_segments(*sub_start, std::mem::take(segments))
+        } else {
+            let mut pts = vec![*sub_start];
+            for s in segments.iter() {
+                if let PathSegment::LineTo(x, y) = s {
+                    pts.push((*x, *y));
+                }
+            }
+            segments.clear();
+            PathData::from_points(pts)
+        };
+        if pd.points.len() >= 2 {
+            let min_x = pd.points.iter().map(|p| p.0).fold(f32::MAX, f32::min);
+            let min_y = pd.points.iter().map(|p| p.1).fold(f32::MAX, f32::min);
+            if pd.has_curves() {
+                let local_start = (pd.start.0 - min_x, pd.start.1 - min_y);
+                let local_segs: Vec<PathSegment> = pd.segments.iter().map(|seg| match seg {
+                    PathSegment::LineTo(x, y) => PathSegment::LineTo(x - min_x, y - min_y),
+                    PathSegment::CubicBezier { c1, c2, end } => PathSegment::CubicBezier {
+                        c1: (c1.0 - min_x, c1.1 - min_y),
+                        c2: (c2.0 - min_x, c2.1 - min_y),
+                        end: (end.0 - min_x, end.1 - min_y),
+                    },
+                    PathSegment::QuadBezier { c, end } => PathSegment::QuadBezier {
+                        c: (c.0 - min_x, c.1 - min_y),
+                        end: (end.0 - min_x, end.1 - min_y),
+                    },
+                }).collect();
+                shapes.push(ShapeParams {
+                    shape: ShapeKind::Path(PathData::from_segments(local_start, local_segs)),
+                    x: min_x, y: min_y, layer_idx, ..Default::default()
+                });
+            } else {
+                let rel: Vec<(f32,f32)> = pd.points.iter().map(|&(x,y)| (x - min_x, y - min_y)).collect();
+                shapes.push(ShapeParams {
+                    shape: ShapeKind::Path(PathData::from_points(rel)),
+                    x: min_x, y: min_y, layer_idx, ..Default::default()
+                });
+            }
+        }
+        *has_curves = false;
     };
 
     for op in ops {
@@ -89,16 +137,14 @@ fn extract_paths_from_ops(
                     let x = obj_to_f32(&op.operands[0]).unwrap_or(0.0);
                     let y = obj_to_f32(&op.operands[1]).unwrap_or(0.0);
                     let (tx, ty) = transform(&ctm, x, y);
-                    // If there's a current path, flush it before starting a new subpath
-                    if current_path.len() >= 2 {
-                        flush_path(&mut current_path, &mut shapes, layer_idx);
-                    } else {
-                        current_path.clear();
+                    // Flush previous sub-path
+                    if !segments.is_empty() {
+                        flush(&mut segments, &sub_start, &mut has_curves, &mut shapes, layer_idx);
                     }
                     cx = tx;
                     cy = ty;
+                    sub_start = (tx, ty);
                     subpath_start = Some((tx, ty));
-                    current_path.push((tx, ty));
                 }
             }
             "l" => {
@@ -107,16 +153,13 @@ fn extract_paths_from_ops(
                     let x = obj_to_f32(&op.operands[0]).unwrap_or(0.0);
                     let y = obj_to_f32(&op.operands[1]).unwrap_or(0.0);
                     let (tx, ty) = transform(&ctm, x, y);
-                    if current_path.is_empty() {
-                        current_path.push((cx, cy));
-                    }
-                    current_path.push((tx, ty));
+                    segments.push(PathSegment::LineTo(tx, ty));
                     cx = tx;
                     cy = ty;
                 }
             }
             "c" => {
-                // curveto (cubic bezier) — approximate with line segments
+                // curveto (cubic bezier)
                 if op.operands.len() >= 6 {
                     let x1 = obj_to_f32(&op.operands[0]).unwrap_or(0.0);
                     let y1 = obj_to_f32(&op.operands[1]).unwrap_or(0.0);
@@ -129,25 +172,10 @@ fn extract_paths_from_ops(
                     let (tx2, ty2) = transform(&ctm, x2, y2);
                     let (tx3, ty3) = transform(&ctm, x3, y3);
 
-                    if current_path.is_empty() {
-                        current_path.push((cx, cy));
-                    }
-
-                    // Flatten cubic bezier with 16 segments
-                    let n = 16;
-                    for i in 1..=n {
-                        let t = i as f32 / n as f32;
-                        let mt = 1.0 - t;
-                        let px = mt * mt * mt * cx
-                            + 3.0 * mt * mt * t * tx1
-                            + 3.0 * mt * t * t * tx2
-                            + t * t * t * tx3;
-                        let py = mt * mt * mt * cy
-                            + 3.0 * mt * mt * t * ty1
-                            + 3.0 * mt * t * t * ty2
-                            + t * t * t * ty3;
-                        current_path.push((px, py));
-                    }
+                    has_curves = true;
+                    segments.push(PathSegment::CubicBezier {
+                        c1: (tx1, ty1), c2: (tx2, ty2), end: (tx3, ty3),
+                    });
                     cx = tx3;
                     cy = ty3;
                 }
@@ -163,23 +191,10 @@ fn extract_paths_from_ops(
                     let (tx2, ty2) = transform(&ctm, x2, y2);
                     let (tx3, ty3) = transform(&ctm, x3, y3);
 
-                    if current_path.is_empty() {
-                        current_path.push((cx, cy));
-                    }
-                    let n = 16;
-                    for i in 1..=n {
-                        let t = i as f32 / n as f32;
-                        let mt = 1.0 - t;
-                        let px = mt * mt * mt * cx
-                            + 3.0 * mt * mt * t * cx
-                            + 3.0 * mt * t * t * tx2
-                            + t * t * t * tx3;
-                        let py = mt * mt * mt * cy
-                            + 3.0 * mt * mt * t * cy
-                            + 3.0 * mt * t * t * ty2
-                            + t * t * t * ty3;
-                        current_path.push((px, py));
-                    }
+                    has_curves = true;
+                    segments.push(PathSegment::CubicBezier {
+                        c1: (cx, cy), c2: (tx2, ty2), end: (tx3, ty3),
+                    });
                     cx = tx3;
                     cy = ty3;
                 }
@@ -195,23 +210,10 @@ fn extract_paths_from_ops(
                     let (tx1, ty1) = transform(&ctm, x1, y1);
                     let (tx3, ty3) = transform(&ctm, x3, y3);
 
-                    if current_path.is_empty() {
-                        current_path.push((cx, cy));
-                    }
-                    let n = 16;
-                    for i in 1..=n {
-                        let t = i as f32 / n as f32;
-                        let mt = 1.0 - t;
-                        let px = mt * mt * mt * cx
-                            + 3.0 * mt * mt * t * tx1
-                            + 3.0 * mt * t * t * tx3
-                            + t * t * t * tx3;
-                        let py = mt * mt * mt * cy
-                            + 3.0 * mt * mt * t * ty1
-                            + 3.0 * mt * t * t * ty3
-                            + t * t * t * ty3;
-                        current_path.push((px, py));
-                    }
+                    has_curves = true;
+                    segments.push(PathSegment::CubicBezier {
+                        c1: (tx1, ty1), c2: (tx3, ty3), end: (tx3, ty3),
+                    });
                     cx = tx3;
                     cy = ty3;
                 }
@@ -219,10 +221,7 @@ fn extract_paths_from_ops(
             "h" => {
                 // closepath
                 if let Some((sx, sy)) = subpath_start {
-                    if current_path.is_empty() {
-                        current_path.push((cx, cy));
-                    }
-                    current_path.push((sx, sy));
+                    segments.push(PathSegment::LineTo(sx, sy));
                     cx = sx;
                     cy = sy;
                 }
@@ -257,17 +256,18 @@ fn extract_paths_from_ops(
                 if op.operator.as_str() == "s" || op.operator.as_str() == "b" || op.operator.as_str() == "b*" {
                     // close + stroke/fill
                     if let Some((sx, sy)) = subpath_start {
-                        if !current_path.is_empty() {
-                            current_path.push((sx, sy));
+                        if !segments.is_empty() {
+                            segments.push(PathSegment::LineTo(sx, sy));
                         }
                     }
                 }
-                flush_path(&mut current_path, &mut shapes, layer_idx);
+                flush(&mut segments, &sub_start, &mut has_curves, &mut shapes, layer_idx);
                 subpath_start = None;
             }
             "n" => {
                 // End path without painting (clipping path)
-                current_path.clear();
+                segments.clear();
+                has_curves = false;
                 subpath_start = None;
             }
             _ => {}
@@ -275,7 +275,7 @@ fn extract_paths_from_ops(
     }
 
     // Flush any remaining path
-    flush_path(&mut current_path, &mut shapes, layer_idx);
+    flush(&mut segments, &sub_start, &mut has_curves, &mut shapes, layer_idx);
 
     shapes
 }
@@ -299,30 +299,6 @@ fn multiply_ctm(a: &[f32; 6], b: &[f32; 6]) -> [f32; 6] {
     ]
 }
 
-fn flush_path(
-    current_path: &mut Vec<(f32, f32)>,
-    shapes: &mut Vec<ShapeParams>,
-    layer_idx: usize,
-) {
-    if current_path.len() >= 2 {
-        let min_x = current_path.iter().map(|p| p.0).fold(f32::MAX, f32::min);
-        let min_y = current_path.iter().map(|p| p.1).fold(f32::MAX, f32::min);
-
-        let rel_points: Vec<(f32, f32)> = current_path
-            .iter()
-            .map(|&(x, y)| (x - min_x, y - min_y))
-            .collect();
-
-        shapes.push(ShapeParams {
-            shape: ShapeKind::Path(rel_points),
-            x: min_x,
-            y: min_y,
-            layer_idx,
-            ..Default::default()
-        });
-    }
-    current_path.clear();
-}
 
 fn normalize_shapes(shapes: &mut [ShapeParams]) {
     if shapes.is_empty() {

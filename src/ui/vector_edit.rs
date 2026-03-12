@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::ui::drawing::{DrawingState, ShapeKind};
+use crate::ui::drawing::{DrawingState, PathData, ShapeKind};
 
 const JOIN_EPS: f32 = 1e-3;
 
@@ -219,11 +219,11 @@ pub fn split_path_at_node(
     }
 
     if let Some(shape) = drawing.shapes.get_mut(shape_idx) {
-        shape.shape = ShapeKind::Path(left);
+        shape.shape = ShapeKind::Path(PathData::from_points(left));
     }
 
     let mut second = base_shape;
-    second.shape = ShapeKind::Path(right);
+    second.shape = ShapeKind::Path(PathData::from_points(right));
     let insert_idx = shape_idx + 1;
     drawing.shapes.insert(insert_idx, second);
     Ok(insert_idx)
@@ -387,7 +387,7 @@ pub fn simplify_path(
     }
 
     let removed = pts.len().saturating_sub(simplified.len());
-    *pts = simplified;
+    pts.points = simplified;
     Ok(removed)
 }
 
@@ -413,7 +413,7 @@ pub fn smooth_path(
     let closed = is_closed_path(pts);
     let k = strength.clamp(0.0, 1.0);
 
-    let mut core = pts.clone();
+    let mut core: Vec<(f32, f32)> = pts.points.clone();
     if closed {
         core.pop();
     }
@@ -450,9 +450,10 @@ pub fn smooth_path(
     }
 
     if closed {
-        core.push(core[0]);
+        let first = core[0];
+        core.push(first);
     }
-    *pts = core;
+    pts.points = core;
     Ok(())
 }
 
@@ -477,12 +478,14 @@ pub fn join_selected_paths(
         return Err("Invalid second path".into());
     };
 
-    let ShapeKind::Path(mut a_pts) = a_shape.shape.clone() else {
+    let ShapeKind::Path(a_data) = a_shape.shape.clone() else {
         return Err("First selection is not a path".into());
     };
-    let ShapeKind::Path(mut b_pts) = b_shape.shape.clone() else {
+    let ShapeKind::Path(b_data) = b_shape.shape.clone() else {
         return Err("Second selection is not a path".into());
     };
+    let mut a_pts = a_data.points;
+    let mut b_pts = b_data.points;
 
     if a_pts.len() < 2 || b_pts.len() < 2 {
         return Err("Each path needs at least 2 nodes".into());
@@ -524,7 +527,8 @@ pub fn join_selected_paths(
     merged.extend_from_slice(&b_pts[1..]);
 
     let mut new_shape = a_shape;
-    new_shape.shape = ShapeKind::Path(merged);
+    new_shape.shape = ShapeKind::Path(PathData::from_points(merged));
+
 
     let mut to_remove = [a_idx, b_idx];
     to_remove.sort_unstable();
@@ -542,7 +546,7 @@ mod tests {
 
     fn path_shape(points: Vec<(f32, f32)>) -> ShapeParams {
         ShapeParams {
-            shape: ShapeKind::Path(points),
+            shape: ShapeKind::Path(PathData::from_points(points)),
             ..ShapeParams::default()
         }
     }

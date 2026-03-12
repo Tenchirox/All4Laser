@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::ui::drawing::{ImageData, ShapeKind, ShapeParams};
+use crate::ui::drawing::{ImageData, PathData, PathSegment, ShapeKind, ShapeParams};
 use crate::imaging::raster::RasterParams;
 use serde_json::Value;
 use std::sync::Arc;
@@ -106,6 +106,34 @@ pub fn import_xcs(content: &str) -> Result<Vec<ShapeParams>, String> {
     Ok(shapes)
 }
 
+/// Intermediate representation for a parsed SVG sub-path with Bézier data.
+struct RawSubPath {
+    start: (f32, f32),
+    segments: Vec<PathSegment>,
+}
+
+impl RawSubPath {
+    /// Collect all key points (start, endpoints, control points) for bounding box.
+    fn all_points(&self) -> Vec<(f32, f32)> {
+        let mut pts = vec![self.start];
+        for seg in &self.segments {
+            match seg {
+                PathSegment::LineTo(x, y) => pts.push((*x, *y)),
+                PathSegment::CubicBezier { c1, c2, end } => {
+                    pts.push(*c1);
+                    pts.push(*c2);
+                    pts.push(*end);
+                }
+                PathSegment::QuadBezier { c, end } => {
+                    pts.push(*c);
+                    pts.push(*end);
+                }
+            }
+        }
+        pts
+    }
+}
+
 /// Parse a PATH display element into one or more ShapeParams.
 fn parse_path_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>> {
     let dpath = disp.get("dPath").and_then(|v| v.as_str())?;
@@ -117,19 +145,19 @@ fn parse_path_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>
     let disp_w = disp.get("width").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
     let disp_h = disp.get("height").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
 
-    // Parse SVG path data into sub-paths
+    // Parse SVG path data into sub-paths with Bézier segments preserved
     let sub_paths = parse_svg_dpath(dpath);
     if sub_paths.is_empty() {
         return None;
     }
 
-    // Compute raw bounding box across ALL sub-paths
+    // Compute raw bounding box across ALL sub-paths (using control points for conservative bbox)
     let mut raw_min_x = f32::MAX;
     let mut raw_min_y = f32::MAX;
     let mut raw_max_x = f32::MIN;
     let mut raw_max_y = f32::MIN;
     for sp in &sub_paths {
-        for &(px, py) in sp {
+        for (px, py) in sp.all_points() {
             raw_min_x = raw_min_x.min(px);
             raw_min_y = raw_min_y.min(py);
             raw_max_x = raw_max_x.max(px);
@@ -139,37 +167,90 @@ fn parse_path_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>
     let raw_w = raw_max_x - raw_min_x;
     let raw_h = raw_max_y - raw_min_y;
 
+    // Coordinate transform: map raw dPath coords to display bbox, then flip Y
+    let xform = |px: f32, py: f32| -> (f32, f32) {
+        let nx = if raw_w > 0.001 {
+            (px - raw_min_x) / raw_w * disp_w + disp_x
+        } else {
+            disp_x
+        };
+        let canvas_y = if raw_h > 0.001 {
+            (py - raw_min_y) / raw_h * disp_h + disp_y
+        } else {
+            disp_y
+        };
+        (nx, -canvas_y)
+    };
+
     let mut result = Vec::new();
     for sp in sub_paths {
-        if sp.len() < 2 {
+        if sp.segments.is_empty() {
             continue;
         }
-        // Map raw dPath coords to display's canvas bbox, then flip Y
-        let pts: Vec<(f32, f32)> = sp
+
+        // Transform start point and all segments
+        let t_start = xform(sp.start.0, sp.start.1);
+        let t_segs: Vec<PathSegment> = sp
+            .segments
             .iter()
-            .map(|&(px, py)| {
-                let nx = if raw_w > 0.001 {
-                    (px - raw_min_x) / raw_w * disp_w + disp_x
-                } else {
-                    disp_x
-                };
-                // Map to canvas Y (screen, Y-down), then negate for app (Y-up)
-                let canvas_y = if raw_h > 0.001 {
-                    (py - raw_min_y) / raw_h * disp_h + disp_y
-                } else {
-                    disp_y
-                };
-                (nx, -canvas_y)
+            .map(|seg| match seg {
+                PathSegment::LineTo(x, y) => {
+                    let (tx, ty) = xform(*x, *y);
+                    PathSegment::LineTo(tx, ty)
+                }
+                PathSegment::CubicBezier { c1, c2, end } => {
+                    let tc1 = xform(c1.0, c1.1);
+                    let tc2 = xform(c2.0, c2.1);
+                    let tend = xform(end.0, end.1);
+                    PathSegment::CubicBezier {
+                        c1: tc1,
+                        c2: tc2,
+                        end: tend,
+                    }
+                }
+                PathSegment::QuadBezier { c, end } => {
+                    let tc = xform(c.0, c.1);
+                    let tend = xform(end.0, end.1);
+                    PathSegment::QuadBezier {
+                        c: tc,
+                        end: tend,
+                    }
+                }
             })
             .collect();
 
-        // Compute bounding box for ShapeParams
-        let min_x = pts.iter().map(|p| p.0).fold(f32::MAX, f32::min);
-        let min_y = pts.iter().map(|p| p.1).fold(f32::MAX, f32::min);
-        let local: Vec<(f32, f32)> = pts.iter().map(|&(x, y)| (x - min_x, y - min_y)).collect();
+        // Create PathData with both segments and flattened points
+        let path_data = PathData::from_segments(t_start, t_segs);
+        if path_data.points.len() < 2 {
+            continue;
+        }
+
+        // Compute bounding box from flattened points for ShapeParams offset
+        let min_x = path_data.points.iter().map(|p| p.0).fold(f32::MAX, f32::min);
+        let min_y = path_data.points.iter().map(|p| p.1).fold(f32::MAX, f32::min);
+
+        // Make coordinates local (relative to bounding box origin)
+        let local_start = (path_data.start.0 - min_x, path_data.start.1 - min_y);
+        let local_segs: Vec<PathSegment> = path_data
+            .segments
+            .iter()
+            .map(|seg| match seg {
+                PathSegment::LineTo(x, y) => PathSegment::LineTo(x - min_x, y - min_y),
+                PathSegment::CubicBezier { c1, c2, end } => PathSegment::CubicBezier {
+                    c1: (c1.0 - min_x, c1.1 - min_y),
+                    c2: (c2.0 - min_x, c2.1 - min_y),
+                    end: (end.0 - min_x, end.1 - min_y),
+                },
+                PathSegment::QuadBezier { c, end } => PathSegment::QuadBezier {
+                    c: (c.0 - min_x, c.1 - min_y),
+                    end: (end.0 - min_x, end.1 - min_y),
+                },
+            })
+            .collect();
+        let local_path = PathData::from_segments(local_start, local_segs);
 
         result.push(ShapeParams {
-            shape: ShapeKind::Path(local),
+            shape: ShapeKind::Path(local_path),
             x: min_x,
             y: min_y,
             rotation: angle,
@@ -198,22 +279,10 @@ fn parse_bitmap_display(disp: &Value, layer_idx: usize) -> Option<ShapeParams> {
         .decode(raw_b64)
         .ok()?;
 
-    // Load image and composite onto white background (transparent areas → white)
+    // Load image preserving alpha channel (compositing happens in preprocess_image)
+    // No flip needed: the renderer UV mapping handles Y-up world coords
     let raw_img = image::load_from_memory(&bytes).ok()?;
-    let rgba = raw_img.to_rgba8();
-    let (w, h) = rgba.dimensions();
-    let mut white_bg = image::RgbaImage::from_pixel(w, h, image::Rgba([255, 255, 255, 255]));
-    for (x, y, pixel) in rgba.enumerate_pixels() {
-        let a = pixel[3] as f32 / 255.0;
-        let bg = white_bg.get_pixel(x, y);
-        let r = (pixel[0] as f32 * a + bg[0] as f32 * (1.0 - a)) as u8;
-        let g = (pixel[1] as f32 * a + bg[1] as f32 * (1.0 - a)) as u8;
-        let b = (pixel[2] as f32 * a + bg[2] as f32 * (1.0 - a)) as u8;
-        white_bg.put_pixel(x, y, image::Rgba([r, g, b, 255]));
-    }
-    // Flip vertically to compensate for Y-up coordinate system
-    let flipped = image::imageops::flip_vertical(&white_bg);
-    let img = image::DynamicImage::ImageRgba8(flipped);
+    let img = image::DynamicImage::ImageRgba8(raw_img.to_rgba8());
 
     let dx = disp.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
     let dy = disp.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
@@ -243,15 +312,15 @@ fn parse_bitmap_display(disp: &Value, layer_idx: usize) -> Option<ShapeParams> {
     })
 }
 
-/// Parse SVG path data string (M, L, C, Q, Z commands) into sub-paths of (f32,f32) points.
-/// Each sub-path is a separate Vec resulting from M commands.
-fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
-    let mut paths: Vec<Vec<(f32, f32)>> = Vec::new();
-    let mut current: Vec<(f32, f32)> = Vec::new();
+/// Parse SVG path data string (M, L, C, Q, Z commands) into sub-paths with Bézier segments preserved.
+fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
+    let mut paths: Vec<RawSubPath> = Vec::new();
+    let mut segments: Vec<PathSegment> = Vec::new();
     let mut cx: f32 = 0.0;
     let mut cy: f32 = 0.0;
     let mut start_x: f32 = 0.0;
     let mut start_y: f32 = 0.0;
+    let mut sub_start: (f32, f32) = (0.0, 0.0);
 
     let tokens = tokenize_svg_path(d);
     let mut i = 0;
@@ -260,10 +329,10 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
         match tokens[i].as_str() {
             "M" => {
                 // Flush previous sub-path
-                if current.len() >= 2 {
-                    paths.push(std::mem::take(&mut current));
+                if !segments.is_empty() {
+                    paths.push(RawSubPath { start: sub_start, segments: std::mem::take(&mut segments) });
                 } else {
-                    current.clear();
+                    segments.clear();
                 }
                 i += 1;
                 if let Some((x, y, adv)) = read_pair(&tokens, i) {
@@ -271,22 +340,22 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
                     cy = y;
                     start_x = x;
                     start_y = y;
-                    current.push((cx, cy));
+                    sub_start = (cx, cy);
                     i += adv;
                     // Implicit L after first M pair
                     while let Some((x2, y2, adv2)) = read_pair(&tokens, i) {
                         cx = x2;
                         cy = y2;
-                        current.push((cx, cy));
+                        segments.push(PathSegment::LineTo(cx, cy));
                         i += adv2;
                     }
                 }
             }
             "m" => {
-                if current.len() >= 2 {
-                    paths.push(std::mem::take(&mut current));
+                if !segments.is_empty() {
+                    paths.push(RawSubPath { start: sub_start, segments: std::mem::take(&mut segments) });
                 } else {
-                    current.clear();
+                    segments.clear();
                 }
                 i += 1;
                 if let Some((dx, dy, adv)) = read_pair(&tokens, i) {
@@ -294,12 +363,12 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
                     cy += dy;
                     start_x = cx;
                     start_y = cy;
-                    current.push((cx, cy));
+                    sub_start = (cx, cy);
                     i += adv;
                     while let Some((dx2, dy2, adv2)) = read_pair(&tokens, i) {
                         cx += dx2;
                         cy += dy2;
-                        current.push((cx, cy));
+                        segments.push(PathSegment::LineTo(cx, cy));
                         i += adv2;
                     }
                 }
@@ -309,7 +378,7 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
                 while let Some((x, y, adv)) = read_pair(&tokens, i) {
                     cx = x;
                     cy = y;
-                    current.push((cx, cy));
+                    segments.push(PathSegment::LineTo(cx, cy));
                     i += adv;
                 }
             }
@@ -318,7 +387,7 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
                 while let Some((dx, dy, adv)) = read_pair(&tokens, i) {
                     cx += dx;
                     cy += dy;
-                    current.push((cx, cy));
+                    segments.push(PathSegment::LineTo(cx, cy));
                     i += adv;
                 }
             }
@@ -326,7 +395,7 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
                 i += 1;
                 while let Some(v) = read_num(&tokens, i) {
                     cx = v;
-                    current.push((cx, cy));
+                    segments.push(PathSegment::LineTo(cx, cy));
                     i += 1;
                 }
             }
@@ -334,7 +403,7 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
                 i += 1;
                 while let Some(v) = read_num(&tokens, i) {
                     cx += v;
-                    current.push((cx, cy));
+                    segments.push(PathSegment::LineTo(cx, cy));
                     i += 1;
                 }
             }
@@ -342,7 +411,7 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
                 i += 1;
                 while let Some(v) = read_num(&tokens, i) {
                     cy = v;
-                    current.push((cx, cy));
+                    segments.push(PathSegment::LineTo(cx, cy));
                     i += 1;
                 }
             }
@@ -350,26 +419,18 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
                 i += 1;
                 while let Some(v) = read_num(&tokens, i) {
                     cy += v;
-                    current.push((cx, cy));
+                    segments.push(PathSegment::LineTo(cx, cy));
                     i += 1;
                 }
             }
             "C" => {
                 i += 1;
                 while let Some((pts6, adv)) = read_n_nums(&tokens, i, 6) {
-                    let bz = flatten_cubic(
-                        (cx, cy),
-                        (pts6[0], pts6[1]),
-                        (pts6[2], pts6[3]),
-                        (pts6[4], pts6[5]),
-                        32,
-                    );
-                    let skip = if !current.is_empty() && current.last() == bz.first() {
-                        1
-                    } else {
-                        0
-                    };
-                    current.extend_from_slice(&bz[skip..]);
+                    segments.push(PathSegment::CubicBezier {
+                        c1: (pts6[0], pts6[1]),
+                        c2: (pts6[2], pts6[3]),
+                        end: (pts6[4], pts6[5]),
+                    });
                     cx = pts6[4];
                     cy = pts6[5];
                     i += adv;
@@ -378,19 +439,11 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
             "c" => {
                 i += 1;
                 while let Some((pts6, adv)) = read_n_nums(&tokens, i, 6) {
-                    let bz = flatten_cubic(
-                        (cx, cy),
-                        (cx + pts6[0], cy + pts6[1]),
-                        (cx + pts6[2], cy + pts6[3]),
-                        (cx + pts6[4], cy + pts6[5]),
-                        32,
-                    );
-                    let skip = if !current.is_empty() && current.last() == bz.first() {
-                        1
-                    } else {
-                        0
-                    };
-                    current.extend_from_slice(&bz[skip..]);
+                    segments.push(PathSegment::CubicBezier {
+                        c1: (cx + pts6[0], cy + pts6[1]),
+                        c2: (cx + pts6[2], cy + pts6[3]),
+                        end: (cx + pts6[4], cy + pts6[5]),
+                    });
                     cx += pts6[4];
                     cy += pts6[5];
                     i += adv;
@@ -399,18 +452,10 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
             "Q" => {
                 i += 1;
                 while let Some((pts4, adv)) = read_n_nums(&tokens, i, 4) {
-                    let bz = flatten_quadratic(
-                        (cx, cy),
-                        (pts4[0], pts4[1]),
-                        (pts4[2], pts4[3]),
-                        32,
-                    );
-                    let skip = if !current.is_empty() && current.last() == bz.first() {
-                        1
-                    } else {
-                        0
-                    };
-                    current.extend_from_slice(&bz[skip..]);
+                    segments.push(PathSegment::QuadBezier {
+                        c: (pts4[0], pts4[1]),
+                        end: (pts4[2], pts4[3]),
+                    });
                     cx = pts4[2];
                     cy = pts4[3];
                     i += adv;
@@ -419,18 +464,10 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
             "q" => {
                 i += 1;
                 while let Some((pts4, adv)) = read_n_nums(&tokens, i, 4) {
-                    let bz = flatten_quadratic(
-                        (cx, cy),
-                        (cx + pts4[0], cy + pts4[1]),
-                        (cx + pts4[2], cy + pts4[3]),
-                        32,
-                    );
-                    let skip = if !current.is_empty() && current.last() == bz.first() {
-                        1
-                    } else {
-                        0
-                    };
-                    current.extend_from_slice(&bz[skip..]);
+                    segments.push(PathSegment::QuadBezier {
+                        c: (cx + pts4[0], cy + pts4[1]),
+                        end: (cx + pts4[2], cy + pts4[3]),
+                    });
                     cx += pts4[2];
                     cy += pts4[3];
                     i += adv;
@@ -448,14 +485,14 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
                         cx = p7[5];
                         cy = p7[6];
                     }
-                    current.push((cx, cy));
+                    segments.push(PathSegment::LineTo(cx, cy));
                     i += adv;
                 }
             }
             "Z" | "z" => {
                 // Close path
-                if !current.is_empty() {
-                    current.push((start_x, start_y));
+                if !segments.is_empty() {
+                    segments.push(PathSegment::LineTo(start_x, start_y));
                     cx = start_x;
                     cy = start_y;
                 }
@@ -468,8 +505,8 @@ fn parse_svg_dpath(d: &str) -> Vec<Vec<(f32, f32)>> {
     }
 
     // Flush last sub-path
-    if current.len() >= 2 {
-        paths.push(current);
+    if !segments.is_empty() {
+        paths.push(RawSubPath { start: sub_start, segments });
     }
 
     paths
@@ -547,45 +584,3 @@ fn read_n_nums(tokens: &[String], i: usize, n: usize) -> Option<(Vec<f32>, usize
     Some((vals, n))
 }
 
-/// Flatten a cubic bezier into polyline points.
-fn flatten_cubic(
-    p0: (f32, f32),
-    p1: (f32, f32),
-    p2: (f32, f32),
-    p3: (f32, f32),
-    steps: usize,
-) -> Vec<(f32, f32)> {
-    let mut pts = Vec::with_capacity(steps + 1);
-    for i in 0..=steps {
-        let t = i as f32 / steps as f32;
-        let u = 1.0 - t;
-        let x = u * u * u * p0.0
-            + 3.0 * u * u * t * p1.0
-            + 3.0 * u * t * t * p2.0
-            + t * t * t * p3.0;
-        let y = u * u * u * p0.1
-            + 3.0 * u * u * t * p1.1
-            + 3.0 * u * t * t * p2.1
-            + t * t * t * p3.1;
-        pts.push((x, y));
-    }
-    pts
-}
-
-/// Flatten a quadratic bezier into polyline points.
-fn flatten_quadratic(
-    p0: (f32, f32),
-    p1: (f32, f32),
-    p2: (f32, f32),
-    steps: usize,
-) -> Vec<(f32, f32)> {
-    let mut pts = Vec::with_capacity(steps + 1);
-    for i in 0..=steps {
-        let t = i as f32 / steps as f32;
-        let u = 1.0 - t;
-        let x = u * u * p0.0 + 2.0 * u * t * p1.0 + t * t * p2.0;
-        let y = u * u * p0.1 + 2.0 * u * t * p1.1 + t * t * p2.1;
-        pts.push((x, y));
-    }
-    pts
-}

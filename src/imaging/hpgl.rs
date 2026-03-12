@@ -5,7 +5,7 @@
 /// Supported commands: IN, SP, PU, PD, PA, CI, LT
 /// Coordinates are in plotter units (1 unit = 0.025 mm by default).
 
-use crate::ui::drawing::{ShapeKind, ShapeParams};
+use crate::ui::drawing::{PathData, ShapeKind, ShapeParams};
 
 const HPGL_UNIT_MM: f32 = 0.025; // 1 HPGL unit = 0.025 mm (40 units per mm)
 
@@ -177,7 +177,7 @@ fn flush_path(
             .collect();
 
         let shape = ShapeParams {
-            shape: ShapeKind::Path(rel_points),
+            shape: ShapeKind::Path(PathData::from_points(rel_points)),
             x: min_x,
             y: min_y,
             layer_idx,

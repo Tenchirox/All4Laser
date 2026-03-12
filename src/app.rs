@@ -3453,7 +3453,7 @@ impl All4LaserApp {
                                     .map(|c| (c.x as f32, c.y as f32))
                                     .collect();
                                 let mut new_shape = shape.clone();
-                                new_shape.shape = ShapeKind::Path(pts);
+                                new_shape.shape = ShapeKind::Path(crate::ui::drawing::PathData::from_points(pts));
                                 new_shape.x = 0.0;
                                 new_shape.y = 0.0;
                                 self.drawing_state.shapes[idx] = new_shape;
@@ -4133,22 +4133,6 @@ impl All4LaserApp {
         if actions.save_file {
             self.save_file();
         }
-        if actions.save_file && !self.drawing_state.shapes.is_empty() {
-            if let Some(path) = rfd::FileDialog::new()
-                .add_filter("SVG", &["svg"])
-                .set_file_name("export.svg")
-                .save_file()
-            {
-                let svg = crate::ui::drawing::export_shapes_to_svg(
-                    &self.drawing_state.shapes,
-                    &self.layers,
-                );
-                match std::fs::write(&path, svg) {
-                    Ok(()) => self.log(format!("SVG exported: {}", path.display())),
-                    Err(e) => self.show_error(format!("SVG export failed: {e}")),
-                }
-            }
-        }
         if actions.run_program {
             self.is_dry_run = false;
             if self.run_preflight("run", true) {
@@ -4267,6 +4251,9 @@ impl All4LaserApp {
         if actions.export_lbrn2 {
             self.handle_export_lbrn2();
         }
+        if actions.export_svg {
+            self.handle_export_svg();
+        }
         if actions.export_job_report {
             self.handle_export_job_report();
         }
@@ -4351,6 +4338,27 @@ impl All4LaserApp {
             match std::fs::write(&path, &xml) {
                 Ok(()) => self.log(format!("Exported .lbrn2: {}", path.display())),
                 Err(e) => self.show_error(format!("Export failed: {e}")),
+            }
+        }
+    }
+
+    fn handle_export_svg(&mut self) {
+        if self.drawing_state.shapes.is_empty() {
+            self.show_error("No shapes to export.".into());
+            return;
+        }
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("SVG", &["svg"])
+            .set_file_name("export.svg")
+            .save_file()
+        {
+            let svg = crate::ui::drawing::export_shapes_to_svg(
+                &self.drawing_state.shapes,
+                &self.layers,
+            );
+            match std::fs::write(&path, &svg) {
+                Ok(()) => self.log(format!("Exported SVG: {}", path.display())),
+                Err(e) => self.show_error(format!("SVG export failed: {e}")),
             }
         }
     }
@@ -4768,7 +4776,7 @@ impl All4LaserApp {
             if state.needs_texture_update {
                 if let ui::image_dialog::ImportType::Raster(base_img) = &state.import_type {
                     let processed =
-                        imaging::raster::preprocess_image(base_img, &state.raster_params);
+                        imaging::raster::preprocess_image_rgba(base_img, &state.raster_params);
                     let rgba = processed.to_rgba8();
                     let color_image = egui::ColorImage::from_rgba_unmultiplied(
                         [rgba.width() as _, rgba.height() as _],
@@ -4832,9 +4840,9 @@ impl All4LaserApp {
                     ui::image_dialog::ImportType::Svg(data) => {
                         match imaging::svg::svg_to_paths(data, &state.svg_params) {
                             Ok(paths) => {
-                                for (pts, layer_idx) in paths {
+                                for (path_data, layer_idx) in paths {
                                     let shape = crate::ui::drawing::ShapeParams {
-                                        shape: crate::ui::drawing::ShapeKind::Path(pts),
+                                        shape: crate::ui::drawing::ShapeKind::Path(path_data),
                                         layer_idx,
                                         ..Default::default()
                                     };
@@ -5583,7 +5591,7 @@ mod tests {
         selected_nodes: Vec<(usize, usize)>,
     ) -> NodeEditSnapshot {
         let shape = ShapeParams {
-            shape: ShapeKind::Path(vec![(id, 0.0), (id + 1.0, 1.0)]),
+            shape: ShapeKind::Path(crate::ui::drawing::PathData::from_points(vec![(id, 0.0), (id + 1.0, 1.0)])),
             ..ShapeParams::default()
         };
         NodeEditSnapshot {
@@ -5652,7 +5660,7 @@ mod tests {
     #[test]
     fn shape_fill_warning_flags_open_path_on_fill_layers() {
         let shape = ShapeParams {
-            shape: ShapeKind::Path(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]),
+            shape: ShapeKind::Path(crate::ui::drawing::PathData::from_points(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)])),
             layer_idx: 0,
             ..ShapeParams::default()
         };
@@ -5669,13 +5677,13 @@ mod tests {
     #[test]
     fn shape_fill_warning_ignores_closed_path() {
         let shape = ShapeParams {
-            shape: ShapeKind::Path(vec![
+            shape: ShapeKind::Path(crate::ui::drawing::PathData::from_points(vec![
                 (0.0, 0.0),
                 (10.0, 0.0),
                 (10.0, 10.0),
                 (0.0, 10.0),
                 (0.0, 0.0),
-            ]),
+            ])),
             layer_idx: 0,
             ..ShapeParams::default()
         };

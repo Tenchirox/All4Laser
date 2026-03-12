@@ -332,10 +332,81 @@ fn atkinson_dither(img: &GrayImage) -> GrayImage {
     output
 }
 
-/// Apply brightness and contrast adjustments
+/// Composite RGBA onto white background, then convert to grayscale.
+/// Transparent pixels become white (255 = no engraving).
+fn alpha_composite_to_luma(img: &image::DynamicImage) -> GrayImage {
+    let rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+    let mut gray = GrayImage::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let px = rgba.get_pixel(x, y);
+            let r = px[0] as f32;
+            let g = px[1] as f32;
+            let b = px[2] as f32;
+            let a = px[3] as f32 / 255.0;
+            // Composite onto white (255) background
+            let rb = r * a + 255.0 * (1.0 - a);
+            let gb = g * a + 255.0 * (1.0 - a);
+            let bb = b * a + 255.0 * (1.0 - a);
+            // Standard luminance conversion
+            let luma = (0.299 * rb + 0.587 * gb + 0.114 * bb).clamp(0.0, 255.0) as u8;
+            gray.put_pixel(x, y, Luma([luma]));
+        }
+    }
+    gray
+}
+
+/// Apply brightness/contrast/flip/rotation while preserving the alpha channel (for preview).
+/// Unlike `preprocess_image`, this does NOT composite onto white — transparent pixels stay transparent.
+pub fn preprocess_image_rgba(img: &image::DynamicImage, params: &RasterParams) -> image::DynamicImage {
+    let mut rgba = img.to_rgba8();
+    let (w, h) = rgba.dimensions();
+
+    // Apply brightness & contrast to RGB only, preserve alpha
+    if params.brightness != 0.0 || params.contrast != 1.0 {
+        let bright_offset = params.brightness * 255.0;
+        for y in 0..h {
+            for x in 0..w {
+                let px = rgba.get_pixel_mut(x, y);
+                for ch in 0..3 {
+                    let mut v = px[ch] as f32;
+                    // Contrast: scale around midpoint 128
+                    if params.contrast != 1.0 {
+                        v = (v - 128.0) * params.contrast + 128.0;
+                    }
+                    // Brightness
+                    v += bright_offset;
+                    px[ch] = v.clamp(0.0, 255.0) as u8;
+                }
+                // px[3] (alpha) unchanged
+            }
+        }
+    }
+
+    let mut processed = image::DynamicImage::ImageRgba8(rgba);
+
+    if params.flip_h {
+        processed = processed.fliph();
+    }
+    if params.flip_v {
+        processed = processed.flipv();
+    }
+
+    processed = match params.rotation {
+        90 => processed.rotate90(),
+        180 => processed.rotate180(),
+        270 => processed.rotate270(),
+        _ => processed,
+    };
+
+    processed
+}
+
+/// Apply brightness and contrast adjustments (for GCode — composites alpha onto white)
 pub fn preprocess_image(img: &image::DynamicImage, params: &RasterParams) -> image::DynamicImage {
-    // Grayscale first to make processing faster and consistent
-    let mut processed = image::DynamicImage::ImageLuma8(img.to_luma8());
+    // Alpha-composite onto white, then grayscale — transparent = white = no burn
+    let mut processed = image::DynamicImage::ImageLuma8(alpha_composite_to_luma(img));
 
     if params.brightness != 0.0 {
         // brightness(f32) where 0.0 is no change, -1.0 is black, 1.0 is white

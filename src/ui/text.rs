@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::ui::drawing::{ShapeKind, ShapeParams};
+use crate::ui::drawing::{PathData, ShapeKind, ShapeParams};
 use egui::{RichText, Ui};
 use font_kit::family_name::FamilyName;
 use font_kit::properties::Properties;
@@ -534,7 +534,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
 
                         for path in final_paths {
                             created_shapes.push(ShapeParams {
-                                shape: ShapeKind::Path(path),
+                                shape: ShapeKind::Path(PathData::from_points(path)),
                                 layer_idx: active_layer_idx,
                                 font_size_mm: state.font_size,
                                 ..ShapeParams::default()

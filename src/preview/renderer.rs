@@ -761,7 +761,7 @@ impl PreviewRenderer {
                 let texture_id = {
                     // Get or Create texture
                     let texture = self.image_textures.entry(idx).or_insert_with(|| {
-                        let processed = crate::imaging::raster::preprocess_image(&data.0, params);
+                        let processed = crate::imaging::raster::preprocess_image_rgba(&data.0, params);
                         let rgba = processed.to_rgba8();
                         let color_image = egui::ColorImage::from_rgba_unmultiplied(
                             [rgba.width() as _, rgba.height() as _],
@@ -807,22 +807,22 @@ impl PreviewRenderer {
 
                 mesh.vertices.push(egui::epaint::Vertex {
                     pos: p1,
-                    uv: egui::pos2(0.0, 0.0),
+                    uv: egui::pos2(0.0, 1.0),
                     color: Color32::WHITE,
                 });
                 mesh.vertices.push(egui::epaint::Vertex {
                     pos: p2,
-                    uv: egui::pos2(1.0, 0.0),
-                    color: Color32::WHITE,
-                });
-                mesh.vertices.push(egui::epaint::Vertex {
-                    pos: p3,
                     uv: egui::pos2(1.0, 1.0),
                     color: Color32::WHITE,
                 });
                 mesh.vertices.push(egui::epaint::Vertex {
+                    pos: p3,
+                    uv: egui::pos2(1.0, 0.0),
+                    color: Color32::WHITE,
+                });
+                mesh.vertices.push(egui::epaint::Vertex {
                     pos: p4,
-                    uv: egui::pos2(0.0, 1.0),
+                    uv: egui::pos2(0.0, 0.0),
                     color: Color32::WHITE,
                 });
 

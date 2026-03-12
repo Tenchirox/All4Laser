@@ -1,7 +1,9 @@
 #![allow(dead_code)]
-use crate::ui::drawing::{ShapeKind, ShapeParams};
+use crate::imaging::raster::RasterParams;
+use crate::ui::drawing::{ImageData, PathData, PathSegment, ShapeKind, ShapeParams};
 use crate::ui::layers_new::{CutLayer, CutMode};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Clone,Debug)]
 struct XForm{a:f32,b:f32,c:f32,d:f32,tx:f32,ty:f32}
@@ -115,57 +117,96 @@ fn parse_p_elements(inner: &str) -> Vec<Pm> {
     ps
 }
 
-fn fbz(p0:(f32,f32),c0:(f32,f32),c1:(f32,f32),p1:(f32,f32),n:usize)->Vec<(f32,f32)>{
-    (0..=n).map(|i|{let t=i as f32/n as f32;let m=1.0-t;
-        let m2=m*m;let m3=m2*m;let t2=t*t;let t3=t2*t;
-        (m3*p0.0+3.0*m2*t*c0.0+3.0*m*t2*c1.0+t3*p1.0,
-         m3*p0.1+3.0*m2*t*c0.1+3.0*m*t2*c1.1+t3*p1.1)
-    }).collect()
-}
-fn build_path(vs:&[Vtx],ps:&[Pm],xf:&XForm)->Vec<(f32,f32)>{
-    if vs.is_empty()||ps.is_empty(){return vec![];}
-    let mut pts:Vec<(f32,f32)>=Vec::new();
+fn build_path(vs:&[Vtx],ps:&[Pm],xf:&XForm)->PathData{
+    if vs.is_empty()||ps.is_empty(){return PathData::from_points(vec![]);}
+    let mut has_bezier = false;
+    let mut segments: Vec<PathSegment> = Vec::new();
+    let mut start: Option<(f32, f32)> = None;
+    let mut last_end: Option<(f32, f32)> = None;
+
     for p in ps{match p{
         Pm::L(i0,i1)=>{
             let v0=&vs[(*i0).min(vs.len()-1)];let v1=&vs[(*i1).min(vs.len()-1)];
             let p0=xf.apply(v0.x,v0.y);let p1=xf.apply(v1.x,v1.y);
-            if pts.is_empty()||pts.last()!=Some(&p0){pts.push(p0);}
-            pts.push(p1);
+            if start.is_none() { start = Some(p0); }
+            else if last_end.is_some() && last_end != Some(p0) {
+                segments.push(PathSegment::LineTo(p0.0, p0.1));
+            }
+            segments.push(PathSegment::LineTo(p1.0, p1.1));
+            last_end = Some(p1);
         }
         Pm::B(i0,i1)=>{
+            has_bezier = true;
             let v0=&vs[(*i0).min(vs.len()-1)];let v1=&vs[(*i1).min(vs.len()-1)];
             let p0=xf.apply(v0.x,v0.y);let p1=xf.apply(v1.x,v1.y);
-            // c0 = outgoing control point from start vertex, c1 = incoming to end vertex
             let cp0=xf.apply(v0.c0x.unwrap_or(v0.x),v0.c0y.unwrap_or(v0.y));
             let cp1=xf.apply(v1.c1x.unwrap_or(v1.x),v1.c1y.unwrap_or(v1.y));
-            let bz=fbz(p0,cp0,cp1,p1,32);
-            let s=if!pts.is_empty()&&pts.last()==bz.first(){1}else{0};
-            pts.extend_from_slice(&bz[s..]);
+            if start.is_none() { start = Some(p0); }
+            else if last_end.is_some() && last_end != Some(p0) {
+                segments.push(PathSegment::LineTo(p0.0, p0.1));
+            }
+            segments.push(PathSegment::CubicBezier {
+                c1: cp0, c2: cp1, end: p1,
+            });
+            last_end = Some(p1);
         }
     }}
+
+    let s = start.unwrap_or((0.0, 0.0));
+
     // Close path if last primitive connects back to first vertex
-    if pts.len()>=3{
-        if let(Some(first),Some(last))=(pts.first(),pts.last()){
-            if(first.0-last.0).abs()>0.001||(first.1-last.1).abs()>0.001{
-                // Check if the path *should* be closed (last prim ends at first prim's start vertex)
-                if let(Some(first_p),Some(last_p))=(ps.first(),ps.last()){
-                    let fi=match first_p{Pm::L(i,_)|Pm::B(i,_)=>*i};
-                    let li=match last_p{Pm::L(_,i)|Pm::B(_,i)=>*i};
-                    if fi==li{
-                        pts.push(*first);
+    if segments.len() >= 2 {
+        if let Some(last) = last_end {
+            if (s.0 - last.0).abs() > 0.001 || (s.1 - last.1).abs() > 0.001 {
+                if let (Some(first_p), Some(last_p)) = (ps.first(), ps.last()) {
+                    let fi = match first_p { Pm::L(i, _) | Pm::B(i, _) => *i };
+                    let li = match last_p { Pm::L(_, i) | Pm::B(_, i) => *i };
+                    if fi == li {
+                        segments.push(PathSegment::LineTo(s.0, s.1));
                     }
                 }
             }
         }
     }
-    pts
+
+    if has_bezier {
+        PathData::from_segments(s, segments)
+    } else {
+        // Pure polyline — flatten to just points for efficiency
+        let mut pts = vec![s];
+        for seg in &segments {
+            if let PathSegment::LineTo(x, y) = seg {
+                pts.push((*x, *y));
+            }
+        }
+        PathData::from_points(pts)
+    }
 }
-fn p2s(pts:&[(f32,f32)],li:usize)->Option<ShapeParams>{
-    if pts.len()<2{return None;}
-    let mx=pts.iter().map(|p|p.0).fold(f32::MAX,f32::min);
-    let my=pts.iter().map(|p|p.1).fold(f32::MAX,f32::min);
-    let r:Vec<(f32,f32)>=pts.iter().map(|&(x,y)|(x-mx,y-my)).collect();
-    Some(ShapeParams{shape:ShapeKind::Path(r),x:mx,y:my,layer_idx:li,..Default::default()})
+fn p2s(pd: PathData, li:usize)->Option<ShapeParams>{
+    if pd.points.len()<2{return None;}
+    let mx=pd.points.iter().map(|p|p.0).fold(f32::MAX,f32::min);
+    let my=pd.points.iter().map(|p|p.1).fold(f32::MAX,f32::min);
+    if pd.has_curves() {
+        // Make segments local by subtracting min
+        let local_start = (pd.start.0 - mx, pd.start.1 - my);
+        let local_segs: Vec<PathSegment> = pd.segments.iter().map(|seg| match seg {
+            PathSegment::LineTo(x, y) => PathSegment::LineTo(x - mx, y - my),
+            PathSegment::CubicBezier { c1, c2, end } => PathSegment::CubicBezier {
+                c1: (c1.0 - mx, c1.1 - my),
+                c2: (c2.0 - mx, c2.1 - my),
+                end: (end.0 - mx, end.1 - my),
+            },
+            PathSegment::QuadBezier { c, end } => PathSegment::QuadBezier {
+                c: (c.0 - mx, c.1 - my),
+                end: (end.0 - mx, end.1 - my),
+            },
+        }).collect();
+        let local = PathData::from_segments(local_start, local_segs);
+        Some(ShapeParams{shape:ShapeKind::Path(local),x:mx,y:my,layer_idx:li,..Default::default()})
+    } else {
+        let r:Vec<(f32,f32)>=pd.points.iter().map(|&(x,y)|(x-mx,y-my)).collect();
+        Some(ShapeParams{shape:ShapeKind::Path(PathData::from_points(r)),x:mx,y:my,layer_idx:li,..Default::default()})
+    }
 }
 fn ea(l:&str,a:&str)->Option<String>{
     let p=format!("{}=\"",a);let s=l.find(&p)?+p.len();
@@ -371,6 +412,44 @@ fn psh(content: &str, pxf: &XForm, shared_prims: &HashMap<String, String>, out: 
                     psh(ch, &cxf, shared_prims, out);
                 }
             }
+            "Bitmap" => {
+                // Decode base64 PNG bitmap, preserving alpha channel
+                if let Some(b64_data) = ea(otag, "Data") {
+                    use base64::Engine;
+                    if let Ok(png_bytes) = base64::engine::general_purpose::STANDARD.decode(&b64_data) {
+                        if let Ok(img) = image::load_from_memory(&png_bytes) {
+                            // Keep as RGBA to preserve alpha channel
+                            let rgba = img.to_rgba8();
+                            let (img_w, img_h) = rgba.dimensions();
+                            let dyn_img = image::DynamicImage::ImageRgba8(rgba);
+
+                            // XForm: sx 0 0 sy cx cy (scale + center position)
+                            let width_mm = (cxf.a * img_w as f32).abs();
+                            let height_mm = (cxf.d * img_h as f32).abs();
+                            // LightBurn center -> top-left
+                            let x = cxf.tx - width_mm / 2.0;
+                            let y = cxf.ty - height_mm / 2.0;
+
+                            let raster_params = RasterParams {
+                                width_mm,
+                                height_mm,
+                                ..Default::default()
+                            };
+                            out.push(ShapeParams {
+                                shape: ShapeKind::RasterImage {
+                                    data: ImageData(Arc::new(dyn_img)),
+                                    params: raster_params,
+                                },
+                                x, y,
+                                width: width_mm,
+                                height: height_mm,
+                                layer_idx: ci,
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
+            }
             _ => {
                 let mut found = false;
                 // Try .lbrn2 packed format first
@@ -381,8 +460,8 @@ fn psh(content: &str, pxf: &XForm, shared_prims: &HashMap<String, String>, out: 
                         .or_else(|| ea(otag, "PrimID").and_then(|pid| shared_prims.get(&pid).cloned()));
                     if let Some(pt) = pt_str {
                         let ps = parse_primlist(&pt);
-                        let pts = build_path(&vs, &ps, &cxf);
-                        if let Some(s) = p2s(&pts, ci) {
+                        let pd = build_path(&vs, &ps, &cxf);
+                        if let Some(s) = p2s(pd, ci) {
                             out.push(s);
                             found = true;
                         }
@@ -393,8 +472,8 @@ fn psh(content: &str, pxf: &XForm, shared_prims: &HashMap<String, String>, out: 
                     let vs = parse_v_elements(inner);
                     let ps = parse_p_elements(inner);
                     if !vs.is_empty() && !ps.is_empty() {
-                        let pts = build_path(&vs, &ps, &cxf);
-                        if let Some(s) = p2s(&pts, ci) {
+                        let pd = build_path(&vs, &ps, &cxf);
+                        if let Some(s) = p2s(pd, ci) {
                             out.push(s);
                             found = true;
                         }
@@ -429,7 +508,7 @@ fn pil(tag: &str, li: usize, xf: &XForm, out: &mut Vec<ShapeParams>) {
                         xf.apply(x, y + h),
                         xf.apply(x, y),
                     ];
-                    if let Some(s) = p2s(&corners, li) {
+                    if let Some(s) = p2s(PathData::from_points(corners), li) {
                         out.push(s);
                     }
                 } else {
@@ -457,7 +536,7 @@ fn pil(tag: &str, li: usize, xf: &XForm, out: &mut Vec<ShapeParams>) {
                     let py = cy + ry * angle.sin();
                     pts.push(xf.apply(px, py));
                 }
-                if let Some(s) = p2s(&pts, li) {
+                if let Some(s) = p2s(PathData::from_points(pts), li) {
                     out.push(s);
                 }
             }
@@ -608,33 +687,123 @@ pub fn export_lbrn2(shapes: &[ShapeParams], layers: &[CutLayer]) -> String {
                 vid += 1;
                 pid += 1;
             }
-            ShapeKind::Path(pts) if pts.len() >= 2 => {
+            ShapeKind::Path(data) if data.len() >= 2 => {
                 x += &format!(
                     "            <Shape Type=\"Path\" CutIndex=\"{}\" VertID=\"{}\" PrimID=\"{}\">\n",
                     s.layer_idx, vid, pid
                 );
                 x += "                <XForm>1 0 0 1 0 0</XForm>\n";
-                x += "                <VertList>";
-                for p in pts {
-                    let (wx, wy) = s.world_pos(p.0, p.1);
-                    x += &format!("V{wx:.6} {wy:.6}");
-                }
-                x += "</VertList>\n";
-                x += "                <PrimList>";
-                let n = pts.len();
-                let closed = n >= 3
-                    && (pts[0].0 - pts[n - 1].0).abs() < 0.01
-                    && (pts[0].1 - pts[n - 1].1).abs() < 0.01;
-                if closed {
-                    for i in 0..n - 1 {
-                        x += &format!("L{} {}", i, (i + 1) % (n - 1));
+
+                if data.has_curves() {
+                    // Bézier-aware export: build vertices with control points
+                    // Vertices: [start, seg[0].end, seg[1].end, ...]
+                    // Each vertex may have c0 (outgoing) and c1 (incoming) control points
+                    let n_verts = data.segments.len() + 1;
+                    struct LbVert {
+                        wx: f32, wy: f32,
+                        c0: Option<(f32, f32)>,
+                        c1: Option<(f32, f32)>,
                     }
+                    let mut verts: Vec<LbVert> = Vec::with_capacity(n_verts);
+
+                    // First vertex = start
+                    let (sw_x, sw_y) = s.world_pos(data.start.0, data.start.1);
+                    verts.push(LbVert { wx: sw_x, wy: sw_y, c0: None, c1: None });
+
+                    // Add vertices for each segment endpoint
+                    for seg in &data.segments {
+                        match seg {
+                            PathSegment::LineTo(ex, ey) => {
+                                let (wex, wey) = s.world_pos(*ex, *ey);
+                                verts.push(LbVert { wx: wex, wy: wey, c0: None, c1: None });
+                            }
+                            PathSegment::CubicBezier { c1, c2, end } => {
+                                let (wc1x, wc1y) = s.world_pos(c1.0, c1.1);
+                                let (wc2x, wc2y) = s.world_pos(c2.0, c2.1);
+                                let (wex, wey) = s.world_pos(end.0, end.1);
+                                // c0 on previous vertex (outgoing), c1 on this vertex (incoming)
+                                let prev = verts.len() - 1;
+                                verts[prev].c0 = Some((wc1x, wc1y));
+                                verts.push(LbVert { wx: wex, wy: wey, c0: None, c1: Some((wc2x, wc2y)) });
+                            }
+                            PathSegment::QuadBezier { c, end } => {
+                                // Promote quadratic to cubic: cubic_c1 = p0 + 2/3*(c-p0), cubic_c2 = end + 2/3*(c-end)
+                                let prev_idx = verts.len() - 1;
+                                let p0 = (verts[prev_idx].wx, verts[prev_idx].wy);
+                                let (wcx, wcy) = s.world_pos(c.0, c.1);
+                                let (wex, wey) = s.world_pos(end.0, end.1);
+                                let cc1 = (p0.0 + 2.0 / 3.0 * (wcx - p0.0), p0.1 + 2.0 / 3.0 * (wcy - p0.1));
+                                let cc2 = (wex + 2.0 / 3.0 * (wcx - wex), wey + 2.0 / 3.0 * (wcy - wey));
+                                verts[prev_idx].c0 = Some(cc1);
+                                verts.push(LbVert { wx: wex, wy: wey, c0: None, c1: Some(cc2) });
+                            }
+                        }
+                    }
+
+                    // Detect closed path and fix control points before writing
+                    let n = verts.len();
+                    let closed = n >= 3
+                        && (verts[0].wx - verts[n - 1].wx).abs() < 0.01
+                        && (verts[0].wy - verts[n - 1].wy).abs() < 0.01;
+                    // For closed paths, transfer c1 from the unused last vertex
+                    // to vertex 0 so the closing Bézier has a correct incoming
+                    // control point on its destination vertex.
+                    if closed {
+                        if let Some(c1) = verts[n - 1].c1 {
+                            verts[0].c1 = Some(c1);
+                        }
+                    }
+
+                    // Write VertList with control points
+                    x += "                <VertList>";
+                    for v in &verts {
+                        x += &format!("V{:.6} {:.6}", v.wx, v.wy);
+                        if let Some((cx0, cy0)) = v.c0 {
+                            x += &format!("c0x{cx0:.6}c0y{cy0:.6}");
+                        }
+                        if let Some((cx1, cy1)) = v.c1 {
+                            x += &format!("c1x{cx1:.6}c1y{cy1:.6}");
+                        }
+                    }
+                    x += "</VertList>\n";
+
+                    // Write PrimList: B for Bézier, L for line
+                    x += "                <PrimList>";
+                    for (si, seg) in data.segments.iter().enumerate() {
+                        let next = if closed && si + 1 == n - 1 { 0 } else { si + 1 };
+                        match seg {
+                            PathSegment::LineTo(..) => x += &format!("L{si} {next}"),
+                            PathSegment::CubicBezier { .. } | PathSegment::QuadBezier { .. } => {
+                                x += &format!("B{si} {next}");
+                            }
+                        }
+                    }
+                    x += "</PrimList>\n";
                 } else {
-                    for i in 0..n - 1 {
-                        x += &format!("L{} {}", i, i + 1);
+                    // Polyline-only export (no Bézier data)
+                    x += "                <VertList>";
+                    for p in &data.points {
+                        let (wx, wy) = s.world_pos(p.0, p.1);
+                        x += &format!("V{wx:.6} {wy:.6}");
                     }
+                    x += "</VertList>\n";
+                    x += "                <PrimList>";
+                    let n = data.len();
+                    let closed = n >= 3
+                        && (data[0].0 - data[n - 1].0).abs() < 0.01
+                        && (data[0].1 - data[n - 1].1).abs() < 0.01;
+                    if closed {
+                        for i in 0..n - 1 {
+                            x += &format!("L{} {}", i, (i + 1) % (n - 1));
+                        }
+                    } else {
+                        for i in 0..n - 1 {
+                            x += &format!("L{} {}", i, i + 1);
+                        }
+                    }
+                    x += "</PrimList>\n";
                 }
-                x += "</PrimList>\n";
+
                 x += "            </Shape>\n";
                 vid += 1;
                 pid += 1;
@@ -678,7 +847,7 @@ pub fn export_lbrn2(shapes: &[ShapeParams], layers: &[CutLayer]) -> String {
             x += "\n";
             x += &format!(
                 "        <XForm>{:.6} 0 0 {:.6} {:.6} {:.6}</XForm>\n",
-                sx, sy, cx, cy
+                sx, -sy, cx, cy
             );
             x += "    </Shape>\n";
         }
@@ -831,13 +1000,28 @@ mod tests {
     }
 
     #[test]
-    fn test_real_file_1() {
-        let content = std::fs::read_to_string("format_test/1 lexvoto.lbrn2").unwrap();
-        let (shapes, layers) = import_lbrn2(&content).unwrap();
-        assert!(!shapes.is_empty(), "Should parse shapes from real file 1");
-        assert!(!layers.is_empty(), "Should parse layers from real file 1");
-        println!("File 1: {} shapes, {} layers", shapes.len(), layers.len());
-        // Verify shapes have valid coordinates
+    fn test_inline_bezier_path() {
+        // Self-contained lbrn2 with a cubic Bézier path
+        let content = r#"<?xml version="1.0" encoding="UTF-8"?>
+<LightBurnProject AppVersion="1.4.00" FormatVersion="1">
+    <CutSetting type="Cut">
+        <index Value="0"/>
+        <maxPower Value="50"/>
+        <speed Value="200"/>
+    </CutSetting>
+    <Shape Type="Group">
+        <Children>
+            <Shape Type="Path" CutIndex="0" VertID="0" PrimID="0">
+                <XForm>1 0 0 1 0 0</XForm>
+                <VertList>V0.000000 0.000000c0x1.000000c0y2.000000V5.000000 5.000000c1x4.000000c1y3.000000V10.000000 0.000000</VertList>
+                <PrimList>B0 1L1 2</PrimList>
+            </Shape>
+        </Children>
+    </Shape>
+</LightBurnProject>"#;
+        let (shapes, layers) = import_lbrn2(content).unwrap();
+        assert!(!shapes.is_empty(), "Should parse shapes from inline Bézier XML");
+        assert!(!layers.is_empty(), "Should parse layers");
         for (i, s) in shapes.iter().enumerate() {
             if let ShapeKind::Path(pts) = &s.shape {
                 assert!(pts.len() >= 2, "Shape {} has too few points: {}", i, pts.len());
@@ -846,12 +1030,38 @@ mod tests {
     }
 
     #[test]
-    fn test_real_file_2() {
-        let content = std::fs::read_to_string("format_test/2 lexvoto.lbrn2").unwrap();
-        let (shapes, layers) = import_lbrn2(&content).unwrap();
-        assert!(!shapes.is_empty(), "Should parse shapes from real file 2");
-        assert!(!layers.is_empty(), "Should parse layers from real file 2");
-        println!("File 2: {} shapes, {} layers", shapes.len(), layers.len());
+    fn test_inline_multi_layer() {
+        // Self-contained lbrn2 with two layers and two line paths
+        let content = r#"<?xml version="1.0" encoding="UTF-8"?>
+<LightBurnProject AppVersion="1.4.00" FormatVersion="1">
+    <CutSetting type="Cut">
+        <index Value="0"/>
+        <maxPower Value="80"/>
+        <speed Value="300"/>
+    </CutSetting>
+    <CutSetting type="Cut">
+        <index Value="1"/>
+        <maxPower Value="40"/>
+        <speed Value="600"/>
+    </CutSetting>
+    <Shape Type="Group">
+        <Children>
+            <Shape Type="Path" CutIndex="0" VertID="0" PrimID="0">
+                <XForm>1 0 0 1 0 0</XForm>
+                <VertList>V0.000000 0.000000V10.000000 0.000000V10.000000 10.000000V0.000000 10.000000V0.000000 0.000000</VertList>
+                <PrimList>L0 1L1 2L2 3L3 4</PrimList>
+            </Shape>
+            <Shape Type="Path" CutIndex="1" VertID="1" PrimID="1">
+                <XForm>1 0 0 1 0 0</XForm>
+                <VertList>V2.000000 2.000000V8.000000 2.000000V8.000000 8.000000</VertList>
+                <PrimList>L0 1L1 2</PrimList>
+            </Shape>
+        </Children>
+    </Shape>
+</LightBurnProject>"#;
+        let (shapes, layers) = import_lbrn2(content).unwrap();
+        assert_eq!(shapes.len(), 2, "Should parse 2 shapes");
+        assert_eq!(layers.len(), 2, "Should parse 2 layers");
     }
 
     #[test]
