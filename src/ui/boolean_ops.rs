@@ -1,5 +1,5 @@
 use crate::theme;
-use crate::ui::drawing::{DrawingState, ShapeKind, ShapeParams};
+use crate::ui::drawing::{DrawingState, PathData, ShapeKind, ShapeParams};
 use egui::RichText;
 use geo::{BooleanOps, MultiPolygon};
 
@@ -138,7 +138,7 @@ pub fn apply_boolean(
             .collect();
         if !points.is_empty() {
             let mut new_shape = ShapeParams::default();
-            new_shape.shape = ShapeKind::Path(points);
+            new_shape.shape = ShapeKind::Path(PathData::from_points(points));
             new_shape.x = 0.0;
             new_shape.y = 0.0;
             drawing.shapes.push(new_shape);
@@ -152,7 +152,7 @@ pub fn apply_boolean(
                 .collect();
             if !points.is_empty() {
                 let mut hole_shape = ShapeParams::default();
-                hole_shape.shape = ShapeKind::Path(points);
+                hole_shape.shape = ShapeKind::Path(PathData::from_points(points));
                 hole_shape.x = 0.0;
                 hole_shape.y = 0.0;
                 // Currently our drawing state doesn't have a "hole" concept explicitly in G-code gen,

@@ -36,6 +36,7 @@ pub struct ToolbarAction {
     pub open_job_queue: bool,
     pub open_test_fire: bool,
     pub export_lbrn2: bool,
+    pub export_svg: bool,
     pub export_job_report: bool,
     pub save_job_template: bool,
     pub load_job_template: bool,
@@ -80,6 +81,7 @@ impl Default for ToolbarAction {
             open_job_queue: false,
             open_test_fire: false,
             export_lbrn2: false,
+            export_svg: false,
             export_job_report: false,
             save_job_template: false,
             load_job_template: false,
@@ -133,6 +135,7 @@ impl ToolbarAction {
         self.open_job_queue |= other.open_job_queue;
         self.open_test_fire |= other.open_test_fire;
         self.export_lbrn2 |= other.export_lbrn2;
+        self.export_svg |= other.export_svg;
         self.export_job_report |= other.export_job_report;
         self.save_job_template |= other.save_job_template;
         self.load_job_template |= other.load_job_template;
@@ -240,6 +243,13 @@ pub fn show(
                 .clicked()
             {
                 action.export_lbrn2 = true;
+                ui.close_menu();
+            }
+            if ui
+                .add_enabled(has_shapes, egui::Button::new("📤 Export .svg"))
+                .clicked()
+            {
+                action.export_svg = true;
                 ui.close_menu();
             }
             if ui
@@ -594,6 +604,13 @@ pub fn show_menu_bar(
                 .clicked()
             {
                 action.export_lbrn2 = true;
+                ui.close_menu();
+            }
+            if ui
+                .add_enabled(has_shapes, egui::Button::new("📤 Export .svg"))
+                .clicked()
+            {
+                action.export_svg = true;
                 ui.close_menu();
             }
             if ui

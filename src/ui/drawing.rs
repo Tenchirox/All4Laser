@@ -9,7 +9,7 @@ use egui::{RichText, Ui};
 use geo::Buffer;
 use geo::LineString;
 use geo::algorithm::buffer::{BufferStyle, LineJoin};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -29,11 +29,130 @@ impl PartialEq for ImageData {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub enum PathSegment {
+    LineTo(f32, f32),
+    CubicBezier {
+        c1: (f32, f32),
+        c2: (f32, f32),
+        end: (f32, f32),
+    },
+    QuadBezier {
+        c: (f32, f32),
+        end: (f32, f32),
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PathData {
+    pub points: Vec<(f32, f32)>,
+    pub segments: Vec<PathSegment>,
+    pub start: (f32, f32),
+}
+
+impl PathData {
+    /// Create a polyline-only path (no curve data).
+    pub fn from_points(pts: Vec<(f32, f32)>) -> Self {
+        Self {
+            points: pts,
+            segments: vec![],
+            start: (0.0, 0.0),
+        }
+    }
+
+    /// Create a path from Bézier segments, auto-flattening to points.
+    pub fn from_segments(start: (f32, f32), segs: Vec<PathSegment>) -> Self {
+        let points = Self::flatten_segments(start, &segs);
+        Self {
+            points,
+            segments: segs,
+            start,
+        }
+    }
+
+    /// Flatten segments into a polyline.
+    pub fn flatten_segments(start: (f32, f32), segs: &[PathSegment]) -> Vec<(f32, f32)> {
+        let mut pts = vec![start];
+        let mut cur = start;
+        for seg in segs {
+            match seg {
+                PathSegment::LineTo(x, y) => {
+                    pts.push((*x, *y));
+                    cur = (*x, *y);
+                }
+                PathSegment::CubicBezier { c1, c2, end } => {
+                    let steps = 32;
+                    for i in 1..=steps {
+                        let t = i as f32 / steps as f32;
+                        let it = 1.0 - t;
+                        let x = it * it * it * cur.0
+                            + 3.0 * it * it * t * c1.0
+                            + 3.0 * it * t * t * c2.0
+                            + t * t * t * end.0;
+                        let y = it * it * it * cur.1
+                            + 3.0 * it * it * t * c1.1
+                            + 3.0 * it * t * t * c2.1
+                            + t * t * t * end.1;
+                        pts.push((x, y));
+                    }
+                    cur = *end;
+                }
+                PathSegment::QuadBezier { c, end } => {
+                    let steps = 32;
+                    for i in 1..=steps {
+                        let t = i as f32 / steps as f32;
+                        let it = 1.0 - t;
+                        let x = it * it * cur.0 + 2.0 * it * t * c.0 + t * t * end.0;
+                        let y = it * it * cur.1 + 2.0 * it * t * c.1 + t * t * end.1;
+                        pts.push((x, y));
+                    }
+                    cur = *end;
+                }
+            }
+        }
+        pts
+    }
+
+    /// Returns true if this path has Bézier curve data.
+    pub fn has_curves(&self) -> bool {
+        !self.segments.is_empty()
+    }
+}
+
+impl std::ops::Deref for PathData {
+    type Target = Vec<(f32, f32)>;
+    fn deref(&self) -> &Self::Target {
+        &self.points
+    }
+}
+
+impl std::ops::DerefMut for PathData {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.points
+    }
+}
+
+impl<'a> IntoIterator for &'a PathData {
+    type Item = &'a (f32, f32);
+    type IntoIter = std::slice::Iter<'a, (f32, f32)>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.points.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a mut PathData {
+    type Item = &'a mut (f32, f32);
+    type IntoIter = std::slice::IterMut<'a, (f32, f32)>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.points.iter_mut()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum ShapeKind {
     Rectangle,
     Circle,
     TextLine,
-    Path(Vec<(f32, f32)>), // Centerline or Vector path
+    Path(PathData), // Centerline or Vector path (with optional Bézier data)
     RasterImage {
         data: ImageData,
         params: RasterParams,
@@ -71,7 +190,8 @@ impl ShapeParams {
                 let w = self.text.len() as f32 * char_w;
                 (w / 2.0, self.font_size_mm / 2.0)
             }
-            ShapeKind::Path(pts) => {
+            ShapeKind::Path(data) => {
+                let pts = &data.points;
                 if pts.is_empty() {
                     return (0.0, 0.0);
                 }
@@ -138,12 +258,12 @@ fn shape_world_bounds(s: &ShapeParams) -> (f32, f32, f32, f32) {
             s.x + s.radius,
             s.y + s.radius,
         ),
-        ShapeKind::Path(pts) => {
+        ShapeKind::Path(data) => {
             let mut min_x = f32::MAX;
             let mut max_x = f32::MIN;
             let mut min_y = f32::MAX;
             let mut max_y = f32::MIN;
-            for p in pts {
+            for p in &data.points {
                 let (wx, wy) = s.world_pos(p.0, p.1);
                 min_x = min_x.min(wx);
                 max_x = max_x.max(wx);
@@ -153,6 +273,23 @@ fn shape_world_bounds(s: &ShapeParams) -> (f32, f32, f32, f32) {
             if min_x > max_x {
                 return (s.x, s.y, s.x, s.y);
             }
+            (min_x, min_y, max_x, max_y)
+        }
+        ShapeKind::RasterImage { params, .. } => {
+            let corners = [
+                (0.0, 0.0),
+                (params.width_mm, 0.0),
+                (params.width_mm, params.height_mm),
+                (0.0, params.height_mm),
+            ];
+            let world: Vec<(f32, f32)> = corners
+                .iter()
+                .map(|&(lx, ly)| s.world_pos(lx, ly))
+                .collect();
+            let min_x = world.iter().map(|p| p.0).fold(f32::MAX, f32::min);
+            let max_x = world.iter().map(|p| p.0).fold(f32::MIN, f32::max);
+            let min_y = world.iter().map(|p| p.1).fold(f32::MAX, f32::min);
+            let max_y = world.iter().map(|p| p.1).fold(f32::MIN, f32::max);
             (min_x, min_y, max_x, max_y)
         }
         _ => {
@@ -343,7 +480,226 @@ pub fn expand_group_selection(shapes: &[ShapeParams], idx: usize) -> Vec<usize> 
         .collect()
 }
 
-/// Export shapes to SVG string (F54)
+// ── Raster vectorization helpers ──────────────────────────────────────
+
+/// Douglas-Peucker path simplification
+fn dp_simplify(points: &[(f32, f32)], epsilon: f32) -> Vec<(f32, f32)> {
+    if points.len() <= 2 {
+        return points.to_vec();
+    }
+    let (a, b) = (points[0], points[points.len() - 1]);
+    let mut max_d = 0.0f32;
+    let mut max_i = 0;
+    for i in 1..points.len() - 1 {
+        let d = pt_line_dist(points[i], a, b);
+        if d > max_d {
+            max_d = d;
+            max_i = i;
+        }
+    }
+    if max_d > epsilon {
+        let mut left = dp_simplify(&points[..=max_i], epsilon);
+        let right = dp_simplify(&points[max_i..], epsilon);
+        left.pop();
+        left.extend(right);
+        left
+    } else {
+        vec![a, b]
+    }
+}
+
+fn pt_line_dist(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
+    let dx = b.0 - a.0;
+    let dy = b.1 - a.1;
+    let len_sq = dx * dx + dy * dy;
+    if len_sq < 1e-10 {
+        return ((p.0 - a.0).powi(2) + (p.1 - a.1).powi(2)).sqrt();
+    }
+    (dy * p.0 - dx * p.1 + b.0 * a.1 - b.1 * a.0).abs() / len_sq.sqrt()
+}
+
+/// Vectorize a raster image using marching squares contour tracing,
+/// returning SVG `<path>` elements as a string.
+fn vectorize_raster_to_svg(
+    img: &image::DynamicImage,
+    params: &RasterParams,
+    shape: &ShapeParams,
+    color_hex: &str,
+) -> String {
+    let gray = crate::imaging::raster::preprocess_image(img, params).to_luma8();
+    let (ow, oh) = gray.dimensions();
+    if ow == 0 || oh == 0 {
+        return String::new();
+    }
+
+    // Downsample if very large to keep SVG manageable
+    let max_dim = 600u32;
+    let (iw, ih, img_gray) = if ow > max_dim || oh > max_dim {
+        let scale = max_dim as f32 / ow.max(oh) as f32;
+        let nw = (ow as f32 * scale) as u32;
+        let nh = (oh as f32 * scale) as u32;
+        let resized = image::imageops::resize(
+            &gray,
+            nw,
+            nh,
+            image::imageops::FilterType::Lanczos3,
+        );
+        (nw, nh, resized)
+    } else {
+        (ow, oh, gray)
+    };
+
+    let threshold = 128u8;
+    let is_inside = |x: i32, y: i32| -> bool {
+        if x < 0 || y < 0 || x >= iw as i32 || y >= ih as i32 {
+            false
+        } else {
+            img_gray.get_pixel(x as u32, y as u32)[0] < threshold
+        }
+    };
+
+    // Marching squares — integer coords * 2 so midpoints are integers
+    // Edge midpoints for cell (cx, cy):
+    //   Top:    (2*cx+1, 2*cy)
+    //   Bottom: (2*cx+1, 2*(cy+1))
+    //   Left:   (2*cx,   2*cy+1)
+    //   Right:  (2*(cx+1), 2*cy+1)
+    type IP = (i32, i32);
+    let mut segments: Vec<(IP, IP)> = Vec::new();
+
+    for cy in -1..ih as i32 {
+        for cx in -1..iw as i32 {
+            let tl = is_inside(cx, cy);
+            let tr = is_inside(cx + 1, cy);
+            let bl = is_inside(cx, cy + 1);
+            let br = is_inside(cx + 1, cy + 1);
+            let case = (tl as u8) << 3 | (tr as u8) << 2 | (br as u8) << 1 | bl as u8;
+
+            let top: IP = (2 * cx + 1, 2 * cy);
+            let right: IP = (2 * (cx + 1), 2 * cy + 1);
+            let bottom: IP = (2 * cx + 1, 2 * (cy + 1));
+            let left: IP = (2 * cx, 2 * cy + 1);
+
+            match case {
+                0 | 15 => {}
+                1 | 14 => segments.push((left, bottom)),
+                2 | 13 => segments.push((bottom, right)),
+                3 | 12 => segments.push((left, right)),
+                4 | 11 => segments.push((top, right)),
+                5 => {
+                    segments.push((top, right));
+                    segments.push((left, bottom));
+                }
+                6 | 9 => segments.push((top, bottom)),
+                7 | 8 => segments.push((top, left)),
+                10 => {
+                    segments.push((top, left));
+                    segments.push((bottom, right));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if segments.is_empty() {
+        return String::new();
+    }
+
+    // Assemble segments into contour paths
+    let mut adj: HashMap<IP, Vec<(usize, IP)>> = HashMap::new();
+    for (i, &(a, b)) in segments.iter().enumerate() {
+        adj.entry(a).or_default().push((i, b));
+        adj.entry(b).or_default().push((i, a));
+    }
+    let mut used = vec![false; segments.len()];
+    let mut paths: Vec<Vec<IP>> = Vec::new();
+
+    for si in 0..segments.len() {
+        if used[si] {
+            continue;
+        }
+        used[si] = true;
+        let (a, b) = segments[si];
+        let mut path = vec![a, b];
+
+        // Extend forward
+        let mut cur = b;
+        loop {
+            let next = adj
+                .get(&cur)
+                .and_then(|ns| ns.iter().find(|(idx, _)| !used[*idx]).copied());
+            if let Some((idx, pt)) = next {
+                used[idx] = true;
+                path.push(pt);
+                cur = pt;
+            } else {
+                break;
+            }
+        }
+        // Extend backward
+        cur = a;
+        loop {
+            let next = adj
+                .get(&cur)
+                .and_then(|ns| ns.iter().find(|(idx, _)| !used[*idx]).copied());
+            if let Some((idx, pt)) = next {
+                used[idx] = true;
+                path.insert(0, pt);
+                cur = pt;
+            } else {
+                break;
+            }
+        }
+        if path.len() >= 2 {
+            paths.push(path);
+        }
+    }
+
+    // Convert integer coords to world mm and simplify
+    let sx = params.width_mm / iw as f32;
+    let sy = params.height_mm / ih as f32;
+    let epsilon = sx.min(sy) * 0.5; // simplification tolerance ≈ half pixel
+
+    let mut out = String::new();
+    for path in &paths {
+        let fpts: Vec<(f32, f32)> = path
+            .iter()
+            .map(|&(ix, iy)| {
+                (
+                    shape.x + (ix as f32 / 2.0) * sx,
+                    shape.y + (iy as f32 / 2.0) * sy,
+                )
+            })
+            .collect();
+        let simplified = dp_simplify(&fpts, epsilon);
+        if simplified.len() < 2 {
+            continue;
+        }
+        let mut d = String::new();
+        for (i, &(px, py)) in simplified.iter().enumerate() {
+            if i == 0 {
+                d += &format!("M{px:.3},{py:.3}");
+            } else {
+                d += &format!(" L{px:.3},{py:.3}");
+            }
+        }
+        // Close if endpoints match
+        if let (Some(first), Some(last)) = (simplified.first(), simplified.last()) {
+            if (first.0 - last.0).abs() < 0.01 && (first.1 - last.1).abs() < 0.01 {
+                d += " Z";
+            }
+        }
+        out += &format!(
+            r#"  <path d="{d}" fill="none" stroke="{color_hex}" stroke-width="0.1"/>"#
+        );
+        out += "\n";
+    }
+    out
+}
+
+// ── SVG export ───────────────────────────────────────────────────────
+
+/// Export shapes to SVG string with raster vectorization and Bézier curves (F54)
 pub fn export_shapes_to_svg(shapes: &[ShapeParams], layers: &[CutLayer]) -> String {
     if shapes.is_empty() {
         return String::from(
@@ -412,24 +768,60 @@ pub fn export_shapes_to_svg(shapes: &[ShapeParams], layers: &[CutLayer]) -> Stri
                 );
                 svg += "\n";
             }
-            ShapeKind::Path(pts) if pts.len() >= 2 => {
-                let d: Vec<String> = pts
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        let (wx, wy) = s.world_pos(p.0, p.1);
-                        if i == 0 {
-                            format!("M{wx:.3},{wy:.3}")
-                        } else {
-                            format!("L{wx:.3},{wy:.3}")
+            ShapeKind::Path(data) if data.len() >= 2 => {
+                if data.has_curves() {
+                    // Bézier-aware SVG path export
+                    let (wx, wy) = s.world_pos(data.start.0, data.start.1);
+                    let mut d = format!("M{wx:.3},{wy:.3}");
+                    for seg in &data.segments {
+                        match seg {
+                            PathSegment::LineTo(ex, ey) => {
+                                let (wex, wey) = s.world_pos(*ex, *ey);
+                                d += &format!(" L{wex:.3},{wey:.3}");
+                            }
+                            PathSegment::CubicBezier { c1, c2, end } => {
+                                let (wc1x, wc1y) = s.world_pos(c1.0, c1.1);
+                                let (wc2x, wc2y) = s.world_pos(c2.0, c2.1);
+                                let (wex, wey) = s.world_pos(end.0, end.1);
+                                d += &format!(
+                                    " C{wc1x:.3},{wc1y:.3} {wc2x:.3},{wc2y:.3} {wex:.3},{wey:.3}"
+                                );
+                            }
+                            PathSegment::QuadBezier { c, end } => {
+                                let (wcx, wcy) = s.world_pos(c.0, c.1);
+                                let (wex, wey) = s.world_pos(end.0, end.1);
+                                d += &format!(" Q{wcx:.3},{wcy:.3} {wex:.3},{wey:.3}");
+                            }
                         }
-                    })
-                    .collect();
-                svg += &format!(
-                    r#"  <path d="{}" fill="none" stroke="{hex}" stroke-width="0.1"/>"#,
-                    d.join(" ")
-                );
-                svg += "\n";
+                    }
+                    svg += &format!(
+                        r#"  <path d="{d}" fill="none" stroke="{hex}" stroke-width="0.1"/>"#
+                    );
+                    svg += "\n";
+                } else {
+                    // Polyline export
+                    let d: Vec<String> = data
+                        .points
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| {
+                            let (wx, wy) = s.world_pos(p.0, p.1);
+                            if i == 0 {
+                                format!("M{wx:.3},{wy:.3}")
+                            } else {
+                                format!("L{wx:.3},{wy:.3}")
+                            }
+                        })
+                        .collect();
+                    svg += &format!(
+                        r#"  <path d="{}" fill="none" stroke="{hex}" stroke-width="0.1"/>"#,
+                        d.join(" ")
+                    );
+                    svg += "\n";
+                }
+            }
+            ShapeKind::RasterImage { data, params } => {
+                svg += &vectorize_raster_to_svg(&data.0, params, s, &hex);
             }
             _ => {}
         }
@@ -983,10 +1375,19 @@ fn gen_raster(
         let mut first = true;
         for col in cols {
             let pixel = resized.get_pixel(col, row)[0];
-            let power = ((255 - pixel) as f32 / 255.0 * params.max_power) as u32;
             let lx = col as f32 * x_scale;
-
             let (wx, wy) = rotate_point(lx, ly, s);
+
+            if pixel == 255 {
+                // Fully white (transparent after alpha composite) — skip with rapid
+                if !first {
+                    builder.laser_off();
+                }
+                first = true;
+                continue;
+            }
+
+            let power = ((255 - pixel) as f32 / 255.0 * params.max_power) as u32;
 
             if first {
                 builder.laser_off();

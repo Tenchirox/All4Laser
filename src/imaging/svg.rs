@@ -110,7 +110,8 @@ pub fn svg_to_gcode(svg_data: &[u8], params: &SvgParams) -> Result<Vec<String>, 
 pub fn svg_to_paths(
     svg_data: &[u8],
     params: &SvgParams,
-) -> Result<Vec<(Vec<(f32, f32)>, usize)>, String> {
+) -> Result<Vec<(crate::ui::drawing::PathData, usize)>, String> {
+    use crate::ui::drawing::PathData;
     let opts = usvg::Options::default();
     let tree =
         usvg::Tree::from_data(svg_data, &opts).map_err(|e| format!("SVG parse error: {e}"))?;
@@ -122,7 +123,7 @@ pub fn svg_to_paths(
             continue;
         }
 
-        let mut layer_paths = Vec::new();
+        let mut layer_paths: Vec<PathData> = Vec::new();
         for node in tree.root().children() {
             collect_paths(&node, params, layer, &mut layer_paths);
         }
@@ -139,32 +140,9 @@ fn collect_paths(
     node: &usvg::Node,
     params: &SvgParams,
     layer: &SvgLayer,
-    out: &mut Vec<Vec<(f32, f32)>>,
+    out: &mut Vec<crate::ui::drawing::PathData>,
 ) {
-    fn lerp(a: f32, b: f32, t: f32) -> f32 {
-        a + (b - a) * t
-    }
-
-    fn quad_at(p0: (f32, f32), p1: (f32, f32), p2: (f32, f32), t: f32) -> (f32, f32) {
-        let a = (lerp(p0.0, p1.0, t), lerp(p0.1, p1.1, t));
-        let b = (lerp(p1.0, p2.0, t), lerp(p1.1, p2.1, t));
-        (lerp(a.0, b.0, t), lerp(a.1, b.1, t))
-    }
-
-    fn cubic_at(
-        p0: (f32, f32),
-        p1: (f32, f32),
-        p2: (f32, f32),
-        p3: (f32, f32),
-        t: f32,
-    ) -> (f32, f32) {
-        let a = (lerp(p0.0, p1.0, t), lerp(p0.1, p1.1, t));
-        let b = (lerp(p1.0, p2.0, t), lerp(p1.1, p2.1, t));
-        let c = (lerp(p2.0, p3.0, t), lerp(p2.1, p3.1, t));
-        let d = (lerp(a.0, b.0, t), lerp(a.1, b.1, t));
-        let e = (lerp(b.0, c.0, t), lerp(b.1, c.1, t));
-        (lerp(d.0, e.0, t), lerp(d.1, e.1, t))
-    }
+    use crate::ui::drawing::{PathData, PathSegment};
 
     match node {
         usvg::Node::Group(group) => {
@@ -197,7 +175,6 @@ fn collect_paths(
 
             if matches_layer {
                 // Apply all SVG transforms (including group transforms) before extracting segments.
-                // Otherwise imported geometry can be missing/misplaced.
                 let abs_ts = path.abs_transform();
                 let ts = Transform::from_row(
                     abs_ts.sx,
@@ -210,71 +187,99 @@ fn collect_paths(
                 let p0 = path.data().clone();
                 let p = p0.clone().transform(ts).unwrap_or(p0);
 
-                let mut current_path = Vec::new();
+                let mut segments: Vec<PathSegment> = Vec::new();
+                let mut sub_start: (f32, f32) = (0.0, 0.0);
+                let mut has_curves = false;
                 let mut current_pos: Option<(f32, f32)> = None;
                 let mut subpath_first: Option<(f32, f32)> = None;
+
                 for seg in p.segments() {
                     match seg {
                         tiny_skia::PathSegment::MoveTo(pt) => {
-                            if !current_path.is_empty() {
-                                out.push(current_path);
-                                current_path = Vec::new();
+                            // Flush previous sub-path
+                            if !segments.is_empty() {
+                                if has_curves {
+                                    out.push(PathData::from_segments(sub_start, std::mem::take(&mut segments)));
+                                } else {
+                                    let mut pts = vec![sub_start];
+                                    for s in &segments {
+                                        if let PathSegment::LineTo(x, y) = s {
+                                            pts.push((*x, *y));
+                                        }
+                                    }
+                                    out.push(PathData::from_points(pts));
+                                    segments.clear();
+                                }
+                                has_curves = false;
                             }
-                            let p0 = (pt.x * params.scale, pt.y * params.scale);
-                            current_path.push(p0);
-                            current_pos = Some(p0);
-                            subpath_first = Some(p0);
+                            let mp = (pt.x * params.scale, pt.y * params.scale);
+                            sub_start = mp;
+                            current_pos = Some(mp);
+                            subpath_first = Some(mp);
                         }
                         tiny_skia::PathSegment::LineTo(pt) => {
                             let p1 = (pt.x * params.scale, pt.y * params.scale);
-                            current_path.push(p1);
+                            segments.push(PathSegment::LineTo(p1.0, p1.1));
                             current_pos = Some(p1);
                         }
                         tiny_skia::PathSegment::QuadTo(ctrl, to) => {
-                            let p0 = current_pos.unwrap_or((ctrl.x * params.scale, ctrl.y * params.scale));
-                            let p1 = (ctrl.x * params.scale, ctrl.y * params.scale);
-                            let p2 = (to.x * params.scale, to.y * params.scale);
-                            let steps = 16;
-                            for i in 1..=steps {
-                                let t = i as f32 / steps as f32;
-                                current_path.push(quad_at(p0, p1, p2, t));
-                            }
-                            current_pos = Some(p2);
+                            has_curves = true;
+                            let c = (ctrl.x * params.scale, ctrl.y * params.scale);
+                            let end = (to.x * params.scale, to.y * params.scale);
+                            segments.push(PathSegment::QuadBezier { c, end });
+                            current_pos = Some(end);
                         }
                         tiny_skia::PathSegment::CubicTo(c1, c2, to) => {
-                            let p0 = current_pos.unwrap_or((c1.x * params.scale, c1.y * params.scale));
-                            let p1 = (c1.x * params.scale, c1.y * params.scale);
-                            let p2 = (c2.x * params.scale, c2.y * params.scale);
-                            let p3 = (to.x * params.scale, to.y * params.scale);
-                            let steps = 16;
-                            for i in 1..=steps {
-                                let t = i as f32 / steps as f32;
-                                current_path.push(cubic_at(p0, p1, p2, p3, t));
-                            }
-                            current_pos = Some(p3);
+                            has_curves = true;
+                            let cp1 = (c1.x * params.scale, c1.y * params.scale);
+                            let cp2 = (c2.x * params.scale, c2.y * params.scale);
+                            let end = (to.x * params.scale, to.y * params.scale);
+                            segments.push(PathSegment::CubicBezier { c1: cp1, c2: cp2, end });
+                            current_pos = Some(end);
                         }
                         tiny_skia::PathSegment::Close => {
-                            if !current_path.is_empty() {
-                                if let (Some(first), Some(last)) =
-                                    (current_path.first().copied(), current_path.last().copied())
-                                {
-                                    if (first.0 - last.0).abs() > 0.0001
-                                        || (first.1 - last.1).abs() > 0.0001
+                            if !segments.is_empty() {
+                                // Close by adding a LineTo back to subpath start if needed
+                                if let Some(cur) = current_pos {
+                                    let first = subpath_first.unwrap_or(sub_start);
+                                    if (cur.0 - first.0).abs() > 0.0001
+                                        || (cur.1 - first.1).abs() > 0.0001
                                     {
-                                        // Prefer closing to the actual subpath start if known.
-                                        current_path.push(subpath_first.unwrap_or(first));
+                                        segments.push(PathSegment::LineTo(first.0, first.1));
                                     }
                                 }
-                                out.push(current_path);
-                                current_path = Vec::new();
+                                if has_curves {
+                                    out.push(PathData::from_segments(sub_start, std::mem::take(&mut segments)));
+                                } else {
+                                    let mut pts = vec![sub_start];
+                                    for s in &segments {
+                                        if let PathSegment::LineTo(x, y) = s {
+                                            pts.push((*x, *y));
+                                        }
+                                    }
+                                    out.push(PathData::from_points(pts));
+                                    segments.clear();
+                                }
+                                has_curves = false;
                             }
                             current_pos = None;
                             subpath_first = None;
                         }
                     }
                 }
-                if !current_path.is_empty() {
-                    out.push(current_path);
+                // Flush last sub-path
+                if !segments.is_empty() {
+                    if has_curves {
+                        out.push(PathData::from_segments(sub_start, segments));
+                    } else {
+                        let mut pts = vec![sub_start];
+                        for s in &segments {
+                            if let PathSegment::LineTo(x, y) = s {
+                                pts.push((*x, *y));
+                            }
+                        }
+                        out.push(PathData::from_points(pts));
+                    }
                 }
             }
         }

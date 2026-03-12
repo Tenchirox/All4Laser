@@ -1,7 +1,7 @@
 use crate::imaging::raster::RasterParams;
 /// Image Tracing Logic (Bitmap to Vector)
 /// Uses a simplified skeletonization (thinning) algorithm followed by path tracing.
-use crate::ui::drawing::{ShapeKind, ShapeParams};
+use crate::ui::drawing::{PathData, ShapeKind, ShapeParams};
 use image::{DynamicImage, GrayImage, Luma};
 
 /// Traces a bitmap image into a set of Vector Shapes
@@ -81,13 +81,13 @@ pub fn trace_image(img: &DynamicImage, params: &RasterParams) -> Vec<ShapeParams
                     // Use path smoothing from vector_edit
                     let mut dummy_state = crate::ui::drawing::DrawingState::default();
                     dummy_state.shapes.push(ShapeParams {
-                        shape: ShapeKind::Path(points.clone()),
+                        shape: ShapeKind::Path(PathData::from_points(points.clone())),
                         ..Default::default()
                     });
                     let simplified = if params.smoothing > 0.0 && points.len() > 3 {
                         if let Ok(_removed) = crate::ui::vector_edit::simplify_path(&mut dummy_state, 0, params.smoothing * 2.0) {
                             if let ShapeKind::Path(ref pts) = dummy_state.shapes[0].shape {
-                                pts.clone()
+                                pts.points.clone()
                             } else {
                                 points
                             }
@@ -101,7 +101,7 @@ pub fn trace_image(img: &DynamicImage, params: &RasterParams) -> Vec<ShapeParams
                     };
 
                     shapes.push(ShapeParams {
-                        shape: ShapeKind::Path(simplified),
+                        shape: ShapeKind::Path(PathData::from_points(simplified)),
                         x: 0.0, // Path points are absolute relative to image origin
                         y: 0.0,
                         width: 0.0,

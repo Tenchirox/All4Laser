@@ -439,23 +439,23 @@ mod tests {
     fn layer_non_fillable_path_count_detects_open_or_too_short_paths() {
         let shapes = vec![
             ShapeParams {
-                shape: ShapeKind::Path(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]),
+                shape: ShapeKind::Path(crate::ui::drawing::PathData::from_points(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)])),
                 layer_idx: 0,
                 ..ShapeParams::default()
             },
             ShapeParams {
-                shape: ShapeKind::Path(vec![(1.0, 1.0), (2.0, 2.0)]),
+                shape: ShapeKind::Path(crate::ui::drawing::PathData::from_points(vec![(1.0, 1.0), (2.0, 2.0)])),
                 layer_idx: 0,
                 ..ShapeParams::default()
             },
             ShapeParams {
-                shape: ShapeKind::Path(vec![
+                shape: ShapeKind::Path(crate::ui::drawing::PathData::from_points(vec![
                     (0.0, 0.0),
                     (10.0, 0.0),
                     (10.0, 10.0),
                     (0.0, 10.0),
                     (0.0, 0.0),
-                ]),
+                ])),
                 layer_idx: 0,
                 ..ShapeParams::default()
             },

@@ -1,5 +1,5 @@
 use crate::theme;
-use crate::ui::drawing::{DrawingState, ShapeKind, ShapeParams};
+use crate::ui::drawing::{DrawingState, PathData, ShapeKind, ShapeParams};
 use egui::RichText;
 use geo::{LineString, Polygon};
 
@@ -111,7 +111,7 @@ pub fn apply_offset(state: &OffsetState, drawing: &mut DrawingState, selected_in
                         .collect();
                     if !points.is_empty() {
                         let mut new_shape = shape.clone();
-                        new_shape.shape = ShapeKind::Path(points);
+                        new_shape.shape = ShapeKind::Path(PathData::from_points(points));
                         new_shape.x = 0.0;
                         new_shape.y = 0.0;
                         new_shapes.push(new_shape);

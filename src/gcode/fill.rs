@@ -665,13 +665,13 @@ mod tests {
     #[test]
     fn generate_fill_supports_closed_path() {
         let shape = ShapeParams {
-            shape: ShapeKind::Path(vec![
+            shape: ShapeKind::Path(crate::ui::drawing::PathData::from_points(vec![
                 (0.0, 0.0),
                 (10.0, 0.0),
                 (10.0, 10.0),
                 (0.0, 10.0),
                 (0.0, 0.0),
-            ]),
+            ])),
             ..Default::default()
         };
         let mut layer = CutLayer::default_palette()[0].clone();

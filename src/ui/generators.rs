@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::i18n::tr;
-use crate::ui::drawing::{ShapeKind, ShapeParams};
+use crate::ui::drawing::{PathData, ShapeKind, ShapeParams};
 use egui::{RichText, Ui};
 use qrcode::QrCode;
 
@@ -244,13 +244,13 @@ fn generate_fiducials_shapes(state: &GeneratorState, active_layer: usize) -> Vec
     // Optional outer frame (closed rectangle path)
     if state.fiducial_draw_frame {
         shapes.push(ShapeParams {
-            shape: ShapeKind::Path(vec![
+            shape: ShapeKind::Path(PathData::from_points(vec![
                 (0.0, 0.0),
                 (w, 0.0),
                 (w, h),
                 (0.0, h),
                 (0.0, 0.0),
-            ]),
+            ])),
             x: 0.0,
             y: 0.0,
             layer_idx: active_layer,
@@ -269,7 +269,7 @@ fn generate_fiducials_shapes(state: &GeneratorState, active_layer: usize) -> Vec
     for (cx, cy) in corners {
         // Horizontal line
         shapes.push(ShapeParams {
-            shape: ShapeKind::Path(vec![(0.0, 0.0), (mark, 0.0)]),
+            shape: ShapeKind::Path(PathData::from_points(vec![(0.0, 0.0), (mark, 0.0)])),
             x: cx - half,
             y: cy,
             layer_idx: active_layer,
@@ -278,7 +278,7 @@ fn generate_fiducials_shapes(state: &GeneratorState, active_layer: usize) -> Vec
         });
         // Vertical line
         shapes.push(ShapeParams {
-            shape: ShapeKind::Path(vec![(0.0, 0.0), (0.0, mark)]),
+            shape: ShapeKind::Path(PathData::from_points(vec![(0.0, 0.0), (0.0, mark)])),
             x: cx,
             y: cy - half,
             layer_idx: active_layer,
@@ -447,7 +447,7 @@ fn make_tabbed_face_shape(
     }
 
     ShapeParams {
-        shape: ShapeKind::Path(pts),
+        shape: ShapeKind::Path(PathData::from_points(pts)),
         x: ox,
         y: oy,
         layer_idx,
@@ -491,7 +491,7 @@ fn make_living_hinge(
             let first_cut_len = (cut_len - gap) / 2.0;
             if first_cut_len > 0.0 {
                 shapes.push(ShapeParams {
-                    shape: ShapeKind::Path(vec![(x, 0.0), (x, first_cut_len)]),
+                    shape: ShapeKind::Path(PathData::from_points(vec![(x, 0.0), (x, first_cut_len)])),
                     x: 0.0,
                     y: 0.0,
                     layer_idx,
@@ -507,7 +507,7 @@ fn make_living_hinge(
 
             // Generate a line path for the cut
             shapes.push(ShapeParams {
-                shape: ShapeKind::Path(vec![(x, y), (x, next_y)]),
+                shape: ShapeKind::Path(PathData::from_points(vec![(x, y), (x, next_y)])),
                 x: 0.0, // Path coordinates are local and already set
                 y: 0.0,
                 layer_idx,
