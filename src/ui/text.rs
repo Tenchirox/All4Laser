@@ -6,7 +6,7 @@ use font_kit::family_name::FamilyName;
 use font_kit::properties::Properties;
 use font_kit::source::SystemSource;
 use rusttype::{Font, OutlineBuilder, Scale, point};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 const LIBERATION_SANS_REGULAR: &[u8] =
@@ -65,6 +65,7 @@ pub struct TextToolState {
     egui_registered: HashSet<String>,
     system_font_loader: Option<crossbeam_channel::Receiver<Vec<(String, Vec<u8>)>>>,
     system_fonts_loading: bool,
+    system_font_data_cache: HashMap<String, Vec<u8>>,
 
     // Variable Text
     pub is_variable: bool,
@@ -93,19 +94,8 @@ impl Default for TextToolState {
     fn default() -> Self {
         let bundled_fonts = bundled_font_names();
 
-        // Initialize with system fonts
-        let mut fonts = Vec::new();
-        if let Ok(handles) = SystemSource::new().all_fonts() {
-            for handle in handles {
-                if let Ok(font) = handle.load() {
-                    let family = font.family_name();
-                    if !fonts.contains(&family) {
-                        fonts.push(family);
-                    }
-                }
-            }
-        }
-        fonts.sort();
+        // System fonts are loaded lazily in a background thread when the
+        // System tab is first selected (see show()). No blocking I/O here.
 
         Self {
             is_open: false,
@@ -115,10 +105,9 @@ impl Default for TextToolState {
             selected_font: bundled_fonts
                 .first()
                 .cloned()
-                .or_else(|| fonts.first().cloned())
                 .unwrap_or_else(|| "Arial".to_string()),
             bundled_fonts,
-            system_fonts: fonts,
+            system_fonts: Vec::new(),
             font_source: FontSource::Bundled,
             is_variable: false,
             var_prefix: "SN-".to_string(),
@@ -137,6 +126,7 @@ impl Default for TextToolState {
             egui_registered: HashSet::new(),
             system_font_loader: None,
             system_fonts_loading: false,
+            system_font_data_cache: HashMap::new(),
         }
     }
 }
@@ -297,47 +287,42 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
         && !state.system_fonts_loading
         && state.system_font_loader.is_none()
     {
-        // Only load if we haven't registered system fonts yet
-        let already = state.egui_registered.len();
-        let total_system = state.system_fonts.len();
-        if already < total_system + BUNDLED_FONTS.len() {
-            state.system_fonts_loading = true;
-            let (tx, rx) = crossbeam_channel::bounded(1);
-            std::thread::spawn(move || {
-                let mut fonts = Vec::new();
-                let mut seen = HashSet::new();
-                if let Ok(handles) = SystemSource::new().all_fonts() {
-                    for handle in handles {
-                        if let Ok(font) = handle.load() {
-                            let family = font.family_name();
-                            if seen.insert(family.clone()) {
-                                if let Some(data_arc) = font.copy_font_data() {
-                                    let data = &*data_arc;
-                                    // Skip very large font files (>1MB) to avoid memory bloat
-                                    if data.len() >= 1_000_000 {
-                                        continue;
-                                    }
-                                    // Skip fonts that lack basic Latin glyphs (render as ???? or empty)
-                                    let has_latin = Font::try_from_bytes(data)
-                                        .map(|f| {
-                                            "AaBbCcRr".chars().all(|ch| {
-                                                let g = f.glyph(ch);
-                                                g.id().0 != 0
-                                            })
+        state.system_fonts_loading = true;
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        std::thread::spawn(move || {
+            let mut fonts = Vec::new();
+            let mut seen = HashSet::new();
+            if let Ok(handles) = SystemSource::new().all_fonts() {
+                for handle in handles {
+                    if let Ok(font) = handle.load() {
+                        let family = font.family_name();
+                        if seen.insert(family.clone()) {
+                            if let Some(data_arc) = font.copy_font_data() {
+                                let data = &*data_arc;
+                                // Skip very large font files (>1MB) to avoid memory bloat
+                                if data.len() >= 1_000_000 {
+                                    continue;
+                                }
+                                // Skip fonts that lack basic Latin glyphs (render as ???? or empty)
+                                let has_latin = Font::try_from_bytes(data)
+                                    .map(|f| {
+                                        "AaBbCcRr".chars().all(|ch| {
+                                            let g = f.glyph(ch);
+                                            g.id().0 != 0
                                         })
-                                        .unwrap_or(false);
-                                    if has_latin {
-                                        fonts.push((family, data.to_vec()));
-                                    }
+                                    })
+                                    .unwrap_or(false);
+                                if has_latin {
+                                    fonts.push((family, data.to_vec()));
                                 }
                             }
                         }
                     }
                 }
-                let _ = tx.send(fonts);
-            });
-            state.system_font_loader = Some(rx);
-        }
+            }
+            let _ = tx.send(fonts);
+        });
+        state.system_font_loader = Some(rx);
     }
 
     // ── Poll background font loader ──
@@ -351,6 +336,8 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
             if let Some(ref mut defs) = state.egui_font_defs {
                 for (name, data) in fonts {
                     if !defs.font_data.contains_key(&name) {
+                        // Cache raw font data for reuse in text generation (avoids disk I/O)
+                        state.system_font_data_cache.insert(name.clone(), data.clone());
                         defs.font_data
                             .insert(name.clone(), Arc::new(egui::FontData::from_owned(data)));
                         defs.families
@@ -378,7 +365,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
     ui.group(|ui| {
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new("✍ Text Tool")
+                RichText::new(format!("✍ {}", crate::i18n::tr("Text Tool")))
                     .color(crate::theme::LAVENDER)
                     .strong(),
             );
@@ -386,40 +373,40 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.checkbox(&mut state.is_variable, "🔢 Variable Text (Serial Numbers)");
+            ui.checkbox(&mut state.is_variable, format!("🔢 {}", crate::i18n::tr("Variable Text (Serial Numbers)")));
         });
 
         if state.is_variable {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Source:");
-                    ui.selectable_value(&mut state.var_source, VariableSource::Serial, "Serial");
-                    ui.selectable_value(&mut state.var_source, VariableSource::Csv, "CSV Column");
+                    ui.label(crate::i18n::tr("Source:"));
+                    ui.selectable_value(&mut state.var_source, VariableSource::Serial, crate::i18n::tr("Serial"));
+                    ui.selectable_value(&mut state.var_source, VariableSource::Csv, crate::i18n::tr("CSV Column"));
                 });
 
                 if state.var_source == VariableSource::Serial {
                     ui.horizontal(|ui| {
-                        ui.label("Prefix:");
+                        ui.label(crate::i18n::tr("Prefix:"));
                         ui.text_edit_singleline(&mut state.var_prefix);
-                        ui.label("Suffix:");
+                        ui.label(crate::i18n::tr("Suffix:"));
                         ui.text_edit_singleline(&mut state.var_suffix);
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Start:");
+                        ui.label(crate::i18n::tr("Start:"));
                         ui.add(egui::DragValue::new(&mut state.var_start));
-                        ui.label("Inc:");
+                        ui.label(crate::i18n::tr("Inc:"));
                         ui.add(egui::DragValue::new(&mut state.var_inc));
-                        ui.label("Pad:");
+                        ui.label(crate::i18n::tr("Pad:"));
                         ui.add(egui::DragValue::new(&mut state.var_padding).range(0..=10));
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Batch Count:");
+                        ui.label(crate::i18n::tr("Batch Count:"));
                         ui.add(egui::DragValue::new(&mut state.var_count).range(1..=100));
                     });
                 } else {
                     let mut reload_csv = false;
                     ui.horizontal(|ui| {
-                        ui.label("Column:");
+                        ui.label(crate::i18n::tr("Column:"));
                         if ui
                             .add(egui::DragValue::new(&mut state.csv_column).range(0..=100))
                             .changed()
@@ -427,7 +414,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                             reload_csv = true;
                         }
                         if ui
-                            .checkbox(&mut state.csv_has_header, "Header row")
+                            .checkbox(&mut state.csv_has_header, crate::i18n::tr("Header row"))
                             .changed()
                         {
                             reload_csv = true;
@@ -435,7 +422,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Delimiter:");
+                        ui.label(crate::i18n::tr("Delimiter:"));
                         let mut delimiter_text = state.csv_delimiter.to_string();
                         if ui.text_edit_singleline(&mut delimiter_text).changed() {
                             if let Some(ch) = delimiter_text.chars().next() {
@@ -443,7 +430,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                                 reload_csv = true;
                             }
                         }
-                        if ui.button("📁 Load CSV").clicked() {
+                        if ui.button(format!("📁 {}", crate::i18n::tr("Load CSV"))).clicked() {
                             if let Some(path) = rfd::FileDialog::new()
                                 .add_filter("CSV", &["csv", "txt"])
                                 .pick_file()
@@ -491,13 +478,13 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
             });
         } else {
             ui.horizontal(|ui| {
-                ui.label("Text:");
+                ui.label(crate::i18n::tr("Text:"));
                 ui.text_edit_singleline(&mut state.text);
             });
         }
 
         ui.horizontal(|ui| {
-            ui.label("Size:");
+            ui.label(crate::i18n::tr("Size:"));
             ui.add(
                 egui::DragValue::new(&mut state.font_size)
                     .range(1.0..=300.0)
@@ -506,10 +493,10 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
         });
 
         ui.horizontal(|ui| {
-            ui.label("Source:");
-            ui.selectable_value(&mut state.font_source, FontSource::Bundled, "Bundled");
-            ui.selectable_value(&mut state.font_source, FontSource::System, "System");
-            ui.selectable_value(&mut state.font_source, FontSource::File, "File");
+            ui.label(crate::i18n::tr("Source:"));
+            ui.selectable_value(&mut state.font_source, FontSource::Bundled, crate::i18n::tr("Bundled"));
+            ui.selectable_value(&mut state.font_source, FontSource::System, crate::i18n::tr("System"));
+            ui.selectable_value(&mut state.font_source, FontSource::File, crate::i18n::tr("File"));
         });
 
         if state.font_source == FontSource::Bundled {
@@ -520,7 +507,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
             }
 
             ui.horizontal(|ui| {
-                ui.label("Font:");
+                ui.label(crate::i18n::tr("Font:"));
                 let selected_rt = if use_custom_fonts && state.egui_registered.contains(&state.selected_font) {
                     RichText::new(&state.selected_font)
                         .family(egui::FontFamily::Name(state.selected_font.clone().into()))
@@ -544,7 +531,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
             });
             ui.label(
                 RichText::new(
-                    "Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).",
+                    crate::i18n::tr("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use)."),
                 )
                 .small(),
             );
@@ -555,7 +542,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
             }
 
             ui.horizontal(|ui| {
-                ui.label("Font:");
+                ui.label(crate::i18n::tr("Font:"));
                 let selected_rt = if use_custom_fonts && state.egui_registered.contains(&state.selected_font) {
                     RichText::new(&state.selected_font)
                         .family(egui::FontFamily::Name(state.selected_font.clone().into()))
@@ -579,19 +566,19 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
             });
             if state.system_font_loader.is_some() {
                 ui.label(
-                    RichText::new("⏳ Loading font previews...")
+                    RichText::new(format!("⏳ {}", crate::i18n::tr("Loading font previews...")))
                         .small()
                         .color(crate::theme::SUBTEXT),
                 );
             }
             if state.system_fonts.is_empty() {
                 ui.label(
-                    RichText::new("No system fonts detected. Use Bundled or File source.").small(),
+                    RichText::new(crate::i18n::tr("No system fonts detected. Use Bundled or File source.")).small(),
                 );
             }
         } else {
             ui.horizontal(|ui| {
-                if ui.button("📁 Load Font File").clicked() {
+                if ui.button(format!("📁 {}", crate::i18n::tr("Load Font File"))).clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("TrueType Font", &["ttf", "otf"])
                         .pick_file()
@@ -609,31 +596,38 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                 ui.label(format!("File: {}", state.selected_font));
             });
         }
-        if ui.button("➕ Add Text to Drawing").clicked() {
+        if ui.button(format!("➕ {}", crate::i18n::tr("Add Text to Drawing"))).clicked() {
             let mut resolved_font_data: Option<Vec<u8>> = match state.font_source {
                 FontSource::Bundled => {
                     bundled_font_data(&state.selected_font).map(|data| data.to_vec())
                 }
                 FontSource::System => {
-                    let mut loaded = None;
-                    if let Ok(handle) = SystemSource::new().select_best_match(
-                        &[FamilyName::Title(state.selected_font.clone())],
-                        &Properties::new(),
-                    ) {
-                        if let Ok(font) = handle.load() {
-                            loaded = Some(font.copy_font_data().unwrap_or_default().to_vec());
-                        }
-                    }
-                    if loaded.is_none() {
-                        if let Ok(handle) =
-                            SystemSource::new().select_by_postscript_name(&state.selected_font)
-                        {
+                    // Try cached font data first (loaded by background thread)
+                    if let Some(cached) = state.system_font_data_cache.get(&state.selected_font) {
+                        Some(cached.clone())
+                    } else {
+                        // Fallback: query system font source directly
+                        let mut loaded = None;
+                        if let Ok(handle) = SystemSource::new().select_best_match(
+                            &[FamilyName::Title(state.selected_font.clone())],
+                            &Properties::new(),
+                        ) {
                             if let Ok(font) = handle.load() {
                                 loaded = Some(font.copy_font_data().unwrap_or_default().to_vec());
                             }
                         }
+                        if loaded.is_none() {
+                            if let Ok(handle) =
+                                SystemSource::new().select_by_postscript_name(&state.selected_font)
+                            {
+                                if let Ok(font) = handle.load() {
+                                    loaded =
+                                        Some(font.copy_font_data().unwrap_or_default().to_vec());
+                                }
+                            }
+                        }
+                        loaded
                     }
-                    loaded
                 }
                 FontSource::File => state.font_data.clone(),
             };

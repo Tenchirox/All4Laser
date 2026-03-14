@@ -51,10 +51,10 @@ pub fn show(
             .show(ui, |ui| {
                 // Header
                 ui.label("#");
-                ui.label("Mode");
-                ui.label("Spd/Pwr");
-                ui.label("Out");
-                ui.label("View");
+                ui.label(crate::i18n::tr("Mode"));
+                ui.label(crate::i18n::tr("Spd/Pwr"));
+                ui.label(crate::i18n::tr("Out"));
+                ui.label(crate::i18n::tr("View"));
                 ui.end_row();
 
                 for &i in &visible_indices {

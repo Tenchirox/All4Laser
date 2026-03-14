@@ -210,6 +210,87 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         fr.insert("Generate", "Générer");
         fr.insert("Export", "Exporter");
         fr.insert("Import", "Importer");
+        // Node editing & selection
+        fr.insert("Node Editing", "Édition de nœuds");
+        fr.insert("Selection", "Sélection");
+        fr.insert("Create", "Créer");
+        fr.insert("Modify", "Modifier");
+        // Drawing tools
+        fr.insert("Rect", "Rect");
+        fr.insert("Circle", "Cercle");
+        fr.insert("Origin X:", "Origine X :");
+        fr.insert("Radius:", "Rayon :");
+        fr.insert("Layer:", "Couche :");
+        fr.insert("Set to Active Layer", "Appliquer au calque actif");
+        fr.insert("Use the Text Tool panel below to create text paths.", "Utilisez le panneau Outil Texte ci-dessous pour créer des tracés texte.");
+        // Text tool
+        fr.insert("Text Tool", "Outil Texte");
+        fr.insert("Variable Text (Serial Numbers)", "Texte variable (numéros de série)");
+        fr.insert("Text:", "Texte :");
+        fr.insert("Size:", "Taille :");
+        fr.insert("Source:", "Source :");
+        fr.insert("Bundled", "Intégrées");
+        fr.insert("System", "Système");
+        fr.insert("Font:", "Police :");
+        fr.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "Polices intégrées au projet (SIL OFL 1.1, utilisation compatible GPLv3).");
+        fr.insert("Loading font previews...", "Chargement des aperçus de polices…");
+        fr.insert("No system fonts detected. Use Bundled or File source.", "Aucune police système détectée. Utilisez les polices intégrées ou un fichier.");
+        fr.insert("Load Font File", "Charger un fichier de police");
+        fr.insert("Add Text to Drawing", "Ajouter le texte au dessin");
+        // Variable text
+        fr.insert("Serial", "Série");
+        fr.insert("CSV Column", "Colonne CSV");
+        fr.insert("Prefix:", "Préfixe :");
+        fr.insert("Suffix:", "Suffixe :");
+        fr.insert("Start:", "Début :");
+        fr.insert("Inc:", "Inc :");
+        fr.insert("Pad:", "Rembourrage :");
+        fr.insert("Batch Count:", "Nombre de lots :");
+        fr.insert("Column:", "Colonne :");
+        fr.insert("Header row", "Ligne d'en-tête");
+        fr.insert("Delimiter:", "Délimiteur :");
+        fr.insert("Load CSV", "Charger CSV");
+        // Align / Distribute
+        fr.insert("Align / Distribute", "Aligner / Distribuer");
+        fr.insert("Align Left", "Aligner à gauche");
+        fr.insert("Align Right", "Aligner à droite");
+        fr.insert("Align Top", "Aligner en haut");
+        fr.insert("Align Bottom", "Aligner en bas");
+        fr.insert("Center Horizontal", "Centrer horizontalement");
+        fr.insert("Center Vertical", "Centrer verticalement");
+        fr.insert("Distribute H", "Distribuer H");
+        fr.insert("Distribute V", "Distribuer V");
+        // Shape properties
+        fr.insert("Shape Properties", "Propriétés de la forme");
+        fr.insert("Select a shape to edit properties.", "Sélectionnez une forme pour modifier ses propriétés.");
+        // Session recovery
+        fr.insert("Session Recovery", "Récupération de session");
+        fr.insert("A previous session was interrupted. Restore it?", "Une session précédente a été interrompue. La restaurer ?");
+        fr.insert("Restore", "Restaurer");
+        fr.insert("Discard", "Ignorer");
+        // Preview placeholder
+        fr.insert("Load a GCode file or draw shapes to preview", "Chargez un fichier GCode ou dessinez des formes pour prévisualiser");
+        // Materials
+        fr.insert("Apply Recommended", "Appliquer les recommandés");
+        fr.insert("Apply to Active Layer", "Appliquer au calque actif");
+        fr.insert("Material Presets", "Préréglages matériaux");
+        // Cut list headers
+        fr.insert("Mode", "Mode");
+        fr.insert("Spd/Pwr", "Vit/Puis");
+        fr.insert("Out", "Sort");
+        // Misc modify buttons
+        fr.insert("Array", "Réseau");
+        fr.insert("Grid", "Grille");
+        fr.insert("Offset", "Décalage");
+        fr.insert("Boolean", "Booléen");
+        fr.insert("Circular Array", "Réseau circulaire");
+        fr.insert("Grid Array", "Réseau en grille");
+        fr.insert("Offset Path", "Décalage du tracé");
+        fr.insert("Boolean Operations", "Opérations booléennes");
+        // Cut list extra
+        fr.insert("View", "Affichage");
+        // Font source "File" tab (distinct from menu "File"→"Fichier")
+        fr.insert("File", "Fichier");
         m.insert(Language::French, fr);
 
         // Japanese
@@ -344,6 +425,73 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         ja.insert("Cancel", "キャンセル");
         ja.insert("Apply", "適用");
         ja.insert("Close", "閉じる");
+        // New UI keys
+        ja.insert("Node Editing", "ノード編集");
+        ja.insert("Selection", "選択");
+        ja.insert("Create", "作成");
+        ja.insert("Modify", "変更");
+        ja.insert("Rect", "矩形");
+        ja.insert("Circle", "円");
+        ja.insert("Origin X:", "原点 X:");
+        ja.insert("Radius:", "半径:");
+        ja.insert("Layer:", "レイヤー:");
+        ja.insert("Set to Active Layer", "アクティブレイヤーに設定");
+        ja.insert("Use the Text Tool panel below to create text paths.", "テキストパスを作成するには、下のテキストツールパネルを使用してください。");
+        ja.insert("Text Tool", "テキストツール");
+        ja.insert("Variable Text (Serial Numbers)", "変数テキスト（シリアル番号）");
+        ja.insert("Text:", "テキスト:");
+        ja.insert("Size:", "サイズ:");
+        ja.insert("Source:", "ソース:");
+        ja.insert("Bundled", "内蔵");
+        ja.insert("System", "システム");
+        ja.insert("Font:", "フォント:");
+        ja.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "プロジェクトに含まれる内蔵フォント（SIL OFL 1.1、GPLv3互換使用）。");
+        ja.insert("Loading font previews...", "フォントプレビューを読み込み中…");
+        ja.insert("No system fonts detected. Use Bundled or File source.", "システムフォントが検出されません。内蔵またはファイルソースを使用してください。");
+        ja.insert("Load Font File", "フォントファイルを読み込む");
+        ja.insert("Add Text to Drawing", "図面にテキストを追加");
+        ja.insert("Serial", "シリアル");
+        ja.insert("CSV Column", "CSV列");
+        ja.insert("Prefix:", "接頭辞:");
+        ja.insert("Suffix:", "接尾辞:");
+        ja.insert("Start:", "開始:");
+        ja.insert("Inc:", "増分:");
+        ja.insert("Pad:", "桁数:");
+        ja.insert("Batch Count:", "バッチ数:");
+        ja.insert("Column:", "列:");
+        ja.insert("Header row", "ヘッダー行");
+        ja.insert("Delimiter:", "区切り文字:");
+        ja.insert("Load CSV", "CSV読み込み");
+        ja.insert("Align / Distribute", "整列 / 配分");
+        ja.insert("Align Left", "左揃え");
+        ja.insert("Align Right", "右揃え");
+        ja.insert("Align Top", "上揃え");
+        ja.insert("Align Bottom", "下揃え");
+        ja.insert("Center Horizontal", "水平中央");
+        ja.insert("Center Vertical", "垂直中央");
+        ja.insert("Distribute H", "水平配分");
+        ja.insert("Distribute V", "垂直配分");
+        ja.insert("Shape Properties", "形状プロパティ");
+        ja.insert("Select a shape to edit properties.", "プロパティを編集するには形状を選択してください。");
+        ja.insert("Session Recovery", "セッション復旧");
+        ja.insert("A previous session was interrupted. Restore it?", "前回のセッションが中断されました。復元しますか？");
+        ja.insert("Restore", "復元");
+        ja.insert("Discard", "破棄");
+        ja.insert("Load a GCode file or draw shapes to preview", "GCodeファイルを読み込むか、形状を描いてプレビュー");
+        ja.insert("Apply Recommended", "推奨を適用");
+        ja.insert("Apply to Active Layer", "アクティブレイヤーに適用");
+        ja.insert("Material Presets", "素材プリセット");
+        ja.insert("Mode", "モード");
+        ja.insert("Spd/Pwr", "速度/出力");
+        ja.insert("Out", "出力");
+        ja.insert("Array", "配列");
+        ja.insert("Grid", "グリッド");
+        ja.insert("Offset", "オフセット");
+        ja.insert("Boolean", "ブーリアン");
+        ja.insert("Circular Array", "円形配列");
+        ja.insert("Grid Array", "グリッド配列");
+        ja.insert("Offset Path", "パスオフセット");
+        ja.insert("Boolean Operations", "ブーリアン演算");
         m.insert(Language::Japanese, ja);
 
         // German
@@ -475,6 +623,73 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         de.insert("Cancel", "Abbrechen");
         de.insert("Apply", "Anwenden");
         de.insert("Close", "Schließen");
+        // New UI keys
+        de.insert("Node Editing", "Knotenbearbeitung");
+        de.insert("Selection", "Auswahl");
+        de.insert("Create", "Erstellen");
+        de.insert("Modify", "Ändern");
+        de.insert("Rect", "Rechteck");
+        de.insert("Circle", "Kreis");
+        de.insert("Origin X:", "Ursprung X:");
+        de.insert("Radius:", "Radius:");
+        de.insert("Layer:", "Ebene:");
+        de.insert("Set to Active Layer", "Aktive Ebene zuweisen");
+        de.insert("Use the Text Tool panel below to create text paths.", "Verwenden Sie das Textwerkzeug-Panel unten, um Textpfade zu erstellen.");
+        de.insert("Text Tool", "Textwerkzeug");
+        de.insert("Variable Text (Serial Numbers)", "Variabler Text (Seriennummern)");
+        de.insert("Text:", "Text:");
+        de.insert("Size:", "Größe:");
+        de.insert("Source:", "Quelle:");
+        de.insert("Bundled", "Mitgeliefert");
+        de.insert("System", "System");
+        de.insert("Font:", "Schriftart:");
+        de.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "Im Projekt enthaltene Schriftarten (SIL OFL 1.1, GPLv3-kompatibel).");
+        de.insert("Loading font previews...", "Schriftvorschau wird geladen…");
+        de.insert("No system fonts detected. Use Bundled or File source.", "Keine Systemschriften erkannt. Verwenden Sie mitgelieferte oder Dateiquelle.");
+        de.insert("Load Font File", "Schriftdatei laden");
+        de.insert("Add Text to Drawing", "Text zur Zeichnung hinzufügen");
+        de.insert("Serial", "Seriell");
+        de.insert("CSV Column", "CSV-Spalte");
+        de.insert("Prefix:", "Präfix:");
+        de.insert("Suffix:", "Suffix:");
+        de.insert("Start:", "Start:");
+        de.insert("Inc:", "Inkr.:");
+        de.insert("Pad:", "Auffüllen:");
+        de.insert("Batch Count:", "Stückzahl:");
+        de.insert("Column:", "Spalte:");
+        de.insert("Header row", "Kopfzeile");
+        de.insert("Delimiter:", "Trennzeichen:");
+        de.insert("Load CSV", "CSV laden");
+        de.insert("Align / Distribute", "Ausrichten / Verteilen");
+        de.insert("Align Left", "Links ausrichten");
+        de.insert("Align Right", "Rechts ausrichten");
+        de.insert("Align Top", "Oben ausrichten");
+        de.insert("Align Bottom", "Unten ausrichten");
+        de.insert("Center Horizontal", "Horizontal zentrieren");
+        de.insert("Center Vertical", "Vertikal zentrieren");
+        de.insert("Distribute H", "Horizontal verteilen");
+        de.insert("Distribute V", "Vertikal verteilen");
+        de.insert("Shape Properties", "Formeigenschaften");
+        de.insert("Select a shape to edit properties.", "Wählen Sie eine Form, um Eigenschaften zu bearbeiten.");
+        de.insert("Session Recovery", "Sitzungswiederherstellung");
+        de.insert("A previous session was interrupted. Restore it?", "Eine vorherige Sitzung wurde unterbrochen. Wiederherstellen?");
+        de.insert("Restore", "Wiederherstellen");
+        de.insert("Discard", "Verwerfen");
+        de.insert("Load a GCode file or draw shapes to preview", "Laden Sie eine GCode-Datei oder zeichnen Sie Formen zur Vorschau");
+        de.insert("Apply Recommended", "Empfohlene anwenden");
+        de.insert("Apply to Active Layer", "Auf aktive Ebene anwenden");
+        de.insert("Material Presets", "Materialvorlagen");
+        de.insert("Mode", "Modus");
+        de.insert("Spd/Pwr", "Geschw./Leist.");
+        de.insert("Out", "Ausg.");
+        de.insert("Array", "Anordnung");
+        de.insert("Grid", "Raster");
+        de.insert("Offset", "Versatz");
+        de.insert("Boolean", "Boolesch");
+        de.insert("Circular Array", "Kreisanordnung");
+        de.insert("Grid Array", "Rasteranordnung");
+        de.insert("Offset Path", "Pfadversatz");
+        de.insert("Boolean Operations", "Boolesche Operationen");
         m.insert(Language::German, de);
 
         // Italian
@@ -606,6 +821,73 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         it.insert("Cancel", "Annulla");
         it.insert("Apply", "Applica");
         it.insert("Close", "Chiudi");
+        // New UI keys
+        it.insert("Node Editing", "Modifica nodi");
+        it.insert("Selection", "Selezione");
+        it.insert("Create", "Crea");
+        it.insert("Modify", "Modifica");
+        it.insert("Rect", "Rettangolo");
+        it.insert("Circle", "Cerchio");
+        it.insert("Origin X:", "Origine X:");
+        it.insert("Radius:", "Raggio:");
+        it.insert("Layer:", "Livello:");
+        it.insert("Set to Active Layer", "Imposta livello attivo");
+        it.insert("Use the Text Tool panel below to create text paths.", "Usa il pannello Strumento Testo qui sotto per creare tracciati di testo.");
+        it.insert("Text Tool", "Strumento Testo");
+        it.insert("Variable Text (Serial Numbers)", "Testo variabile (numeri di serie)");
+        it.insert("Text:", "Testo:");
+        it.insert("Size:", "Dimensione:");
+        it.insert("Source:", "Sorgente:");
+        it.insert("Bundled", "Inclusi");
+        it.insert("System", "Sistema");
+        it.insert("Font:", "Font:");
+        it.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "Font inclusi nel progetto (SIL OFL 1.1, uso compatibile GPLv3).");
+        it.insert("Loading font previews...", "Caricamento anteprima font…");
+        it.insert("No system fonts detected. Use Bundled or File source.", "Nessun font di sistema rilevato. Usa i font inclusi o un file.");
+        it.insert("Load Font File", "Carica file font");
+        it.insert("Add Text to Drawing", "Aggiungi testo al disegno");
+        it.insert("Serial", "Seriale");
+        it.insert("CSV Column", "Colonna CSV");
+        it.insert("Prefix:", "Prefisso:");
+        it.insert("Suffix:", "Suffisso:");
+        it.insert("Start:", "Inizio:");
+        it.insert("Inc:", "Incr.:");
+        it.insert("Pad:", "Riempimento:");
+        it.insert("Batch Count:", "Conteggio lotto:");
+        it.insert("Column:", "Colonna:");
+        it.insert("Header row", "Riga intestazione");
+        it.insert("Delimiter:", "Delimitatore:");
+        it.insert("Load CSV", "Carica CSV");
+        it.insert("Align / Distribute", "Allinea / Distribuisci");
+        it.insert("Align Left", "Allinea a sinistra");
+        it.insert("Align Right", "Allinea a destra");
+        it.insert("Align Top", "Allinea in alto");
+        it.insert("Align Bottom", "Allinea in basso");
+        it.insert("Center Horizontal", "Centra orizzontalmente");
+        it.insert("Center Vertical", "Centra verticalmente");
+        it.insert("Distribute H", "Distribuisci O");
+        it.insert("Distribute V", "Distribuisci V");
+        it.insert("Shape Properties", "Proprietà forma");
+        it.insert("Select a shape to edit properties.", "Seleziona una forma per modificarne le proprietà.");
+        it.insert("Session Recovery", "Recupero sessione");
+        it.insert("A previous session was interrupted. Restore it?", "Una sessione precedente è stata interrotta. Ripristinarla?");
+        it.insert("Restore", "Ripristina");
+        it.insert("Discard", "Scarta");
+        it.insert("Load a GCode file or draw shapes to preview", "Carica un file GCode o disegna forme per l'anteprima");
+        it.insert("Apply Recommended", "Applica consigliati");
+        it.insert("Apply to Active Layer", "Applica al livello attivo");
+        it.insert("Material Presets", "Preset materiali");
+        it.insert("Mode", "Modalità");
+        it.insert("Spd/Pwr", "Vel./Pot.");
+        it.insert("Out", "Usc.");
+        it.insert("Array", "Matrice");
+        it.insert("Grid", "Griglia");
+        it.insert("Offset", "Offset");
+        it.insert("Boolean", "Booleano");
+        it.insert("Circular Array", "Matrice circolare");
+        it.insert("Grid Array", "Matrice a griglia");
+        it.insert("Offset Path", "Offset tracciato");
+        it.insert("Boolean Operations", "Operazioni booleane");
         m.insert(Language::Italian, it);
 
         // Spanish
@@ -737,6 +1019,73 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         es.insert("Cancel", "Cancelar");
         es.insert("Apply", "Aplicar");
         es.insert("Close", "Cerrar");
+        // New UI keys
+        es.insert("Node Editing", "Edición de nodos");
+        es.insert("Selection", "Selección");
+        es.insert("Create", "Crear");
+        es.insert("Modify", "Modificar");
+        es.insert("Rect", "Rectángulo");
+        es.insert("Circle", "Círculo");
+        es.insert("Origin X:", "Origen X:");
+        es.insert("Radius:", "Radio:");
+        es.insert("Layer:", "Capa:");
+        es.insert("Set to Active Layer", "Asignar a capa activa");
+        es.insert("Use the Text Tool panel below to create text paths.", "Use el panel Herramienta de Texto para crear trazados de texto.");
+        es.insert("Text Tool", "Herramienta de Texto");
+        es.insert("Variable Text (Serial Numbers)", "Texto variable (números de serie)");
+        es.insert("Text:", "Texto:");
+        es.insert("Size:", "Tamaño:");
+        es.insert("Source:", "Fuente:");
+        es.insert("Bundled", "Incluidas");
+        es.insert("System", "Sistema");
+        es.insert("Font:", "Tipografía:");
+        es.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "Tipografías incluidas en el proyecto (SIL OFL 1.1, uso compatible con GPLv3).");
+        es.insert("Loading font previews...", "Cargando vista previa de tipografías…");
+        es.insert("No system fonts detected. Use Bundled or File source.", "No se detectaron tipografías del sistema. Use las incluidas o un archivo.");
+        es.insert("Load Font File", "Cargar archivo de tipografía");
+        es.insert("Add Text to Drawing", "Añadir texto al dibujo");
+        es.insert("Serial", "Serie");
+        es.insert("CSV Column", "Columna CSV");
+        es.insert("Prefix:", "Prefijo:");
+        es.insert("Suffix:", "Sufijo:");
+        es.insert("Start:", "Inicio:");
+        es.insert("Inc:", "Incr.:");
+        es.insert("Pad:", "Relleno:");
+        es.insert("Batch Count:", "Cantidad de lotes:");
+        es.insert("Column:", "Columna:");
+        es.insert("Header row", "Fila de encabezado");
+        es.insert("Delimiter:", "Delimitador:");
+        es.insert("Load CSV", "Cargar CSV");
+        es.insert("Align / Distribute", "Alinear / Distribuir");
+        es.insert("Align Left", "Alinear a la izquierda");
+        es.insert("Align Right", "Alinear a la derecha");
+        es.insert("Align Top", "Alinear arriba");
+        es.insert("Align Bottom", "Alinear abajo");
+        es.insert("Center Horizontal", "Centrar horizontalmente");
+        es.insert("Center Vertical", "Centrar verticalmente");
+        es.insert("Distribute H", "Distribuir H");
+        es.insert("Distribute V", "Distribuir V");
+        es.insert("Shape Properties", "Propiedades de forma");
+        es.insert("Select a shape to edit properties.", "Seleccione una forma para editar propiedades.");
+        es.insert("Session Recovery", "Recuperación de sesión");
+        es.insert("A previous session was interrupted. Restore it?", "Una sesión anterior fue interrumpida. ¿Restaurarla?");
+        es.insert("Restore", "Restaurar");
+        es.insert("Discard", "Descartar");
+        es.insert("Load a GCode file or draw shapes to preview", "Cargue un archivo GCode o dibuje formas para previsualizar");
+        es.insert("Apply Recommended", "Aplicar recomendados");
+        es.insert("Apply to Active Layer", "Aplicar a capa activa");
+        es.insert("Material Presets", "Preajustes de material");
+        es.insert("Mode", "Modo");
+        es.insert("Spd/Pwr", "Vel./Pot.");
+        es.insert("Out", "Sal.");
+        es.insert("Array", "Matriz");
+        es.insert("Grid", "Cuadrícula");
+        es.insert("Offset", "Desplazamiento");
+        es.insert("Boolean", "Booleano");
+        es.insert("Circular Array", "Matriz circular");
+        es.insert("Grid Array", "Matriz en cuadrícula");
+        es.insert("Offset Path", "Desplazar trazado");
+        es.insert("Boolean Operations", "Operaciones booleanas");
         m.insert(Language::Spanish, es);
 
         // Portuguese
@@ -868,6 +1217,73 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         pt.insert("Cancel", "Cancelar");
         pt.insert("Apply", "Aplicar");
         pt.insert("Close", "Fechar");
+        // New UI keys
+        pt.insert("Node Editing", "Edição de nós");
+        pt.insert("Selection", "Seleção");
+        pt.insert("Create", "Criar");
+        pt.insert("Modify", "Modificar");
+        pt.insert("Rect", "Retângulo");
+        pt.insert("Circle", "Círculo");
+        pt.insert("Origin X:", "Origem X:");
+        pt.insert("Radius:", "Raio:");
+        pt.insert("Layer:", "Camada:");
+        pt.insert("Set to Active Layer", "Definir como camada ativa");
+        pt.insert("Use the Text Tool panel below to create text paths.", "Use o painel Ferramenta de Texto abaixo para criar caminhos de texto.");
+        pt.insert("Text Tool", "Ferramenta de Texto");
+        pt.insert("Variable Text (Serial Numbers)", "Texto variável (números de série)");
+        pt.insert("Text:", "Texto:");
+        pt.insert("Size:", "Tamanho:");
+        pt.insert("Source:", "Fonte:");
+        pt.insert("Bundled", "Incluídas");
+        pt.insert("System", "Sistema");
+        pt.insert("Font:", "Tipografia:");
+        pt.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "Fontes incluídas no projeto (SIL OFL 1.1, uso compatível com GPLv3).");
+        pt.insert("Loading font previews...", "Carregando pré-visualização de fontes…");
+        pt.insert("No system fonts detected. Use Bundled or File source.", "Nenhuma fonte do sistema detectada. Use as incluídas ou um arquivo.");
+        pt.insert("Load Font File", "Carregar arquivo de fonte");
+        pt.insert("Add Text to Drawing", "Adicionar texto ao desenho");
+        pt.insert("Serial", "Série");
+        pt.insert("CSV Column", "Coluna CSV");
+        pt.insert("Prefix:", "Prefixo:");
+        pt.insert("Suffix:", "Sufixo:");
+        pt.insert("Start:", "Início:");
+        pt.insert("Inc:", "Incr.:");
+        pt.insert("Pad:", "Preenchimento:");
+        pt.insert("Batch Count:", "Quantidade de lotes:");
+        pt.insert("Column:", "Coluna:");
+        pt.insert("Header row", "Linha de cabeçalho");
+        pt.insert("Delimiter:", "Delimitador:");
+        pt.insert("Load CSV", "Carregar CSV");
+        pt.insert("Align / Distribute", "Alinhar / Distribuir");
+        pt.insert("Align Left", "Alinhar à esquerda");
+        pt.insert("Align Right", "Alinhar à direita");
+        pt.insert("Align Top", "Alinhar ao topo");
+        pt.insert("Align Bottom", "Alinhar à base");
+        pt.insert("Center Horizontal", "Centralizar horizontalmente");
+        pt.insert("Center Vertical", "Centralizar verticalmente");
+        pt.insert("Distribute H", "Distribuir H");
+        pt.insert("Distribute V", "Distribuir V");
+        pt.insert("Shape Properties", "Propriedades da forma");
+        pt.insert("Select a shape to edit properties.", "Selecione uma forma para editar propriedades.");
+        pt.insert("Session Recovery", "Recuperação de sessão");
+        pt.insert("A previous session was interrupted. Restore it?", "Uma sessão anterior foi interrompida. Restaurá-la?");
+        pt.insert("Restore", "Restaurar");
+        pt.insert("Discard", "Descartar");
+        pt.insert("Load a GCode file or draw shapes to preview", "Carregue um arquivo GCode ou desenhe formas para pré-visualizar");
+        pt.insert("Apply Recommended", "Aplicar recomendados");
+        pt.insert("Apply to Active Layer", "Aplicar à camada ativa");
+        pt.insert("Material Presets", "Predefinições de material");
+        pt.insert("Mode", "Modo");
+        pt.insert("Spd/Pwr", "Vel./Pot.");
+        pt.insert("Out", "Saída");
+        pt.insert("Array", "Matriz");
+        pt.insert("Grid", "Grade");
+        pt.insert("Offset", "Deslocamento");
+        pt.insert("Boolean", "Booleano");
+        pt.insert("Circular Array", "Matriz circular");
+        pt.insert("Grid Array", "Matriz em grade");
+        pt.insert("Offset Path", "Deslocar caminho");
+        pt.insert("Boolean Operations", "Operações booleanas");
         m.insert(Language::Portuguese, pt);
 
         // Arabic
@@ -997,6 +1413,73 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         ar.insert("Cancel", "إلغاء");
         ar.insert("Apply", "تطبيق");
         ar.insert("Close", "إغلاق");
+        // New UI keys
+        ar.insert("Node Editing", "تحرير العقد");
+        ar.insert("Selection", "تحديد");
+        ar.insert("Create", "إنشاء");
+        ar.insert("Modify", "تعديل");
+        ar.insert("Rect", "مستطيل");
+        ar.insert("Circle", "دائرة");
+        ar.insert("Origin X:", "الأصل X:");
+        ar.insert("Radius:", "نصف القطر:");
+        ar.insert("Layer:", "الطبقة:");
+        ar.insert("Set to Active Layer", "تعيين الطبقة النشطة");
+        ar.insert("Use the Text Tool panel below to create text paths.", "استخدم لوحة أداة النص أدناه لإنشاء مسارات نصية.");
+        ar.insert("Text Tool", "أداة النص");
+        ar.insert("Variable Text (Serial Numbers)", "نص متغير (أرقام تسلسلية)");
+        ar.insert("Text:", "النص:");
+        ar.insert("Size:", "الحجم:");
+        ar.insert("Source:", "المصدر:");
+        ar.insert("Bundled", "مدمجة");
+        ar.insert("System", "النظام");
+        ar.insert("Font:", "الخط:");
+        ar.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "خطوط مدمجة في المشروع (SIL OFL 1.1، استخدام متوافق مع GPLv3).");
+        ar.insert("Loading font previews...", "جارٍ تحميل معاينة الخطوط…");
+        ar.insert("No system fonts detected. Use Bundled or File source.", "لم يتم اكتشاف خطوط النظام. استخدم الخطوط المدمجة أو ملف.");
+        ar.insert("Load Font File", "تحميل ملف خط");
+        ar.insert("Add Text to Drawing", "إضافة نص إلى الرسم");
+        ar.insert("Serial", "تسلسلي");
+        ar.insert("CSV Column", "عمود CSV");
+        ar.insert("Prefix:", "بادئة:");
+        ar.insert("Suffix:", "لاحقة:");
+        ar.insert("Start:", "البداية:");
+        ar.insert("Inc:", "الزيادة:");
+        ar.insert("Pad:", "الحشو:");
+        ar.insert("Batch Count:", "عدد الدُفعات:");
+        ar.insert("Column:", "العمود:");
+        ar.insert("Header row", "صف العنوان");
+        ar.insert("Delimiter:", "الفاصل:");
+        ar.insert("Load CSV", "تحميل CSV");
+        ar.insert("Align / Distribute", "محاذاة / توزيع");
+        ar.insert("Align Left", "محاذاة لليسار");
+        ar.insert("Align Right", "محاذاة لليمين");
+        ar.insert("Align Top", "محاذاة للأعلى");
+        ar.insert("Align Bottom", "محاذاة للأسفل");
+        ar.insert("Center Horizontal", "توسيط أفقي");
+        ar.insert("Center Vertical", "توسيط عمودي");
+        ar.insert("Distribute H", "توزيع أفقي");
+        ar.insert("Distribute V", "توزيع عمودي");
+        ar.insert("Shape Properties", "خصائص الشكل");
+        ar.insert("Select a shape to edit properties.", "حدد شكلاً لتعديل الخصائص.");
+        ar.insert("Session Recovery", "استعادة الجلسة");
+        ar.insert("A previous session was interrupted. Restore it?", "تمت مقاطعة جلسة سابقة. هل تريد استعادتها؟");
+        ar.insert("Restore", "استعادة");
+        ar.insert("Discard", "تجاهل");
+        ar.insert("Load a GCode file or draw shapes to preview", "قم بتحميل ملف GCode أو ارسم أشكالاً للمعاينة");
+        ar.insert("Apply Recommended", "تطبيق الموصى به");
+        ar.insert("Apply to Active Layer", "تطبيق على الطبقة النشطة");
+        ar.insert("Material Presets", "إعدادات المواد المسبقة");
+        ar.insert("Mode", "الوضع");
+        ar.insert("Spd/Pwr", "سرعة/طاقة");
+        ar.insert("Out", "خرج");
+        ar.insert("Array", "مصفوفة");
+        ar.insert("Grid", "شبكة");
+        ar.insert("Offset", "إزاحة");
+        ar.insert("Boolean", "منطقي");
+        ar.insert("Circular Array", "مصفوفة دائرية");
+        ar.insert("Grid Array", "مصفوفة شبكية");
+        ar.insert("Offset Path", "إزاحة المسار");
+        ar.insert("Boolean Operations", "العمليات المنطقية");
         m.insert(Language::Arabic, ar);
 
         // Chinese
@@ -1126,6 +1609,73 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
             "Beginner mode active: interface simplified. Disable it in View to show all tools.",
             "新手模式已启用：界面已简化。在视图中禁用以显示所有工具。",
         );
+        // New UI keys
+        zh.insert("Node Editing", "节点编辑");
+        zh.insert("Selection", "选择");
+        zh.insert("Create", "创建");
+        zh.insert("Modify", "修改");
+        zh.insert("Rect", "矩形");
+        zh.insert("Circle", "圆");
+        zh.insert("Origin X:", "原点 X:");
+        zh.insert("Radius:", "半径:");
+        zh.insert("Layer:", "图层:");
+        zh.insert("Set to Active Layer", "设置为活动图层");
+        zh.insert("Use the Text Tool panel below to create text paths.", "使用下方的文字工具面板创建文字路径。");
+        zh.insert("Text Tool", "文字工具");
+        zh.insert("Variable Text (Serial Numbers)", "变量文本（序列号）");
+        zh.insert("Text:", "文本:");
+        zh.insert("Size:", "大小:");
+        zh.insert("Source:", "来源:");
+        zh.insert("Bundled", "内置");
+        zh.insert("System", "系统");
+        zh.insert("Font:", "字体:");
+        zh.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "项目内置字体（SIL OFL 1.1，GPLv3兼容使用）。");
+        zh.insert("Loading font previews...", "正在加载字体预览…");
+        zh.insert("No system fonts detected. Use Bundled or File source.", "未检测到系统字体。请使用内置或文件来源。");
+        zh.insert("Load Font File", "加载字体文件");
+        zh.insert("Add Text to Drawing", "添加文本到图纸");
+        zh.insert("Serial", "序列");
+        zh.insert("CSV Column", "CSV列");
+        zh.insert("Prefix:", "前缀:");
+        zh.insert("Suffix:", "后缀:");
+        zh.insert("Start:", "起始:");
+        zh.insert("Inc:", "增量:");
+        zh.insert("Pad:", "填充:");
+        zh.insert("Batch Count:", "批次数:");
+        zh.insert("Column:", "列:");
+        zh.insert("Header row", "标题行");
+        zh.insert("Delimiter:", "分隔符:");
+        zh.insert("Load CSV", "加载CSV");
+        zh.insert("Align / Distribute", "对齐 / 分布");
+        zh.insert("Align Left", "左对齐");
+        zh.insert("Align Right", "右对齐");
+        zh.insert("Align Top", "顶部对齐");
+        zh.insert("Align Bottom", "底部对齐");
+        zh.insert("Center Horizontal", "水平居中");
+        zh.insert("Center Vertical", "垂直居中");
+        zh.insert("Distribute H", "水平分布");
+        zh.insert("Distribute V", "垂直分布");
+        zh.insert("Shape Properties", "形状属性");
+        zh.insert("Select a shape to edit properties.", "选择一个形状以编辑属性。");
+        zh.insert("Session Recovery", "会话恢复");
+        zh.insert("A previous session was interrupted. Restore it?", "上次会话被中断。是否恢复？");
+        zh.insert("Restore", "恢复");
+        zh.insert("Discard", "放弃");
+        zh.insert("Load a GCode file or draw shapes to preview", "加载GCode文件或绘制形状以预览");
+        zh.insert("Apply Recommended", "应用推荐");
+        zh.insert("Apply to Active Layer", "应用到活动图层");
+        zh.insert("Material Presets", "材料预设");
+        zh.insert("Mode", "模式");
+        zh.insert("Spd/Pwr", "速度/功率");
+        zh.insert("Out", "输出");
+        zh.insert("Array", "阵列");
+        zh.insert("Grid", "网格");
+        zh.insert("Offset", "偏移");
+        zh.insert("Boolean", "布尔");
+        zh.insert("Circular Array", "圆形阵列");
+        zh.insert("Grid Array", "网格阵列");
+        zh.insert("Offset Path", "路径偏移");
+        zh.insert("Boolean Operations", "布尔运算");
         m.insert(Language::Chinese, zh);
 
         // Russian
@@ -1252,6 +1802,73 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         ru.insert("Cancel", "Отмена");
         ru.insert("Apply", "Применить");
         ru.insert("Close", "Закрыть");
+        // New UI keys
+        ru.insert("Node Editing", "Редактирование узлов");
+        ru.insert("Selection", "Выделение");
+        ru.insert("Create", "Создать");
+        ru.insert("Modify", "Изменить");
+        ru.insert("Rect", "Прямоугольник");
+        ru.insert("Circle", "Круг");
+        ru.insert("Origin X:", "Начало X:");
+        ru.insert("Radius:", "Радиус:");
+        ru.insert("Layer:", "Слой:");
+        ru.insert("Set to Active Layer", "Назначить активный слой");
+        ru.insert("Use the Text Tool panel below to create text paths.", "Используйте панель текстового инструмента ниже для создания текстовых контуров.");
+        ru.insert("Text Tool", "Текстовый инструмент");
+        ru.insert("Variable Text (Serial Numbers)", "Переменный текст (серийные номера)");
+        ru.insert("Text:", "Текст:");
+        ru.insert("Size:", "Размер:");
+        ru.insert("Source:", "Источник:");
+        ru.insert("Bundled", "Встроенные");
+        ru.insert("System", "Системные");
+        ru.insert("Font:", "Шрифт:");
+        ru.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "Встроенные шрифты проекта (SIL OFL 1.1, совместимые с GPLv3).");
+        ru.insert("Loading font previews...", "Загрузка превью шрифтов…");
+        ru.insert("No system fonts detected. Use Bundled or File source.", "Системные шрифты не обнаружены. Используйте встроенные или файл.");
+        ru.insert("Load Font File", "Загрузить файл шрифта");
+        ru.insert("Add Text to Drawing", "Добавить текст на чертёж");
+        ru.insert("Serial", "Серийный");
+        ru.insert("CSV Column", "Столбец CSV");
+        ru.insert("Prefix:", "Префикс:");
+        ru.insert("Suffix:", "Суффикс:");
+        ru.insert("Start:", "Начало:");
+        ru.insert("Inc:", "Шаг:");
+        ru.insert("Pad:", "Заполнение:");
+        ru.insert("Batch Count:", "Кол-во партий:");
+        ru.insert("Column:", "Столбец:");
+        ru.insert("Header row", "Строка заголовка");
+        ru.insert("Delimiter:", "Разделитель:");
+        ru.insert("Load CSV", "Загрузить CSV");
+        ru.insert("Align / Distribute", "Выравнивание / Распределение");
+        ru.insert("Align Left", "По левому краю");
+        ru.insert("Align Right", "По правому краю");
+        ru.insert("Align Top", "По верхнему краю");
+        ru.insert("Align Bottom", "По нижнему краю");
+        ru.insert("Center Horizontal", "Центрировать по горизонтали");
+        ru.insert("Center Vertical", "Центрировать по вертикали");
+        ru.insert("Distribute H", "Распределить по горизонтали");
+        ru.insert("Distribute V", "Распределить по вертикали");
+        ru.insert("Shape Properties", "Свойства фигуры");
+        ru.insert("Select a shape to edit properties.", "Выберите фигуру для редактирования свойств.");
+        ru.insert("Session Recovery", "Восстановление сессии");
+        ru.insert("A previous session was interrupted. Restore it?", "Предыдущая сессия была прервана. Восстановить?");
+        ru.insert("Restore", "Восстановить");
+        ru.insert("Discard", "Отклонить");
+        ru.insert("Load a GCode file or draw shapes to preview", "Загрузите файл GCode или нарисуйте фигуры для предпросмотра");
+        ru.insert("Apply Recommended", "Применить рекомендуемые");
+        ru.insert("Apply to Active Layer", "Применить к активному слою");
+        ru.insert("Material Presets", "Шаблоны материалов");
+        ru.insert("Mode", "Режим");
+        ru.insert("Spd/Pwr", "Скор./Мощн.");
+        ru.insert("Out", "Выход");
+        ru.insert("Array", "Массив");
+        ru.insert("Grid", "Сетка");
+        ru.insert("Offset", "Смещение");
+        ru.insert("Boolean", "Булевы");
+        ru.insert("Circular Array", "Круговой массив");
+        ru.insert("Grid Array", "Сеточный массив");
+        ru.insert("Offset Path", "Смещение контура");
+        ru.insert("Boolean Operations", "Булевы операции");
         m.insert(Language::Russian, ru);
 
         // Turkish
@@ -1378,6 +1995,73 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         tr_lang.insert("Cancel", "İptal");
         tr_lang.insert("Apply", "Uygula");
         tr_lang.insert("Close", "Kapat");
+        // New UI keys
+        tr_lang.insert("Node Editing", "Düğüm Düzenleme");
+        tr_lang.insert("Selection", "Seçim");
+        tr_lang.insert("Create", "Oluştur");
+        tr_lang.insert("Modify", "Değiştir");
+        tr_lang.insert("Rect", "Dikdörtgen");
+        tr_lang.insert("Circle", "Daire");
+        tr_lang.insert("Origin X:", "Başlangıç X:");
+        tr_lang.insert("Radius:", "Yarıçap:");
+        tr_lang.insert("Layer:", "Katman:");
+        tr_lang.insert("Set to Active Layer", "Aktif Katmana Ata");
+        tr_lang.insert("Use the Text Tool panel below to create text paths.", "Metin yolları oluşturmak için aşağıdaki Metin Aracı panelini kullanın.");
+        tr_lang.insert("Text Tool", "Metin Aracı");
+        tr_lang.insert("Variable Text (Serial Numbers)", "Değişken Metin (Seri Numaraları)");
+        tr_lang.insert("Text:", "Metin:");
+        tr_lang.insert("Size:", "Boyut:");
+        tr_lang.insert("Source:", "Kaynak:");
+        tr_lang.insert("Bundled", "Dahili");
+        tr_lang.insert("System", "Sistem");
+        tr_lang.insert("Font:", "Yazı Tipi:");
+        tr_lang.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "Projeye dahil yazı tipleri (SIL OFL 1.1, GPLv3 uyumlu kullanım).");
+        tr_lang.insert("Loading font previews...", "Yazı tipi önizlemeleri yükleniyor…");
+        tr_lang.insert("No system fonts detected. Use Bundled or File source.", "Sistem yazı tipi bulunamadı. Dahili veya dosya kaynağı kullanın.");
+        tr_lang.insert("Load Font File", "Yazı Tipi Dosyası Yükle");
+        tr_lang.insert("Add Text to Drawing", "Çizime Metin Ekle");
+        tr_lang.insert("Serial", "Seri");
+        tr_lang.insert("CSV Column", "CSV Sütunu");
+        tr_lang.insert("Prefix:", "Önek:");
+        tr_lang.insert("Suffix:", "Sonek:");
+        tr_lang.insert("Start:", "Başlangıç:");
+        tr_lang.insert("Inc:", "Artış:");
+        tr_lang.insert("Pad:", "Doldurma:");
+        tr_lang.insert("Batch Count:", "Parti Sayısı:");
+        tr_lang.insert("Column:", "Sütun:");
+        tr_lang.insert("Header row", "Başlık satırı");
+        tr_lang.insert("Delimiter:", "Ayırıcı:");
+        tr_lang.insert("Load CSV", "CSV Yükle");
+        tr_lang.insert("Align / Distribute", "Hizala / Dağıt");
+        tr_lang.insert("Align Left", "Sola Hizala");
+        tr_lang.insert("Align Right", "Sağa Hizala");
+        tr_lang.insert("Align Top", "Üste Hizala");
+        tr_lang.insert("Align Bottom", "Alta Hizala");
+        tr_lang.insert("Center Horizontal", "Yatay Ortala");
+        tr_lang.insert("Center Vertical", "Dikey Ortala");
+        tr_lang.insert("Distribute H", "Yatay Dağıt");
+        tr_lang.insert("Distribute V", "Dikey Dağıt");
+        tr_lang.insert("Shape Properties", "Şekil Özellikleri");
+        tr_lang.insert("Select a shape to edit properties.", "Özellikleri düzenlemek için bir şekil seçin.");
+        tr_lang.insert("Session Recovery", "Oturum Kurtarma");
+        tr_lang.insert("A previous session was interrupted. Restore it?", "Önceki oturum kesildi. Geri yüklensin mi?");
+        tr_lang.insert("Restore", "Geri Yükle");
+        tr_lang.insert("Discard", "At");
+        tr_lang.insert("Load a GCode file or draw shapes to preview", "Önizleme için bir GCode dosyası yükleyin veya şekil çizin");
+        tr_lang.insert("Apply Recommended", "Önerileni Uygula");
+        tr_lang.insert("Apply to Active Layer", "Aktif Katmana Uygula");
+        tr_lang.insert("Material Presets", "Malzeme Ön Ayarları");
+        tr_lang.insert("Mode", "Mod");
+        tr_lang.insert("Spd/Pwr", "Hız/Güç");
+        tr_lang.insert("Out", "Çıkış");
+        tr_lang.insert("Array", "Dizi");
+        tr_lang.insert("Grid", "Izgara");
+        tr_lang.insert("Offset", "Kaydırma");
+        tr_lang.insert("Boolean", "Mantıksal");
+        tr_lang.insert("Circular Array", "Dairesel Dizi");
+        tr_lang.insert("Grid Array", "Izgara Dizisi");
+        tr_lang.insert("Offset Path", "Yol Kaydırma");
+        tr_lang.insert("Boolean Operations", "Mantıksal İşlemler");
         m.insert(Language::Turkish, tr_lang);
 
         // Korean
@@ -1504,6 +2188,73 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         ko.insert("Cancel", "취소");
         ko.insert("Apply", "적용");
         ko.insert("Close", "닫기");
+        // New UI keys
+        ko.insert("Node Editing", "노드 편집");
+        ko.insert("Selection", "선택");
+        ko.insert("Create", "생성");
+        ko.insert("Modify", "수정");
+        ko.insert("Rect", "사각형");
+        ko.insert("Circle", "원");
+        ko.insert("Origin X:", "원점 X:");
+        ko.insert("Radius:", "반지름:");
+        ko.insert("Layer:", "레이어:");
+        ko.insert("Set to Active Layer", "활성 레이어로 설정");
+        ko.insert("Use the Text Tool panel below to create text paths.", "아래의 텍스트 도구 패널을 사용하여 텍스트 경로를 만드세요.");
+        ko.insert("Text Tool", "텍스트 도구");
+        ko.insert("Variable Text (Serial Numbers)", "변수 텍스트 (일련번호)");
+        ko.insert("Text:", "텍스트:");
+        ko.insert("Size:", "크기:");
+        ko.insert("Source:", "소스:");
+        ko.insert("Bundled", "내장");
+        ko.insert("System", "시스템");
+        ko.insert("Font:", "글꼴:");
+        ko.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "프로젝트에 포함된 내장 글꼴 (SIL OFL 1.1, GPLv3 호환 사용).");
+        ko.insert("Loading font previews...", "글꼴 미리보기 로딩 중…");
+        ko.insert("No system fonts detected. Use Bundled or File source.", "시스템 글꼴을 찾을 수 없습니다. 내장 또는 파일 소스를 사용하세요.");
+        ko.insert("Load Font File", "글꼴 파일 불러오기");
+        ko.insert("Add Text to Drawing", "도면에 텍스트 추가");
+        ko.insert("Serial", "시리얼");
+        ko.insert("CSV Column", "CSV 열");
+        ko.insert("Prefix:", "접두사:");
+        ko.insert("Suffix:", "접미사:");
+        ko.insert("Start:", "시작:");
+        ko.insert("Inc:", "증가:");
+        ko.insert("Pad:", "자릿수:");
+        ko.insert("Batch Count:", "배치 수:");
+        ko.insert("Column:", "열:");
+        ko.insert("Header row", "헤더 행");
+        ko.insert("Delimiter:", "구분자:");
+        ko.insert("Load CSV", "CSV 불러오기");
+        ko.insert("Align / Distribute", "정렬 / 배분");
+        ko.insert("Align Left", "왼쪽 정렬");
+        ko.insert("Align Right", "오른쪽 정렬");
+        ko.insert("Align Top", "위쪽 정렬");
+        ko.insert("Align Bottom", "아래쪽 정렬");
+        ko.insert("Center Horizontal", "수평 중앙");
+        ko.insert("Center Vertical", "수직 중앙");
+        ko.insert("Distribute H", "수평 배분");
+        ko.insert("Distribute V", "수직 배분");
+        ko.insert("Shape Properties", "도형 속성");
+        ko.insert("Select a shape to edit properties.", "속성을 편집할 도형을 선택하세요.");
+        ko.insert("Session Recovery", "세션 복구");
+        ko.insert("A previous session was interrupted. Restore it?", "이전 세션이 중단되었습니다. 복원하시겠습니까?");
+        ko.insert("Restore", "복원");
+        ko.insert("Discard", "삭제");
+        ko.insert("Load a GCode file or draw shapes to preview", "GCode 파일을 불러오거나 도형을 그려서 미리보기");
+        ko.insert("Apply Recommended", "추천 적용");
+        ko.insert("Apply to Active Layer", "활성 레이어에 적용");
+        ko.insert("Material Presets", "재료 프리셋");
+        ko.insert("Mode", "모드");
+        ko.insert("Spd/Pwr", "속도/출력");
+        ko.insert("Out", "출력");
+        ko.insert("Array", "배열");
+        ko.insert("Grid", "그리드");
+        ko.insert("Offset", "오프셋");
+        ko.insert("Boolean", "불리언");
+        ko.insert("Circular Array", "원형 배열");
+        ko.insert("Grid Array", "그리드 배열");
+        ko.insert("Offset Path", "경로 오프셋");
+        ko.insert("Boolean Operations", "불리언 연산");
         m.insert(Language::Korean, ko);
 
         // Polish
@@ -1630,6 +2381,73 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         pl.insert("Cancel", "Anuluj");
         pl.insert("Apply", "Zastosuj");
         pl.insert("Close", "Zamknij");
+        // New UI keys
+        pl.insert("Node Editing", "Edycja węzłów");
+        pl.insert("Selection", "Zaznaczenie");
+        pl.insert("Create", "Utwórz");
+        pl.insert("Modify", "Modyfikuj");
+        pl.insert("Rect", "Prostokąt");
+        pl.insert("Circle", "Okrąg");
+        pl.insert("Origin X:", "Początek X:");
+        pl.insert("Radius:", "Promień:");
+        pl.insert("Layer:", "Warstwa:");
+        pl.insert("Set to Active Layer", "Ustaw aktywną warstwę");
+        pl.insert("Use the Text Tool panel below to create text paths.", "Użyj panelu Narzędzia tekstu poniżej, aby tworzyć ścieżki tekstowe.");
+        pl.insert("Text Tool", "Narzędzie tekstu");
+        pl.insert("Variable Text (Serial Numbers)", "Tekst zmienny (numery seryjne)");
+        pl.insert("Text:", "Tekst:");
+        pl.insert("Size:", "Rozmiar:");
+        pl.insert("Source:", "Źródło:");
+        pl.insert("Bundled", "Wbudowane");
+        pl.insert("System", "Systemowe");
+        pl.insert("Font:", "Czcionka:");
+        pl.insert("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).", "Czcionki wbudowane w projekt (SIL OFL 1.1, użycie zgodne z GPLv3).");
+        pl.insert("Loading font previews...", "Ładowanie podglądu czcionek…");
+        pl.insert("No system fonts detected. Use Bundled or File source.", "Nie wykryto czcionek systemowych. Użyj wbudowanych lub pliku.");
+        pl.insert("Load Font File", "Załaduj plik czcionki");
+        pl.insert("Add Text to Drawing", "Dodaj tekst do rysunku");
+        pl.insert("Serial", "Seryjny");
+        pl.insert("CSV Column", "Kolumna CSV");
+        pl.insert("Prefix:", "Prefiks:");
+        pl.insert("Suffix:", "Sufiks:");
+        pl.insert("Start:", "Start:");
+        pl.insert("Inc:", "Przyrost:");
+        pl.insert("Pad:", "Wypełnienie:");
+        pl.insert("Batch Count:", "Liczba partii:");
+        pl.insert("Column:", "Kolumna:");
+        pl.insert("Header row", "Wiersz nagłówka");
+        pl.insert("Delimiter:", "Separator:");
+        pl.insert("Load CSV", "Załaduj CSV");
+        pl.insert("Align / Distribute", "Wyrównaj / Rozłóż");
+        pl.insert("Align Left", "Wyrównaj do lewej");
+        pl.insert("Align Right", "Wyrównaj do prawej");
+        pl.insert("Align Top", "Wyrównaj do góry");
+        pl.insert("Align Bottom", "Wyrównaj do dołu");
+        pl.insert("Center Horizontal", "Wyśrodkuj poziomo");
+        pl.insert("Center Vertical", "Wyśrodkuj pionowo");
+        pl.insert("Distribute H", "Rozłóż poziomo");
+        pl.insert("Distribute V", "Rozłóż pionowo");
+        pl.insert("Shape Properties", "Właściwości kształtu");
+        pl.insert("Select a shape to edit properties.", "Wybierz kształt, aby edytować właściwości.");
+        pl.insert("Session Recovery", "Odzyskiwanie sesji");
+        pl.insert("A previous session was interrupted. Restore it?", "Poprzednia sesja została przerwana. Przywrócić?");
+        pl.insert("Restore", "Przywróć");
+        pl.insert("Discard", "Odrzuć");
+        pl.insert("Load a GCode file or draw shapes to preview", "Załaduj plik GCode lub narysuj kształty, aby wyświetlić podgląd");
+        pl.insert("Apply Recommended", "Zastosuj zalecane");
+        pl.insert("Apply to Active Layer", "Zastosuj do aktywnej warstwy");
+        pl.insert("Material Presets", "Predefiniowane materiały");
+        pl.insert("Mode", "Tryb");
+        pl.insert("Spd/Pwr", "Prędk./Moc");
+        pl.insert("Out", "Wyj.");
+        pl.insert("Array", "Szyk");
+        pl.insert("Grid", "Siatka");
+        pl.insert("Offset", "Przesunięcie");
+        pl.insert("Boolean", "Logiczne");
+        pl.insert("Circular Array", "Szyk kołowy");
+        pl.insert("Grid Array", "Szyk siatkowy");
+        pl.insert("Offset Path", "Przesunięcie ścieżki");
+        pl.insert("Boolean Operations", "Operacje logiczne");
         m.insert(Language::Polish, pl);
 
         m
@@ -1722,6 +2540,44 @@ mod tests {
                 "Missing 'Connect' key for {:?}",
                 lang
             );
+        }
+    }
+
+    #[test]
+    fn all_languages_have_new_ui_keys() {
+        let required_keys = [
+            "Node Editing", "Selection", "Create", "Modify",
+            "Rect", "Circle", "Origin X:", "Radius:", "Layer:",
+            "Set to Active Layer", "Text Tool", "Variable Text (Serial Numbers)",
+            "Text:", "Size:", "Source:", "Bundled", "System", "Font:",
+            "Load Font File", "Add Text to Drawing",
+            "Serial", "CSV Column", "Prefix:", "Suffix:", "Start:", "Inc:", "Pad:",
+            "Batch Count:", "Column:", "Header row", "Delimiter:", "Load CSV",
+            "Align / Distribute", "Align Left", "Align Right", "Align Top", "Align Bottom",
+            "Center Horizontal", "Center Vertical", "Distribute H", "Distribute V",
+            "Shape Properties", "Select a shape to edit properties.",
+            "Session Recovery", "Restore", "Discard",
+            "Load a GCode file or draw shapes to preview",
+            "Apply Recommended", "Apply to Active Layer", "Material Presets",
+            "Mode", "Spd/Pwr", "Out",
+            "Array", "Grid", "Offset", "Boolean",
+            "Circular Array", "Grid Array", "Offset Path", "Boolean Operations",
+        ];
+        let languages = [
+            Language::French, Language::Japanese, Language::German,
+            Language::Italian, Language::Spanish, Language::Portuguese,
+            Language::Arabic, Language::Chinese, Language::Russian,
+            Language::Turkish, Language::Korean, Language::Polish,
+        ];
+        for lang in languages {
+            let map = DICTIONARY.get(&lang).expect(&format!("Missing dictionary for {:?}", lang));
+            for key in &required_keys {
+                assert!(
+                    map.contains_key(key),
+                    "Missing key '{}' for {:?}",
+                    key, lang
+                );
+            }
         }
     }
 

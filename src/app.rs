@@ -928,51 +928,21 @@ impl All4LaserApp {
                         return;
                     }
                 };
-                match crate::imaging::pdf::parse_pdf(&data, 0) {
-                    Ok(shapes) => {
-                        self.push_node_undo_snapshot();
-                        self.drawing_state.shapes.extend(shapes);
-                        self.regenerate_drawing_gcode();
-                        self.log(format!("PDF/AI imported: {filename}"));
-                    }
-                    Err(e) => self.show_error(format!("PDF/AI import failed: {e}")),
-                }
+                self.import_shapes_or_error(
+                    crate::imaging::pdf::parse_pdf(&data, 0),
+                    "PDF/AI",
+                    &filename,
+                );
             }
             "xcs" => {
-                let data = match std::fs::read_to_string(path) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        self.show_error(format!("Error reading XCS file: {e}"));
-                        return;
-                    }
-                };
-                match crate::gcode::xcs_import::import_xcs(&data) {
-                    Ok(shapes) => {
-                        self.push_node_undo_snapshot();
-                        self.drawing_state.shapes.extend(shapes);
-                        self.regenerate_drawing_gcode();
-                        self.log(format!("XCS imported: {filename}"));
-                    }
-                    Err(e) => self.show_error(format!("XCS import failed: {e}")),
-                }
+                self.import_text_shapes(path, &filename, "XCS", |data| {
+                    crate::gcode::xcs_import::import_xcs(data)
+                });
             }
             "plt" | "hpgl" => {
-                let data = match std::fs::read_to_string(path) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        self.show_error(format!("Error reading HPGL file: {e}"));
-                        return;
-                    }
-                };
-                match crate::imaging::hpgl::parse_hpgl(&data, 0) {
-                    Ok(shapes) => {
-                        self.push_node_undo_snapshot();
-                        self.drawing_state.shapes.extend(shapes);
-                        self.regenerate_drawing_gcode();
-                        self.log(format!("HPGL imported: {filename}"));
-                    }
-                    Err(e) => self.show_error(format!("HPGL import failed: {e}")),
-                }
+                self.import_text_shapes(path, &filename, "HPGL", |data| {
+                    crate::imaging::hpgl::parse_hpgl(data, 0)
+                });
             }
             _ => {
                 // Default to GCode loading
@@ -986,6 +956,42 @@ impl All4LaserApp {
                     }
                 }
             }
+        }
+    }
+
+    /// Helper: read a text file, parse it into shapes, and add to drawing.
+    fn import_text_shapes(
+        &mut self,
+        path: &str,
+        filename: &str,
+        format_label: &str,
+        parser: impl FnOnce(&str) -> Result<Vec<ShapeParams>, String>,
+    ) {
+        let data = match std::fs::read_to_string(path) {
+            Ok(d) => d,
+            Err(e) => {
+                self.show_error(format!("Error reading {format_label} file: {e}"));
+                return;
+            }
+        };
+        self.import_shapes_or_error(parser(&data), format_label, filename);
+    }
+
+    /// Helper: given a parse result, extend shapes or show error.
+    fn import_shapes_or_error(
+        &mut self,
+        result: Result<Vec<ShapeParams>, String>,
+        format_label: &str,
+        filename: &str,
+    ) {
+        match result {
+            Ok(shapes) => {
+                self.push_node_undo_snapshot();
+                self.drawing_state.shapes.extend(shapes);
+                self.regenerate_drawing_gcode();
+                self.log(format!("{format_label} imported: {filename}"));
+            }
+            Err(e) => self.show_error(format!("{format_label} import failed: {e}")),
         }
     }
 
@@ -2900,29 +2906,29 @@ impl All4LaserApp {
 
         ui.horizontal_wrapped(|ui| {
             if ui
-                .button(RichText::new("🌀 Array").small())
-                .on_hover_text("Circular Array")
+                .button(RichText::new(format!("🌀 {}", crate::i18n::tr("Array"))).small())
+                .on_hover_text(crate::i18n::tr("Circular Array"))
                 .clicked()
             {
                 self.circular_array_state.is_open = true;
             }
             if ui
-                .button(RichText::new("🔲 Grid").small())
-                .on_hover_text("Grid Array")
+                .button(RichText::new(format!("🔲 {}", crate::i18n::tr("Grid"))).small())
+                .on_hover_text(crate::i18n::tr("Grid Array"))
                 .clicked()
             {
                 self.grid_array_state.is_open = true;
             }
             if ui
-                .button(RichText::new("📐 Offset").small())
-                .on_hover_text("Offset Path")
+                .button(RichText::new(format!("📐 {}", crate::i18n::tr("Offset"))).small())
+                .on_hover_text(crate::i18n::tr("Offset Path"))
                 .clicked()
             {
                 self.offset_state.is_open = true;
             }
             if ui
-                .button(RichText::new("🧩 Boolean").small())
-                .on_hover_text("Boolean Operations")
+                .button(RichText::new(format!("🧩 {}", crate::i18n::tr("Boolean"))).small())
+                .on_hover_text(crate::i18n::tr("Boolean Operations"))
                 .clicked()
             {
                 self.boolean_ops_state.is_open = true;
@@ -2933,7 +2939,7 @@ impl All4LaserApp {
         // Group / Ungroup
         ui.horizontal(|ui| {
             if ui
-                .add_enabled(selection.len() >= 2, egui::Button::new("📦 Group").small())
+                .add_enabled(selection.len() >= 2, egui::Button::new(format!("📦 {}", crate::i18n::tr("Group"))).small())
                 .clicked()
             {
                 self.push_node_undo_snapshot();
@@ -2954,7 +2960,7 @@ impl All4LaserApp {
                     .is_some()
             });
             if ui
-                .add_enabled(has_group, egui::Button::new("📤 Ungroup").small())
+                .add_enabled(has_group, egui::Button::new(format!("📤 {}", crate::i18n::tr("Ungroup"))).small())
                 .clicked()
             {
                 self.push_node_undo_snapshot();
@@ -3311,9 +3317,9 @@ impl All4LaserApp {
 
     fn ui_node_editing_tools(&mut self, ui: &mut egui::Ui, selection: &[usize]) {
         let node_edit_text = if self.renderer.node_edit_mode {
-            "✅ Node Editing"
+            format!("✅ {}", crate::i18n::tr("Node Editing"))
         } else {
-            "🖱 Node Editing"
+            format!("🖱 {}", crate::i18n::tr("Node Editing"))
         };
         if ui
             .selectable_label(
@@ -3331,9 +3337,9 @@ impl All4LaserApp {
 
         // Measure tool (F50)
         let measure_text = if self.renderer.measure_mode {
-            "✅ Measure"
+            format!("✅ {}", crate::i18n::tr("Measure"))
         } else {
-            "📏 Measure"
+            format!("📏 {}", crate::i18n::tr("Measure"))
         };
         if ui
             .selectable_label(
@@ -3644,7 +3650,7 @@ impl All4LaserApp {
     fn ui_alignment_tools(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.label(
-                RichText::new("📐 Align / Distribute")
+                RichText::new(format!("📐 {}", crate::i18n::tr("Align / Distribute")))
                     .color(theme::LAVENDER)
                     .strong(),
             );
@@ -3652,16 +3658,16 @@ impl All4LaserApp {
             let has_sel = sel.len() >= 2;
             ui.horizontal(|ui| {
                 for (label, hint, op) in [
-                    ("⬅", "Align Left", crate::ui::drawing::AlignOp::Left),
-                    ("➡", "Align Right", crate::ui::drawing::AlignOp::Right),
-                    ("⬆", "Align Top", crate::ui::drawing::AlignOp::Top),
-                    ("⬇", "Align Bottom", crate::ui::drawing::AlignOp::Bottom),
+                    ("⬅", crate::i18n::tr("Align Left"), crate::ui::drawing::AlignOp::Left),
+                    ("➡", crate::i18n::tr("Align Right"), crate::ui::drawing::AlignOp::Right),
+                    ("⬆", crate::i18n::tr("Align Top"), crate::ui::drawing::AlignOp::Top),
+                    ("⬇", crate::i18n::tr("Align Bottom"), crate::ui::drawing::AlignOp::Bottom),
                     (
                         "⬌",
-                        "Center Horizontal",
+                        crate::i18n::tr("Center Horizontal"),
                         crate::ui::drawing::AlignOp::CenterH,
                     ),
-                    ("⬍", "Center Vertical", crate::ui::drawing::AlignOp::CenterV),
+                    ("⬍", crate::i18n::tr("Center Vertical"), crate::ui::drawing::AlignOp::CenterV),
                 ] {
                     if ui
                         .add_enabled(has_sel, egui::Button::new(label).small())
@@ -3677,7 +3683,7 @@ impl All4LaserApp {
             let has_3 = sel.len() >= 3;
             ui.horizontal(|ui| {
                 if ui
-                    .add_enabled(has_3, egui::Button::new("⇔ Distribute H").small())
+                    .add_enabled(has_3, egui::Button::new(format!("⇔ {}", crate::i18n::tr("Distribute H"))).small())
                     .clicked()
                 {
                     self.push_node_undo_snapshot();
@@ -3689,7 +3695,7 @@ impl All4LaserApp {
                     self.regenerate_drawing_gcode();
                 }
                 if ui
-                    .add_enabled(has_3, egui::Button::new("⇕ Distribute V").small())
+                    .add_enabled(has_3, egui::Button::new(format!("⇕ {}", crate::i18n::tr("Distribute V"))).small())
                     .clicked()
                 {
                     self.push_node_undo_snapshot();
@@ -3794,7 +3800,7 @@ impl All4LaserApp {
     }
 
     fn ui_shape_properties(&mut self, ui: &mut egui::Ui, selection: &[usize]) {
-        ui.label(RichText::new("Shape Properties").strong());
+        ui.label(RichText::new(crate::i18n::tr("Shape Properties")).strong());
         if selection.len() == 1 {
             let idx = selection[0];
             if let Some(shape) = self.drawing_state.shapes.get_mut(idx) {
@@ -3925,7 +3931,7 @@ impl All4LaserApp {
         } else if selection.len() > 1 {
             ui.label(format!("{} items selected", selection.len()));
         } else {
-            ui.label("Select a shape to edit properties.");
+            ui.label(crate::i18n::tr("Select a shape to edit properties."));
         }
     }
 
@@ -5479,18 +5485,18 @@ impl eframe::App for All4LaserApp {
         if self.autosave.show_recovery_prompt {
             let mut restore = false;
             let mut discard = false;
-            egui::Window::new("🔄 Session Recovery")
+            egui::Window::new(format!("🔄 {}", crate::i18n::tr("Session Recovery")))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                 .show(ctx, |ui| {
-                    ui.label("A previous session was interrupted. Restore it?");
+                    ui.label(crate::i18n::tr("A previous session was interrupted. Restore it?"));
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.button("✅ Restore").clicked() {
+                        if ui.button(format!("✅ {}", crate::i18n::tr("Restore"))).clicked() {
                             restore = true;
                         }
-                        if ui.button("🗑 Discard").clicked() {
+                        if ui.button(format!("🗑 {}", crate::i18n::tr("Discard"))).clicked() {
                             discard = true;
                         }
                     });
