@@ -761,7 +761,24 @@ impl PreviewRenderer {
                 let texture_id = {
                     // Get or Create texture
                     let texture = self.image_textures.entry(idx).or_insert_with(|| {
-                        let processed = crate::imaging::raster::preprocess_image_rgba(&data.0, params);
+                        // Downscale to max 1024px for preview to avoid UI freeze
+                        let src = &data.0;
+                        let (sw, sh) = (src.width(), src.height());
+                        let max_dim = 1024u32;
+                        let preview_img = if sw > max_dim || sh > max_dim {
+                            let scale = max_dim as f32 / sw.max(sh) as f32;
+                            let nw = (sw as f32 * scale) as u32;
+                            let nh = (sh as f32 * scale) as u32;
+                            image::DynamicImage::ImageRgba8(
+                                image::imageops::resize(
+                                    &src.to_rgba8(), nw, nh,
+                                    image::imageops::FilterType::Triangle,
+                                ),
+                            )
+                        } else {
+                            (**src).clone()
+                        };
+                        let processed = crate::imaging::raster::preprocess_image_rgba(&preview_img, params);
                         let rgba = processed.to_rgba8();
                         let color_image = egui::ColorImage::from_rgba_unmultiplied(
                             [rgba.width() as _, rgba.height() as _],

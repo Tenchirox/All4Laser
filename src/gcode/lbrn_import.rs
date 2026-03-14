@@ -117,70 +117,98 @@ fn parse_p_elements(inner: &str) -> Vec<Pm> {
     ps
 }
 
-fn build_path(vs:&[Vtx],ps:&[Pm],xf:&XForm)->PathData{
-    if vs.is_empty()||ps.is_empty(){return PathData::from_points(vec![]);}
-    let mut has_bezier = false;
-    let mut segments: Vec<PathSegment> = Vec::new();
-    let mut start: Option<(f32, f32)> = None;
-    let mut last_end: Option<(f32, f32)> = None;
+/// Build one or more PathData from vertices + primitives.
+/// Disconnected subpaths (e.g. separate letters in text) are split into
+/// separate PathData to avoid unwanted connecting lines.
+fn build_paths(vs:&[Vtx],ps:&[Pm],xf:&XForm)->Vec<PathData>{
+    if vs.is_empty()||ps.is_empty(){return vec![];}
 
-    for p in ps{match p{
-        Pm::L(i0,i1)=>{
-            let v0=&vs[(*i0).min(vs.len()-1)];let v1=&vs[(*i1).min(vs.len()-1)];
-            let p0=xf.apply(v0.x,v0.y);let p1=xf.apply(v1.x,v1.y);
-            if start.is_none() { start = Some(p0); }
-            else if last_end.is_some() && last_end != Some(p0) {
-                segments.push(PathSegment::LineTo(p0.0, p0.1));
-            }
-            segments.push(PathSegment::LineTo(p1.0, p1.1));
-            last_end = Some(p1);
-        }
-        Pm::B(i0,i1)=>{
-            has_bezier = true;
-            let v0=&vs[(*i0).min(vs.len()-1)];let v1=&vs[(*i1).min(vs.len()-1)];
-            let p0=xf.apply(v0.x,v0.y);let p1=xf.apply(v1.x,v1.y);
-            let cp0=xf.apply(v0.c0x.unwrap_or(v0.x),v0.c0y.unwrap_or(v0.y));
-            let cp1=xf.apply(v1.c1x.unwrap_or(v1.x),v1.c1y.unwrap_or(v1.y));
-            if start.is_none() { start = Some(p0); }
-            else if last_end.is_some() && last_end != Some(p0) {
-                segments.push(PathSegment::LineTo(p0.0, p0.1));
-            }
-            segments.push(PathSegment::CubicBezier {
-                c1: cp0, c2: cp1, end: p1,
+    // Group primitives into contiguous subpaths.
+    // A new subpath starts when the start vertex of a primitive doesn't
+    // match the end vertex of the previous primitive.
+    struct SubPath {
+        start: (f32, f32),
+        segments: Vec<PathSegment>,
+        last_end: (f32, f32),
+        has_bezier: bool,
+        first_idx: usize,
+        last_idx: usize,
+    }
+
+    let mut subs: Vec<SubPath> = Vec::new();
+
+    for p in ps {
+        let (i0, i1) = match p { Pm::L(a, b) | Pm::B(a, b) => (*a, *b) };
+        let v0 = &vs[i0.min(vs.len()-1)];
+        let v1 = &vs[i1.min(vs.len()-1)];
+        let p0 = xf.apply(v0.x, v0.y);
+        let p1 = xf.apply(v1.x, v1.y);
+
+        // Check if this primitive continues the current subpath
+        let continues = subs.last().map_or(false, |s| {
+            (s.last_end.0 - p0.0).abs() < 0.01 && (s.last_end.1 - p0.1).abs() < 0.01
+        });
+
+        if !continues {
+            // Start a new subpath
+            subs.push(SubPath {
+                start: p0,
+                segments: Vec::new(),
+                last_end: p0,
+                has_bezier: false,
+                first_idx: i0,
+                last_idx: i1,
             });
-            last_end = Some(p1);
         }
-    }}
 
-    let s = start.unwrap_or((0.0, 0.0));
+        let sub = subs.last_mut().unwrap();
+        sub.last_idx = i1;
 
-    // Close path if last primitive connects back to first vertex
-    if segments.len() >= 2 {
-        if let Some(last) = last_end {
-            if (s.0 - last.0).abs() > 0.001 || (s.1 - last.1).abs() > 0.001 {
-                if let (Some(first_p), Some(last_p)) = (ps.first(), ps.last()) {
-                    let fi = match first_p { Pm::L(i, _) | Pm::B(i, _) => *i };
-                    let li = match last_p { Pm::L(_, i) | Pm::B(_, i) => *i };
-                    if fi == li {
-                        segments.push(PathSegment::LineTo(s.0, s.1));
-                    }
+        match p {
+            Pm::L(_, _) => {
+                sub.segments.push(PathSegment::LineTo(p1.0, p1.1));
+                sub.last_end = p1;
+            }
+            Pm::B(_, _) => {
+                sub.has_bezier = true;
+                let cp0 = xf.apply(v0.c0x.unwrap_or(v0.x), v0.c0y.unwrap_or(v0.y));
+                let cp1 = xf.apply(v1.c1x.unwrap_or(v1.x), v1.c1y.unwrap_or(v1.y));
+                sub.segments.push(PathSegment::CubicBezier {
+                    c1: cp0, c2: cp1, end: p1,
+                });
+                sub.last_end = p1;
+            }
+        }
+    }
+
+    // Convert each subpath to a PathData
+    let mut result = Vec::new();
+    for sub in subs {
+        if sub.segments.is_empty() { continue; }
+
+        let s = sub.start;
+        let mut segments = sub.segments;
+
+        // Close path if last primitive connects back to first vertex
+        if segments.len() >= 2 && sub.first_idx == sub.last_idx {
+            if (s.0 - sub.last_end.0).abs() > 0.001 || (s.1 - sub.last_end.1).abs() > 0.001 {
+                segments.push(PathSegment::LineTo(s.0, s.1));
+            }
+        }
+
+        if sub.has_bezier {
+            result.push(PathData::from_segments(s, segments));
+        } else {
+            let mut pts = vec![s];
+            for seg in &segments {
+                if let PathSegment::LineTo(x, y) = seg {
+                    pts.push((*x, *y));
                 }
             }
+            result.push(PathData::from_points(pts));
         }
     }
-
-    if has_bezier {
-        PathData::from_segments(s, segments)
-    } else {
-        // Pure polyline — flatten to just points for efficiency
-        let mut pts = vec![s];
-        for seg in &segments {
-            if let PathSegment::LineTo(x, y) = seg {
-                pts.push((*x, *y));
-            }
-        }
-        PathData::from_points(pts)
-    }
+    result
 }
 fn p2s(pd: PathData, li:usize)->Option<ShapeParams>{
     if pd.points.len()<2{return None;}
@@ -283,15 +311,81 @@ fn collect_shared_primlists(content: &str) -> HashMap<String, String> {
     map
 }
 
+/// Strip large base64 blobs (Thumbnail Source, Bitmap Data) to reduce
+/// the working set that the parser must scan through. Returns the
+/// stripped content and a map of placeholder→original data for bitmaps.
+fn strip_blobs(content: &str) -> (String, HashMap<String, String>) {
+    let mut result = String::with_capacity(content.len());
+    let mut bitmap_data: HashMap<String, String> = HashMap::new();
+    let mut pos = 0;
+    let mut bitmap_id: usize = 0;
+
+    while pos < content.len() {
+        // Skip <Thumbnail Source="...huge base64..."/>
+        if content[pos..].starts_with("<Thumbnail ") {
+            if let Some(end) = content[pos..].find("/>") {
+                let skip_end = pos + end + 2;
+                result.push_str("<Thumbnail Source=\"\"/>");
+                pos = skip_end;
+                continue;
+            }
+        }
+
+        // Extract Data="...huge base64..." from Bitmap shapes, replace with placeholder
+        if content[pos..].starts_with("Data=\"") {
+            let val_start = pos + 6; // after Data="
+            if let Some(quote_end) = content[val_start..].find('"') {
+                let data = &content[val_start..val_start + quote_end];
+                if data.len() > 1024 {
+                    // Large blob — replace with placeholder
+                    let key = format!("__BLOB_{bitmap_id}__");
+                    bitmap_data.insert(key.clone(), data.to_string());
+                    result.push_str(&format!("Data=\"{key}\""));
+                    bitmap_id += 1;
+                    pos = val_start + quote_end + 1;
+                    continue;
+                }
+            }
+        }
+
+        // Fast scan: find next '<' or 'D' to jump ahead
+        let rest = &content[pos..];
+        let next_interesting = rest.as_bytes().iter().position(|&b| b == b'<' || b == b'D');
+        match next_interesting {
+            Some(0) => {
+                // We're at a '<' or 'D' that didn't match above, emit it and advance
+                result.push(content.as_bytes()[pos] as char);
+                pos += 1;
+            }
+            Some(n) => {
+                // Copy chunk up to next interesting byte
+                result.push_str(&content[pos..pos + n]);
+                pos += n;
+            }
+            None => {
+                // No more interesting bytes, copy rest
+                result.push_str(&content[pos..]);
+                break;
+            }
+        }
+    }
+
+    (result, bitmap_data)
+}
+
 /// Parse a .lbrn2 XML file and extract shapes + layer overrides
 pub fn import_lbrn2(content: &str) -> Result<(Vec<ShapeParams>, Vec<LbrnLayerOverride>), String> {
     let mut shapes = Vec::new();
     let mut lo = Vec::new();
-    pcs(content, &mut lo);
-    let shared_prims = collect_shared_primlists(content);
-    psh(content, &XForm::default(), &shared_prims, &mut shapes);
+
+    // Strip large base64 blobs to speed up scanning
+    let (stripped, bitmap_data) = strip_blobs(content);
+
+    pcs(&stripped, &mut lo);
+    let shared_prims = collect_shared_primlists(&stripped);
+    psh(&stripped, &XForm::default(), &shared_prims, &bitmap_data, &mut shapes);
     if shapes.is_empty() {
-        psc(content, &mut shapes);
+        psc(&stripped, &mut shapes);
     }
     if shapes.is_empty() && lo.is_empty() {
         return Err("No shapes or layers found in LightBurn file. \
@@ -342,33 +436,44 @@ fn pcs(c: &str, out: &mut Vec<LbrnLayerOverride>) {
 
 fn fc(c: &str, otag: &str, ctag: &str) -> Option<usize> {
     let mut d = 1i32;
-    let mut i = 0;
-    while i < c.len() {
-        if c[i..].starts_with(ctag) {
+    let mut pos = 0;
+    let bytes = c.as_bytes();
+    let ob = otag.as_bytes();
+    let cb = ctag.as_bytes();
+    while pos < bytes.len() {
+        // Fast scan to next '<' (both tags start with '<')
+        let b = bytes[pos];
+        if b != b'<' {
+            pos += 1;
+            continue;
+        }
+        // Check close tag first (more likely in inner content)
+        if bytes.len() - pos >= cb.len() && &bytes[pos..pos + cb.len()] == cb {
             d -= 1;
             if d == 0 {
-                return Some(i);
+                return Some(pos);
             }
-            i += ctag.len();
-        } else if c[i..].starts_with(otag) {
-            let a = i + otag.len();
+            pos += cb.len();
+        } else if bytes.len() - pos >= ob.len() && &bytes[pos..pos + ob.len()] == ob {
+            let a = pos + ob.len();
+            // Find closing '>'
             if let Some(gt) = c[a..].find('>') {
                 let te = a + gt;
-                if te > 0 && &c[te - 1..te] != "/" {
+                if te > 0 && bytes[te - 1] != b'/' {
                     d += 1;
                 }
-                i = te + 1;
+                pos = te + 1;
             } else {
-                i += 1;
+                pos += 1;
             }
         } else {
-            i += 1;
+            pos += 1;
         }
     }
     None
 }
 
-fn psh(content: &str, pxf: &XForm, shared_prims: &HashMap<String, String>, out: &mut Vec<ShapeParams>) {
+fn psh(content: &str, pxf: &XForm, shared_prims: &HashMap<String, String>, bitmap_data: &HashMap<String, String>, out: &mut Vec<ShapeParams>) {
     let mut pos = 0;
     while pos < content.len() {
         let ss = match content[pos..].find("<Shape ") {
@@ -409,23 +514,30 @@ fn psh(content: &str, pxf: &XForm, shared_prims: &HashMap<String, String>, out: 
         match st.as_str() {
             "Group" => {
                 if let Some(ch) = tc(inner, "Children") {
-                    psh(ch, &cxf, shared_prims, out);
+                    psh(ch, &cxf, shared_prims, bitmap_data, out);
                 }
             }
             "Bitmap" => {
                 // Decode base64 PNG bitmap, preserving alpha channel
-                if let Some(b64_data) = ea(otag, "Data") {
+                // Resolve placeholder from strip_blobs if present
+                if let Some(raw_data) = ea(otag, "Data") {
+                    let b64_data = if raw_data.starts_with("__BLOB_") {
+                        bitmap_data.get(&raw_data).cloned().unwrap_or(raw_data)
+                    } else {
+                        raw_data
+                    };
                     use base64::Engine;
                     if let Ok(png_bytes) = base64::engine::general_purpose::STANDARD.decode(&b64_data) {
                         if let Ok(img) = image::load_from_memory(&png_bytes) {
-                            // Keep as RGBA to preserve alpha channel
-                            let rgba = img.to_rgba8();
-                            let (img_w, img_h) = rgba.dimensions();
-                            let dyn_img = image::DynamicImage::ImageRgba8(rgba);
+                            // Flip vertically: LightBurn Y-up vs image pixel Y-down
+                            let dyn_img = img.flipv();
 
-                            // XForm: sx 0 0 sy cx cy (scale + center position)
-                            let width_mm = (cxf.a * img_w as f32).abs();
-                            let height_mm = (cxf.d * img_h as f32).abs();
+                            // Use W/H attributes from shape tag (physical mm dimensions)
+                            // then apply XForm scaling. Do NOT multiply by pixel count.
+                            let w_attr = ea(otag, "W").and_then(|s| s.parse::<f32>().ok()).unwrap_or(100.0);
+                            let h_attr = ea(otag, "H").and_then(|s| s.parse::<f32>().ok()).unwrap_or(100.0);
+                            let width_mm = (w_attr * cxf.a).abs();
+                            let height_mm = (h_attr * cxf.d).abs();
                             // LightBurn center -> top-left
                             let x = cxf.tx - width_mm / 2.0;
                             let y = cxf.ty - height_mm / 2.0;
@@ -460,10 +572,12 @@ fn psh(content: &str, pxf: &XForm, shared_prims: &HashMap<String, String>, out: 
                         .or_else(|| ea(otag, "PrimID").and_then(|pid| shared_prims.get(&pid).cloned()));
                     if let Some(pt) = pt_str {
                         let ps = parse_primlist(&pt);
-                        let pd = build_path(&vs, &ps, &cxf);
-                        if let Some(s) = p2s(pd, ci) {
-                            out.push(s);
-                            found = true;
+                        let pds = build_paths(&vs, &ps, &cxf);
+                        for pd in pds {
+                            if let Some(s) = p2s(pd, ci) {
+                                out.push(s);
+                                found = true;
+                            }
                         }
                     }
                 }
@@ -472,10 +586,12 @@ fn psh(content: &str, pxf: &XForm, shared_prims: &HashMap<String, String>, out: 
                     let vs = parse_v_elements(inner);
                     let ps = parse_p_elements(inner);
                     if !vs.is_empty() && !ps.is_empty() {
-                        let pd = build_path(&vs, &ps, &cxf);
-                        if let Some(s) = p2s(pd, ci) {
-                            out.push(s);
-                            found = true;
+                        let pds = build_paths(&vs, &ps, &cxf);
+                        for pd in pds {
+                            if let Some(s) = p2s(pd, ci) {
+                                out.push(s);
+                                found = true;
+                            }
                         }
                     }
                 }
@@ -1062,6 +1178,77 @@ mod tests {
         let (shapes, layers) = import_lbrn2(content).unwrap();
         assert_eq!(shapes.len(), 2, "Should parse 2 shapes");
         assert_eq!(layers.len(), 2, "Should parse 2 layers");
+    }
+
+    #[test]
+    fn test_heavy_file_carnaval() {
+        let content = std::fs::read_to_string("format_test/planche à découper carnaval.lbrn2").unwrap();
+        let start = std::time::Instant::now();
+        let (shapes, layers) = import_lbrn2(&content).unwrap();
+        let elapsed = start.elapsed();
+        println!("carnaval: {} shapes, {} layers in {:?}", shapes.len(), layers.len(), elapsed);
+        assert!(!shapes.is_empty());
+        assert!(elapsed.as_secs() < 5, "Import took too long: {:?}", elapsed);
+    }
+
+    #[test]
+    fn test_heavy_file_alice() {
+        let content = std::fs::read_to_string("format_test/alice en plusieurs plans OK.lbrn2").unwrap();
+        let start = std::time::Instant::now();
+        let (shapes, layers) = import_lbrn2(&content).unwrap();
+        let elapsed = start.elapsed();
+        println!("alice: {} shapes, {} layers in {:?}", shapes.len(), layers.len(), elapsed);
+        assert!(!shapes.is_empty());
+        assert!(elapsed.as_secs() < 5, "Import took too long: {:?}", elapsed);
+    }
+
+    #[test]
+    fn test_heavy_file_aurelie() {
+        let content = std::fs::read_to_string("format_test/a graver aurelie.lbrn2").unwrap();
+        let start = std::time::Instant::now();
+        let (shapes, layers) = import_lbrn2(&content).unwrap();
+        let elapsed = start.elapsed();
+        println!("aurelie: {} shapes, {} layers in {:?}", shapes.len(), layers.len(), elapsed);
+        assert!(!shapes.is_empty());
+        assert!(elapsed.as_secs() < 5, "Import took too long: {:?}", elapsed);
+    }
+
+    #[test]
+    fn test_all_format_files() {
+        for entry in std::fs::read_dir("format_test").unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().map(|e| e == "lbrn2").unwrap_or(false) {
+                let content = std::fs::read_to_string(&path).unwrap();
+                let start = std::time::Instant::now();
+                let result = import_lbrn2(&content);
+                let elapsed = start.elapsed();
+                let name = path.file_name().unwrap().to_string_lossy();
+                match result {
+                    Ok((shapes, layers)) => {
+                        println!("{name}: {s} shapes, {l} layers in {elapsed:?}",
+                            s = shapes.len(), l = layers.len());
+                        assert!(!shapes.is_empty() || !layers.is_empty(),
+                            "{name} produced no shapes or layers");
+                    }
+                    Err(e) => {
+                        println!("{name}: error: {e} (in {elapsed:?})");
+                    }
+                }
+                assert!(elapsed.as_secs() < 10, "{name} took too long: {elapsed:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_strip_blobs_removes_thumbnail() {
+        let xml = r#"<LightBurnProject><Thumbnail Source="aGVsbG8="/>
+  <Shape Type="Rect" X="0" Y="0" W="5" H="5" CutIndex="0"/>
+</LightBurnProject>"#;
+        let (stripped, bm) = strip_blobs(xml);
+        assert!(!stripped.contains("aGVsbG8="));
+        assert!(stripped.contains("<Shape"));
+        assert!(bm.is_empty()); // small data not extracted
     }
 
     #[test]

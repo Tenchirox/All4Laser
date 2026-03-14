@@ -6,6 +6,8 @@ use font_kit::family_name::FamilyName;
 use font_kit::properties::Properties;
 use font_kit::source::SystemSource;
 use rusttype::{Font, OutlineBuilder, Scale, point};
+use std::collections::HashSet;
+use std::sync::Arc;
 
 const LIBERATION_SANS_REGULAR: &[u8] =
     include_bytes!("../../assets/fonts/LiberationSans-Regular.ttf");
@@ -57,6 +59,12 @@ pub struct TextToolState {
     pub system_fonts: Vec<String>,
     pub selected_font: String,
     pub font_source: FontSource,
+
+    // Font preview (render font names in their own typeface)
+    egui_font_defs: Option<egui::FontDefinitions>,
+    egui_registered: HashSet<String>,
+    system_font_loader: Option<crossbeam_channel::Receiver<Vec<(String, Vec<u8>)>>>,
+    system_fonts_loading: bool,
 
     // Variable Text
     pub is_variable: bool,
@@ -125,6 +133,10 @@ impl Default for TextToolState {
             csv_delimiter: ',',
             csv_values: Vec::new(),
             csv_path_display: "No CSV loaded".to_string(),
+            egui_font_defs: None,
+            egui_registered: HashSet::new(),
+            system_font_loader: None,
+            system_fonts_loading: false,
         }
     }
 }
@@ -255,6 +267,113 @@ pub struct TextAction {
 
 pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> TextAction {
     let mut action = TextAction { add_shapes: None };
+
+    // set_fonts() doesn't take effect until the next frame, so we must not
+    // use FontFamily::Name(...) in the same frame we call set_fonts.
+    // `fonts_just_set` guards against that.
+    let mut fonts_just_set = false;
+
+    // ── Register bundled fonts with egui on first call ──
+    if state.egui_font_defs.is_none() {
+        let mut defs = egui::FontDefinitions::default();
+        for (name, data) in BUNDLED_FONTS.iter() {
+            let key = name.to_string();
+            defs.font_data
+                .insert(key.clone(), Arc::new(egui::FontData::from_static(data)));
+            defs.families
+                .entry(egui::FontFamily::Name(key.clone().into()))
+                .or_default()
+                .push(key.clone());
+            state.egui_registered.insert(key);
+        }
+        ui.ctx().set_fonts(defs.clone());
+        state.egui_font_defs = Some(defs);
+        fonts_just_set = true;
+        ui.ctx().request_repaint();
+    }
+
+    // ── Kick off background system font loading when System tab first shown ──
+    if state.font_source == FontSource::System
+        && !state.system_fonts_loading
+        && state.system_font_loader.is_none()
+    {
+        // Only load if we haven't registered system fonts yet
+        let already = state.egui_registered.len();
+        let total_system = state.system_fonts.len();
+        if already < total_system + BUNDLED_FONTS.len() {
+            state.system_fonts_loading = true;
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            std::thread::spawn(move || {
+                let mut fonts = Vec::new();
+                let mut seen = HashSet::new();
+                if let Ok(handles) = SystemSource::new().all_fonts() {
+                    for handle in handles {
+                        if let Ok(font) = handle.load() {
+                            let family = font.family_name();
+                            if seen.insert(family.clone()) {
+                                if let Some(data_arc) = font.copy_font_data() {
+                                    let data = &*data_arc;
+                                    // Skip very large font files (>1MB) to avoid memory bloat
+                                    if data.len() >= 1_000_000 {
+                                        continue;
+                                    }
+                                    // Skip fonts that lack basic Latin glyphs (render as ???? or empty)
+                                    let has_latin = Font::try_from_bytes(data)
+                                        .map(|f| {
+                                            "AaBbCcRr".chars().all(|ch| {
+                                                let g = f.glyph(ch);
+                                                g.id().0 != 0
+                                            })
+                                        })
+                                        .unwrap_or(false);
+                                    if has_latin {
+                                        fonts.push((family, data.to_vec()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let _ = tx.send(fonts);
+            });
+            state.system_font_loader = Some(rx);
+        }
+    }
+
+    // ── Poll background font loader ──
+    if let Some(ref rx) = state.system_font_loader {
+        if let Ok(fonts) = rx.try_recv() {
+            // Replace system_fonts list with only the fonts that passed the Latin check
+            let mut valid_names: Vec<String> = fonts.iter().map(|(n, _)| n.clone()).collect();
+            valid_names.sort();
+            state.system_fonts = valid_names;
+
+            if let Some(ref mut defs) = state.egui_font_defs {
+                for (name, data) in fonts {
+                    if !defs.font_data.contains_key(&name) {
+                        defs.font_data
+                            .insert(name.clone(), Arc::new(egui::FontData::from_owned(data)));
+                        defs.families
+                            .entry(egui::FontFamily::Name(name.clone().into()))
+                            .or_default()
+                            .push(name.clone());
+                        state.egui_registered.insert(name);
+                    }
+                }
+                ui.ctx().set_fonts(defs.clone());
+            }
+            state.system_font_loader = None;
+            // Keep system_fonts_loading = true so we never re-trigger loading
+            fonts_just_set = true;
+            ui.ctx().request_repaint();
+        } else {
+            // Still loading — request repaint to keep polling
+            ui.ctx().request_repaint();
+        }
+    }
+
+    // Only use custom FontFamily rendering when fonts have settled (next frame after set_fonts)
+    let use_custom_fonts = !fonts_just_set;
 
     ui.group(|ui| {
         ui.horizontal(|ui| {
@@ -402,12 +521,24 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
 
             ui.horizontal(|ui| {
                 ui.label("Font:");
+                let selected_rt = if use_custom_fonts && state.egui_registered.contains(&state.selected_font) {
+                    RichText::new(&state.selected_font)
+                        .family(egui::FontFamily::Name(state.selected_font.clone().into()))
+                } else {
+                    RichText::new(&state.selected_font)
+                };
                 egui::ComboBox::from_id_salt("bundled_font_combo")
-                    .selected_text(&state.selected_font)
+                    .selected_text(selected_rt)
                     .width(240.0)
                     .show_ui(ui, |ui| {
                         for font in &state.bundled_fonts {
-                            ui.selectable_value(&mut state.selected_font, font.clone(), font);
+                            let label = if use_custom_fonts {
+                                RichText::new(font)
+                                    .family(egui::FontFamily::Name(font.clone().into()))
+                            } else {
+                                RichText::new(font)
+                            };
+                            ui.selectable_value(&mut state.selected_font, font.clone(), label);
                         }
                     });
             });
@@ -425,15 +556,34 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
 
             ui.horizontal(|ui| {
                 ui.label("Font:");
+                let selected_rt = if use_custom_fonts && state.egui_registered.contains(&state.selected_font) {
+                    RichText::new(&state.selected_font)
+                        .family(egui::FontFamily::Name(state.selected_font.clone().into()))
+                } else {
+                    RichText::new(&state.selected_font)
+                };
                 egui::ComboBox::from_id_salt("font_combo")
-                    .selected_text(&state.selected_font)
-                    .width(200.0)
+                    .selected_text(selected_rt)
+                    .width(240.0)
                     .show_ui(ui, |ui| {
                         for font in &state.system_fonts {
-                            ui.selectable_value(&mut state.selected_font, font.clone(), font);
+                            let label = if use_custom_fonts && state.egui_registered.contains(font) {
+                                RichText::new(font)
+                                    .family(egui::FontFamily::Name(font.clone().into()))
+                            } else {
+                                RichText::new(font)
+                            };
+                            ui.selectable_value(&mut state.selected_font, font.clone(), label);
                         }
                     });
             });
+            if state.system_font_loader.is_some() {
+                ui.label(
+                    RichText::new("⏳ Loading font previews...")
+                        .small()
+                        .color(crate::theme::SUBTEXT),
+                );
+            }
             if state.system_fonts.is_empty() {
                 ui.label(
                     RichText::new("No system fonts detected. Use Bundled or File source.").small(),
