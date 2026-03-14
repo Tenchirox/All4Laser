@@ -1107,10 +1107,17 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
             if matches!(layer.mode, CutMode::Line | CutMode::FillAndLine) {
                 for &shape_idx in &layer_shape_indices {
                     let shape = &state.shapes[shape_idx];
+                    let shape_label = match &shape.shape {
+                        ShapeKind::Rectangle => "Rect",
+                        ShapeKind::Circle => "Circle",
+                        ShapeKind::TextLine => "Text",
+                        ShapeKind::Path(_) => "Path",
+                        ShapeKind::RasterImage { .. } => "Bitmap",
+                    };
                     builder.comment(&format!(
-                        "Shape {}: {:?} [Layer C{:02}]",
+                        "Shape {}: {} [Layer C{:02}]",
                         shape_idx + 1,
-                        shape.shape,
+                        shape_label,
                         layer.id
                     ));
 
@@ -1119,8 +1126,11 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
                         ShapeKind::Circle => gen_circle(&mut builder, shape, layer),
                         ShapeKind::TextLine => gen_text(&mut builder, shape, layer),
                         ShapeKind::Path(pts) => gen_path(&mut builder, pts, shape, layer),
-                        ShapeKind::RasterImage { data, params } => {
-                            gen_raster(&mut builder, data, params, shape)
+                        ShapeKind::RasterImage { .. } => {
+                            // Skip expensive pixel-by-pixel raster GCode during
+                            // interactive edits. Raster GCode is generated on-demand
+                            // when sending to the laser via generate_job_gcode.
+                            builder.comment("Bitmap (raster GCode deferred)");
                         }
                     }
                 }

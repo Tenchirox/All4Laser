@@ -56,6 +56,7 @@ pub enum RightPanelTab {
     Console,
     Art,
     Laser,
+    Job,
     Notes,
 }
 
@@ -222,6 +223,10 @@ pub struct All4LaserApp {
     // Update checker
     update_available: Option<String>,
     update_receiver: Option<crossbeam_channel::Receiver<String>>,
+
+    // Background LightBurn import
+    lbrn_import_receiver: Option<crossbeam_channel::Receiver<Result<(Vec<ShapeParams>, Vec<crate::gcode::lbrn_import::LbrnLayerOverride>, String), String>>>,
+    lbrn_loading_msg: Option<String>,
 }
 
 impl All4LaserApp {
@@ -317,6 +322,8 @@ impl All4LaserApp {
             about_open: false,
             update_available: None,
             update_receiver: None,
+            lbrn_import_receiver: None,
+            lbrn_loading_msg: None,
         };
 
         let update_url = "https://api.github.com/repos/arkypita/All4Laser/releases/latest";
@@ -889,77 +896,29 @@ impl All4LaserApp {
                 }
             }
             "lbrn" | "lbrn2" => {
-                let data = match std::fs::read_to_string(path) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        self.show_error(format!("Error reading LightBurn file: {e}"));
-                        return;
-                    }
-                };
-                match crate::gcode::lbrn_import::import_lbrn2(&data) {
-                    Ok((shapes, layer_overrides)) => {
-                        self.drawing_state.shapes = shapes;
-                        for ovr in layer_overrides {
-                            if let Some(layer) = self.layers.iter_mut().find(|l| l.id == ovr.index) {
-                                layer.speed = ovr.speed;
-                                layer.power = ovr.power;
-                                layer.mode = ovr.mode;
-                                layer.passes = ovr.passes;
-                            } else {
-                                self.layers.push(crate::ui::layers_new::CutLayer {
-                                    id: ovr.index,
-                                    speed: ovr.speed,
-                                    power: ovr.power,
-                                    mode: ovr.mode,
-                                    passes: ovr.passes,
-                                    visible: true,
-                                    air_assist: false,
-                                    z_offset: 0.0,
-                                    min_power: 0.0,
-                                    fill_interval_mm: 0.1,
-                                    fill_bidirectional: true,
-                                    fill_overscan_mm: 0.0,
-                                    fill_angle_deg: 0.0,
-                                    output_order: ovr.index as i32,
-                                    lead_in_mm: 0.0,
-                                    lead_out_mm: 0.0,
-                                    kerf_mm: 0.0,
-                                    tab_enabled: false,
-                                    tab_spacing: 50.0,
-                                    tab_size: 0.5,
-                                    perforation_enabled: false,
-                                    perforation_cut_mm: 5.0,
-                                    perforation_gap_mm: 2.0,
-                                    fill_pattern: crate::ui::layers_new::FillPattern::Horizontal,
-                                    contour_offset_enabled: false,
-                                    contour_offset_count: 3,
-                                    contour_offset_step_mm: 0.5,
-                                    print_and_cut_marks: false,
-                                    spiral_fill_enabled: false,
-                                    relief_enabled: false,
-                                    relief_max_z_mm: 5.0,
-                                    is_construction: false,
-                                    pass_offset_mm: 0.0,
-                                    exhaust_enabled: false,
-                                    exhaust_post_delay_s: 5.0,
-                                    ramp_enabled: false,
-                                    ramp_length_mm: 5.0,
-                                    ramp_start_pct: 20.0,
-                                    corner_power_enabled: false,
-                                    corner_power_pct: 60.0,
-                                    corner_angle_threshold: 90.0,
-                                    name: format!("Layer {}", ovr.index),
-                                    color: egui::Color32::RED, // Simplified
-                                });
-                            }
+                let path_owned = path.to_string();
+                let fname = filename.clone();
+                let (tx, rx) = crossbeam_channel::bounded(1);
+                self.lbrn_import_receiver = Some(rx);
+                self.lbrn_loading_msg = Some(format!("Importing {filename}…"));
+                self.log(format!("Loading LightBurn file: {filename}…"));
+                std::thread::spawn(move || {
+                    let data = match std::fs::read_to_string(&path_owned) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            let _ = tx.send(Err(format!("Error reading LightBurn file: {e}")));
+                            return;
                         }
-                        let lines: Vec<String> = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
-                        let file = GCodeFile::from_lines(&filename, &lines);
-                        self.set_loaded_file(file, lines);
-                        self.log(format!("LightBurn imported: {filename}"));
+                    };
+                    match crate::gcode::lbrn_import::import_lbrn2(&data) {
+                        Ok((shapes, layer_overrides)) => {
+                            let _ = tx.send(Ok((shapes, layer_overrides, fname)));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(Err(format!("LightBurn import failed: {e}")));
+                        }
                     }
-                    Err(e) => self.show_error(format!("LightBurn import failed: {e}")),
-                }
+                });
             }
             "pdf" | "ai" => {
                 let data = match std::fs::read(path) {
@@ -2850,6 +2809,179 @@ impl All4LaserApp {
         }
     }
 
+    /// Classic layout left panel: tools only (LightBurn-like).
+    /// Selection, drawing, node editing, shape properties, manipulation.
+    fn ui_left_tools_classic(&mut self, ui: &mut egui::Ui) {
+        let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+
+        // ── Selection & Node Editing ──
+        ui.label(
+            RichText::new(format!("🖱 {}", crate::i18n::tr("Selection")))
+                .color(theme::LAVENDER)
+                .strong(),
+        );
+        ui.add_space(2.0);
+        self.ui_node_editing_tools(ui, &selection);
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        // ── Shape Creation ──
+        ui.label(
+            RichText::new(format!("🎨 {}", crate::i18n::tr("Create")))
+                .color(theme::LAVENDER)
+                .strong(),
+        );
+        ui.add_space(2.0);
+        let draw_action = crate::ui::drawing::show(
+            ui,
+            &mut self.drawing_state,
+            &self.layers,
+            self.active_layer_idx,
+        );
+        if let Some(lines) = draw_action.generate_gcode {
+            let file = GCodeFile::from_lines("drawing", &lines);
+            self.set_loaded_file(file, lines);
+        }
+
+        ui.add_space(4.0);
+        let text_action = ui::text::show(ui, &mut self.text_state, self.active_layer_idx);
+        if let Some(shapes) = text_action.add_shapes {
+            let added = shapes.len();
+            if added > 0 {
+                self.push_node_undo_snapshot();
+                let start_idx = self.drawing_state.shapes.len();
+                self.drawing_state.shapes.extend(shapes);
+                self.renderer.selected_shape_idx.clear();
+                self.renderer.selected_node = None;
+                self.renderer.selected_nodes.clear();
+                for idx in start_idx..self.drawing_state.shapes.len() {
+                    self.renderer.selected_shape_idx.insert(idx);
+                }
+                if let Some(last_idx) = self.renderer.selected_shape_idx.iter().last().copied() {
+                    if let Some(shape) = self.drawing_state.shapes.get(last_idx) {
+                        self.drawing_state.current = shape.clone();
+                    }
+                }
+                self.regenerate_drawing_gcode();
+                self.log(format!("Added {added} text path shape(s)."));
+            }
+        }
+
+        ui.add_space(4.0);
+        let gen_action = ui::generators::show(ui, &mut self.generator_state, self.active_layer_idx);
+        if let Some(lines) = gen_action.generate_gcode {
+            let file = GCodeFile::from_lines("generator", &lines);
+            self.set_loaded_file(file, lines);
+        }
+        if let Some(shapes) = gen_action.generate_shapes {
+            self.push_node_undo_snapshot();
+            self.renderer.selected_shape_idx.clear();
+            let base = self.drawing_state.shapes.len();
+            for (i, s) in shapes.into_iter().enumerate() {
+                self.drawing_state.shapes.push(s);
+                self.renderer.selected_shape_idx.insert(base + i);
+            }
+            self.regenerate_drawing_gcode();
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        // ── Manipulation ──
+        ui.label(
+            RichText::new(format!("🔧 {}", crate::i18n::tr("Modify")))
+                .color(theme::LAVENDER)
+                .strong(),
+        );
+        ui.add_space(2.0);
+
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .button(RichText::new("🌀 Array").small())
+                .on_hover_text("Circular Array")
+                .clicked()
+            {
+                self.circular_array_state.is_open = true;
+            }
+            if ui
+                .button(RichText::new("🔲 Grid").small())
+                .on_hover_text("Grid Array")
+                .clicked()
+            {
+                self.grid_array_state.is_open = true;
+            }
+            if ui
+                .button(RichText::new("📐 Offset").small())
+                .on_hover_text("Offset Path")
+                .clicked()
+            {
+                self.offset_state.is_open = true;
+            }
+            if ui
+                .button(RichText::new("🧩 Boolean").small())
+                .on_hover_text("Boolean Operations")
+                .clicked()
+            {
+                self.boolean_ops_state.is_open = true;
+            }
+        });
+
+        ui.add_space(4.0);
+        // Group / Ungroup
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(selection.len() >= 2, egui::Button::new("📦 Group").small())
+                .clicked()
+            {
+                self.push_node_undo_snapshot();
+                if let Some(gid) =
+                    crate::ui::drawing::group_shapes(&mut self.drawing_state.shapes, &selection)
+                {
+                    self.log(format!(
+                        "Grouped {} shapes (group #{gid}).",
+                        selection.len()
+                    ));
+                }
+            }
+            let has_group = selection.iter().any(|&i| {
+                self.drawing_state
+                    .shapes
+                    .get(i)
+                    .and_then(|s| s.group_id)
+                    .is_some()
+            });
+            if ui
+                .add_enabled(has_group, egui::Button::new("📤 Ungroup").small())
+                .clicked()
+            {
+                self.push_node_undo_snapshot();
+                let n = crate::ui::drawing::ungroup_shapes(
+                    &mut self.drawing_state.shapes,
+                    &selection,
+                );
+                self.log(format!("Ungrouped {n} shapes."));
+            }
+        });
+
+        ui.add_space(4.0);
+        // Align / Distribute (compact)
+        self.ui_alignment_tools(ui);
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        // ── Properties ──
+        self.ui_shape_properties(ui, &selection);
+
+        ui.add_space(8.0);
+        // Camera
+        self.handle_camera_ui_actions(ui);
+    }
+
     fn ui_left_content(&mut self, ui: &mut egui::Ui, connected: bool) {
         let caps = self.controller_capabilities();
         let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
@@ -3826,6 +3958,12 @@ impl All4LaserApp {
                     self.sync_settings();
                 }
                 if ui
+                    .selectable_value(&mut self.active_tab, RightPanelTab::Job, tr("Job"))
+                    .changed()
+                {
+                    self.sync_settings();
+                }
+                if ui
                     .selectable_value(&mut self.active_tab, RightPanelTab::Laser, tr("Laser"))
                     .changed()
                 {
@@ -3952,6 +4090,93 @@ impl All4LaserApp {
                         self.ui_right_content(ui);
                     }
                     RightPanelTab::Art => {}
+                    RightPanelTab::Job => {
+                        ui.label(RichText::new(tr("Job Preparation")).strong());
+                        ui.add_space(4.0);
+                        ui.group(|ui| {
+                            let est_time_s = self.estimation.estimated_seconds;
+                            let h = (est_time_s / 3600.0) as u32;
+                            let m = ((est_time_s % 3600.0) / 60.0) as u32;
+                            let s = (est_time_s % 60.0) as u32;
+                            ui.label(
+                                RichText::new(format!("⏱ Est. Time: {:02}:{:02}:{:02}", h, m, s))
+                                    .strong()
+                                    .color(theme::GREEN),
+                            );
+                            ui.add_space(4.0);
+                            if ui
+                                .button("⚡ Optimize Path")
+                                .on_hover_text("Reorder segments to minimize travel distance")
+                                .clicked()
+                            {
+                                if let Some(mut file) = self.loaded_file.clone() {
+                                    let optimized_lines =
+                                        crate::gcode::optimizer::optimize(&file.lines);
+                                    let raw_lines: Vec<String> =
+                                        optimized_lines.iter().map(|l| l.to_gcode()).collect();
+                                    file.lines = optimized_lines;
+                                    self.set_loaded_file(file, raw_lines);
+                                    self.log("Path optimized.".to_string());
+                                }
+                            }
+                        });
+
+                        ui.add_space(8.0);
+                        ui.group(|ui| {
+                            ui.label(
+                                RichText::new(format!("📐 {}", tr("Job Transformation")))
+                                    .color(theme::LAVENDER)
+                                    .strong(),
+                            );
+                            ui.add_space(4.0);
+                            ui.horizontal(|ui| {
+                                ui.label("Offset X:");
+                                ui.add(
+                                    egui::DragValue::new(&mut self.job_transform.offset_x)
+                                        .speed(1.0)
+                                        .suffix(" mm"),
+                                );
+                                ui.label("Y:");
+                                ui.add(
+                                    egui::DragValue::new(&mut self.job_transform.offset_y)
+                                        .speed(1.0)
+                                        .suffix(" mm"),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Rotation:");
+                                ui.add(
+                                    egui::Slider::new(
+                                        &mut self.job_transform.rotation,
+                                        -180.0..=180.0,
+                                    )
+                                    .suffix("°"),
+                                );
+                                if ui.button("Reset").clicked() {
+                                    self.job_transform.rotation = 0.0;
+                                }
+                            });
+                            if ui.button("Center Job").clicked() {
+                                if let Some(file) = &self.loaded_file {
+                                    if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
+                                        let mid_x = (min_x + max_x) / 2.0;
+                                        let mid_y = (min_y + max_y) / 2.0;
+                                        let wm_x = self.machine_profile.workspace_x_mm / 2.0;
+                                        let wm_y = self.machine_profile.workspace_y_mm / 2.0;
+                                        self.job_transform.offset_x = wm_x - mid_x;
+                                        self.job_transform.offset_y = wm_y - mid_y;
+                                    }
+                                }
+                            }
+                        });
+
+                        ui.add_space(8.0);
+                        if ui.button("🔍 Preflight Check").clicked() {
+                            self.preflight_state.issues =
+                                ui::preflight::run_checks(&self.drawing_state.shapes, &self.layers);
+                            self.preflight_state.is_open = true;
+                        }
+                    }
                     RightPanelTab::Notes => {
                         ui.label(RichText::new(format!("📝 {}", tr("Project Notes"))).strong());
                         ui.add_space(4.0);
@@ -4454,6 +4679,23 @@ impl All4LaserApp {
     }
 
     fn update_preview(&mut self, ctx: &egui::Context) {
+        // Show loading overlay for background LightBurn import
+        if let Some(msg) = &self.lbrn_loading_msg {
+            egui::Area::new(egui::Id::new("lbrn_loading_overlay"))
+                .order(egui::Order::Foreground)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    egui::Frame::popup(ui.style())
+                        .inner_margin(20.0)
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.spinner();
+                                ui.label(RichText::new(msg).size(16.0));
+                            });
+                        });
+                });
+        }
+
         CentralPanel::default().show(ctx, |ui| {
             let segments = self
                 .loaded_file
@@ -5134,6 +5376,89 @@ impl eframe::App for All4LaserApp {
             }
         }
 
+        // Poll background LightBurn import
+        if let Some(rx) = &self.lbrn_import_receiver {
+            match rx.try_recv() {
+                Ok(Ok((shapes, layer_overrides, fname))) => {
+                    self.lbrn_import_receiver = None;
+                    self.lbrn_loading_msg = None;
+                    self.drawing_state.shapes = shapes;
+                    for ovr in layer_overrides {
+                        if let Some(layer) = self.layers.iter_mut().find(|l| l.id == ovr.index) {
+                            layer.speed = ovr.speed;
+                            layer.power = ovr.power;
+                            layer.mode = ovr.mode;
+                            layer.passes = ovr.passes;
+                        } else {
+                            self.layers.push(crate::ui::layers_new::CutLayer {
+                                id: ovr.index,
+                                speed: ovr.speed,
+                                power: ovr.power,
+                                mode: ovr.mode,
+                                passes: ovr.passes,
+                                visible: true,
+                                air_assist: false,
+                                z_offset: 0.0,
+                                min_power: 0.0,
+                                fill_interval_mm: 0.1,
+                                fill_bidirectional: true,
+                                fill_overscan_mm: 0.0,
+                                fill_angle_deg: 0.0,
+                                output_order: ovr.index as i32,
+                                lead_in_mm: 0.0,
+                                lead_out_mm: 0.0,
+                                kerf_mm: 0.0,
+                                tab_enabled: false,
+                                tab_spacing: 50.0,
+                                tab_size: 0.5,
+                                perforation_enabled: false,
+                                perforation_cut_mm: 5.0,
+                                perforation_gap_mm: 2.0,
+                                fill_pattern: crate::ui::layers_new::FillPattern::Horizontal,
+                                contour_offset_enabled: false,
+                                contour_offset_count: 3,
+                                contour_offset_step_mm: 0.5,
+                                print_and_cut_marks: false,
+                                spiral_fill_enabled: false,
+                                relief_enabled: false,
+                                relief_max_z_mm: 5.0,
+                                is_construction: false,
+                                pass_offset_mm: 0.0,
+                                exhaust_enabled: false,
+                                exhaust_post_delay_s: 5.0,
+                                ramp_enabled: false,
+                                ramp_length_mm: 5.0,
+                                ramp_start_pct: 20.0,
+                                corner_power_enabled: false,
+                                corner_power_pct: 60.0,
+                                corner_angle_threshold: 90.0,
+                                name: format!("Layer {}", ovr.index),
+                                color: egui::Color32::RED,
+                            });
+                        }
+                    }
+                    // Skip heavy GCode generation here — shapes are already
+                    // visible in the preview. GCode will be generated on-demand
+                    // when the user starts a job or explicitly requests it.
+                    // self.regenerate_drawing_gcode();
+                    self.log(format!("LightBurn imported: {fname} ({} shapes)", self.drawing_state.shapes.len()));
+                }
+                Ok(Err(e)) => {
+                    self.lbrn_import_receiver = None;
+                    self.lbrn_loading_msg = None;
+                    self.show_error(e);
+                }
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.lbrn_import_receiver = None;
+                    self.lbrn_loading_msg = None;
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => {
+                    // Still loading — request repaint to keep polling
+                    ctx.request_repaint();
+                }
+            }
+        }
+
         self.poll_camera_stream(ctx);
 
         // Poll serial
@@ -5520,7 +5845,7 @@ impl eframe::App for All4LaserApp {
         let left_panel_width = match self.ui_layout {
             theme::UiLayout::Modern => LEFT_PANEL_WIDTH,
             theme::UiLayout::Pro => 300.0,
-            theme::UiLayout::Classic => 360.0,
+            theme::UiLayout::Classic => 220.0,
         };
         SidePanel::left("left_panel")
             .resizable(true)
@@ -5531,7 +5856,11 @@ impl eframe::App for All4LaserApp {
                     .id_salt("left_scroll")
                     .auto_shrink([true, false])
                     .show(ui, |ui| {
-                        self.ui_left_content(ui, connected);
+                        if self.ui_layout == theme::UiLayout::Classic {
+                            self.ui_left_tools_classic(ui);
+                        } else {
+                            self.ui_left_content(ui, connected);
+                        }
                     });
             });
 
