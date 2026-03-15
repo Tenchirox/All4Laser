@@ -50,3 +50,12 @@ winres = "0.1"
 [package.metadata.packager]
 formats = ["deb", "appimage", "nsis", "dmg"]
 icons = ["icons/icon.png", "icons/icon.ico", "icons/icon.icns"]
+identifier = "com.tenchirox.all4laser"
+product-name = "All4Laser"
+category = "Graphics"
+
+[package.metadata.packager.deb]
+desktop-template = "assets/all4laser.desktop"
+
+[package.metadata.packager.appimage]
+desktop-template = "assets/all4laser.desktop"
