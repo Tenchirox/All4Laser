@@ -287,42 +287,47 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
         && !state.system_fonts_loading
         && state.system_font_loader.is_none()
     {
-        state.system_fonts_loading = true;
-        let (tx, rx) = crossbeam_channel::bounded(1);
-        std::thread::spawn(move || {
-            let mut fonts = Vec::new();
-            let mut seen = HashSet::new();
-            if let Ok(handles) = SystemSource::new().all_fonts() {
-                for handle in handles {
-                    if let Ok(font) = handle.load() {
-                        let family = font.family_name();
-                        if seen.insert(family.clone()) {
-                            if let Some(data_arc) = font.copy_font_data() {
-                                let data = &*data_arc;
-                                // Skip very large font files (>1MB) to avoid memory bloat
-                                if data.len() >= 1_000_000 {
-                                    continue;
-                                }
-                                // Skip fonts that lack basic Latin glyphs (render as ???? or empty)
-                                let has_latin = Font::try_from_bytes(data)
-                                    .map(|f| {
-                                        "AaBbCcRr".chars().all(|ch| {
-                                            let g = f.glyph(ch);
-                                            g.id().0 != 0
+        // Only load if we haven't registered system fonts yet
+        let already = state.egui_registered.len();
+        let total_system = state.system_fonts.len();
+        if already < total_system + BUNDLED_FONTS.len() {
+            state.system_fonts_loading = true;
+            let (tx, rx) = crossbeam_channel::bounded(1);
+            std::thread::spawn(move || {
+                let mut fonts = Vec::new();
+                let mut seen = HashSet::new();
+                if let Ok(handles) = SystemSource::new().all_fonts() {
+                    for handle in handles {
+                        if let Ok(font) = handle.load() {
+                            let family = font.family_name();
+                            if seen.insert(family.clone()) {
+                                if let Some(data_arc) = font.copy_font_data() {
+                                    let data = &*data_arc;
+                                    // Skip very large font files (>1MB) to avoid memory bloat
+                                    if data.len() >= 1_000_000 {
+                                        continue;
+                                    }
+                                    // Skip fonts that lack basic Latin glyphs (render as ???? or empty)
+                                    let has_latin = Font::try_from_bytes(data)
+                                        .map(|f| {
+                                            "AaBbCcRr".chars().all(|ch| {
+                                                let g = f.glyph(ch);
+                                                g.id().0 != 0
+                                            })
                                         })
-                                    })
-                                    .unwrap_or(false);
-                                if has_latin {
-                                    fonts.push((family, data.to_vec()));
+                                        .unwrap_or(false);
+                                    if has_latin {
+                                        fonts.push((family, data.to_vec()));
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-            let _ = tx.send(fonts);
-        });
-        state.system_font_loader = Some(rx);
+                let _ = tx.send(fonts);
+            });
+            state.system_font_loader = Some(rx);
+        }
     }
 
     // ── Poll background font loader ──
