@@ -1,4 +1,4 @@
-use crate::config::settings::DisplayUnit;
+use crate::config::settings::{DisplayUnit, SpeedUnit};
 use crate::controller::ControllerCapabilities;
 use crate::grbl::types::{GrblState, MacStatus};
 use crate::theme;
@@ -13,6 +13,7 @@ pub struct StatusBarAction {
     pub spindle_up: bool,
     pub spindle_down: bool,
     pub toggle_unit: bool,
+    pub toggle_speed_unit: bool,
 }
 
 impl Default for StatusBarAction {
@@ -25,6 +26,7 @@ impl Default for StatusBarAction {
             spindle_up: false,
             spindle_down: false,
             toggle_unit: false,
+            toggle_speed_unit: false,
         }
     }
 }
@@ -36,6 +38,7 @@ pub fn show(
     progress: Option<(usize, usize)>,
     caps: ControllerCapabilities,
     display_unit: DisplayUnit,
+    speed_unit: SpeedUnit,
     cost_estimate: Option<(f32, &str)>,
 ) -> StatusBarAction {
     let mut action = StatusBarAction::default();
@@ -132,6 +135,15 @@ pub fn show(
             .clicked()
         {
             action.toggle_unit = true;
+        }
+
+        // Speed unit toggle
+        if ui
+            .small_button(speed_unit.label())
+            .on_hover_text("Toggle mm/min / mm/s")
+            .clicked()
+        {
+            action.toggle_speed_unit = true;
         }
 
         // File info

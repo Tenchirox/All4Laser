@@ -196,6 +196,7 @@ pub struct All4LaserApp {
 
     // Display units (F96)
     display_unit: crate::config::settings::DisplayUnit,
+    speed_unit: crate::config::settings::SpeedUnit,
 
     // Persistence
     settings: AppSettings,
@@ -312,6 +313,7 @@ impl All4LaserApp {
             language: crate::i18n::Language::English, // Will be overridden
             active_tab: RightPanelTab::Cuts,          // Will be overridden
             display_unit: crate::config::settings::DisplayUnit::Millimeters, // Will be overridden
+            speed_unit: crate::config::settings::SpeedUnit::MmPerMin,    // Will be overridden
             settings: AppSettings::load(),
             preflight_report: None,
             preflight_block_critical: true,
@@ -351,6 +353,7 @@ impl All4LaserApp {
         app.language = app.settings.language;
         app.active_tab = app.settings.active_tab;
         app.display_unit = app.settings.display_unit;
+        app.speed_unit = app.settings.speed_unit;
         app.camera_state.enabled = app.settings.camera_enabled;
         app.camera_state.opacity = app.settings.camera_opacity;
         app.camera_state.calibration = app.settings.camera_calibration.clone();
@@ -455,6 +458,7 @@ impl All4LaserApp {
         self.settings.language = self.language;
         self.settings.active_tab = self.active_tab;
         self.settings.display_unit = self.display_unit;
+        self.settings.speed_unit = self.speed_unit;
         self.settings.camera_enabled = self.camera_state.enabled;
         self.settings.camera_opacity = self.camera_state.opacity;
         self.settings.camera_calibration = self.camera_state.calibration.clone();
@@ -481,6 +485,7 @@ impl All4LaserApp {
                     mode: layer.mode,
                 }
             }),
+            speed_unit: self.speed_unit,
         }
     }
 
@@ -3023,7 +3028,7 @@ impl All4LaserApp {
             ui.add_space(6.0);
 
             let ms_action =
-                ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected);
+                ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected, self.speed_unit);
             if ms_action.toggle_focus && connected {
                 self.is_focus_on = !self.is_focus_on;
                 if self.is_focus_on {
@@ -3044,6 +3049,7 @@ impl All4LaserApp {
                 &mut self.jog_feed,
                 caps.supports_jog,
                 caps.supports_home,
+                self.speed_unit,
             );
             if let Some(dir) = jog_action.direction {
                 self.jog(dir);
@@ -4032,6 +4038,7 @@ impl All4LaserApp {
                             &self.grbl_state,
                             self.is_focus_on,
                             connected,
+                            self.speed_unit,
                         );
                         if ms_action.toggle_focus && connected {
                             self.is_focus_on = !self.is_focus_on;
@@ -4052,6 +4059,7 @@ impl All4LaserApp {
                             &mut self.jog_feed,
                             caps.supports_jog,
                             caps.supports_home,
+                            self.speed_unit,
                         );
                         if let Some(dir) = jog_action.direction {
                             self.jog(dir);
@@ -4302,6 +4310,7 @@ impl All4LaserApp {
                 &mut self.cut_settings_state,
                 &self.layers,
                 &self.drawing_state.shapes,
+                self.speed_unit,
             );
             if let Some((idx, new_layer)) = action.apply {
                 if idx < self.layers.len() {
@@ -5046,7 +5055,7 @@ impl All4LaserApp {
                 .resizable(true)
                 .default_width(600.0)
                 .show(ctx, |ui| {
-                    let res = ui::image_dialog::show(ui, &mut state);
+                    let res = ui::image_dialog::show(ui, &mut state, self.speed_unit);
                     if res.imported {
                         import_triggered = true;
                     }
@@ -5112,7 +5121,7 @@ impl All4LaserApp {
     fn update_tool_windows(&mut self, ctx: &egui::Context) {
         // === Power/Speed Test Window ===
         {
-            let pst_action = ui::power_speed_test::show(ctx, &mut self.power_speed_test);
+            let pst_action = ui::power_speed_test::show(ctx, &mut self.power_speed_test, self.speed_unit);
             if let Some(lines) = pst_action.generate {
                 let file = crate::gcode::file::GCodeFile::from_lines("pwr_speed_test", &lines);
                 self.set_loaded_file(file, lines);
@@ -5792,6 +5801,7 @@ impl eframe::App for All4LaserApp {
                 progress,
                 caps,
                 self.display_unit,
+                self.speed_unit,
                 cost,
             );
             ui.add_space(4.0);
@@ -5841,6 +5851,10 @@ impl eframe::App for All4LaserApp {
                     DisplayUnit::Millimeters => DisplayUnit::Inches,
                     DisplayUnit::Inches => DisplayUnit::Millimeters,
                 };
+                self.sync_settings();
+            }
+            if sb_actions.toggle_speed_unit {
+                self.speed_unit = self.speed_unit.toggle();
                 self.sync_settings();
             }
         });

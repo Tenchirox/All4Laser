@@ -23,6 +23,7 @@ pub fn show(
     state: &GrblState,
     is_focused: bool,
     connected: bool,
+    speed_unit: crate::config::settings::SpeedUnit,
 ) -> MachineStateAction {
     let mut action = MachineStateAction {
         toggle_focus: false,
@@ -102,7 +103,7 @@ pub fn show(
         ui.horizontal(|ui| {
             ui.label(RichText::new(tr("Feed:")).color(theme::SUBTEXT));
             ui.label(
-                RichText::new(format!("{:.0} mm/min", state.feed_rate))
+                RichText::new(format!("{:.0} {}", speed_unit.from_mmpm(state.feed_rate), speed_unit.label()))
                     .color(theme::YELLOW)
                     .monospace(),
             );

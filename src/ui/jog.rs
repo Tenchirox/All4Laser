@@ -13,6 +13,7 @@ pub fn show(
     feed: &mut f32,
     can_jog: bool,
     can_home: bool,
+    speed_unit: crate::config::settings::SpeedUnit,
 ) -> JogAction {
     let mut action = JogAction { direction: None };
 
@@ -132,12 +133,19 @@ pub fn show(
         // Feed rate
         ui.horizontal(|ui| {
             ui.label(RichText::new(tr("Feed:")).color(theme::SUBTEXT));
-            ui.add(
-                egui::DragValue::new(feed)
-                    .range(10.0..=10000.0)
-                    .speed(50.0)
-                    .suffix(" mm/min"),
-            );
+            let mut display_feed = speed_unit.from_mmpm(*feed);
+            let (drag_spd, max_val, suffix) = match speed_unit {
+                crate::config::settings::SpeedUnit::MmPerMin => (50.0, 10000.0, " mm/min"),
+                crate::config::settings::SpeedUnit::MmPerSec => (1.0, 167.0, " mm/s"),
+            };
+            if ui.add(
+                egui::DragValue::new(&mut display_feed)
+                    .range(0.1..=max_val)
+                    .speed(drag_spd)
+                    .suffix(suffix),
+            ).changed() {
+                *feed = speed_unit.to_mmpm(display_feed);
+            }
         });
     });
 

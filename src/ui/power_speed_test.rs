@@ -42,7 +42,7 @@ pub struct PowerSpeedTestAction {
     pub generate: Option<Vec<String>>,
 }
 
-pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState) -> PowerSpeedTestAction {
+pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState, speed_unit: crate::config::settings::SpeedUnit) -> PowerSpeedTestAction {
     let mut action = PowerSpeedTestAction { generate: None };
 
     if !state.is_open {
@@ -66,11 +66,23 @@ pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState) -> PowerSpeedT
                     ui.label("Cols (power steps):");
                     ui.add(egui::DragValue::new(&mut state.cols).range(1..=20));
                     ui.end_row();
-                    ui.label("Speed min (mm/min):");
-                    ui.add(egui::DragValue::new(&mut state.speed_min).speed(50.0));
+                    ui.label(format!("Speed min ({}):", speed_unit.label()));
+                    {
+                        let mut d = speed_unit.from_mmpm(state.speed_min);
+                        let drag = match speed_unit { crate::config::settings::SpeedUnit::MmPerMin => 50.0, _ => 1.0 };
+                        if ui.add(egui::DragValue::new(&mut d).speed(drag)).changed() {
+                            state.speed_min = speed_unit.to_mmpm(d);
+                        }
+                    }
                     ui.end_row();
-                    ui.label("Speed max (mm/min):");
-                    ui.add(egui::DragValue::new(&mut state.speed_max).speed(50.0));
+                    ui.label(format!("Speed max ({}):", speed_unit.label()));
+                    {
+                        let mut d = speed_unit.from_mmpm(state.speed_max);
+                        let drag = match speed_unit { crate::config::settings::SpeedUnit::MmPerMin => 50.0, _ => 1.0 };
+                        if ui.add(egui::DragValue::new(&mut d).speed(drag)).changed() {
+                            state.speed_max = speed_unit.to_mmpm(d);
+                        }
+                    }
                     ui.end_row();
                     ui.label("Power min (S):");
                     ui.add(egui::DragValue::new(&mut state.power_min).speed(10.0));

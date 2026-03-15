@@ -43,6 +43,50 @@ impl DisplayUnit {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SpeedUnit {
+    MmPerMin,
+    MmPerSec,
+}
+
+impl Default for SpeedUnit {
+    fn default() -> Self {
+        SpeedUnit::MmPerMin
+    }
+}
+
+impl SpeedUnit {
+    pub fn label(self) -> &'static str {
+        match self {
+            SpeedUnit::MmPerMin => "mm/min",
+            SpeedUnit::MmPerSec => "mm/s",
+        }
+    }
+
+    /// Convert internal mm/min to display unit
+    pub fn from_mmpm(self, mmpm: f32) -> f32 {
+        match self {
+            SpeedUnit::MmPerMin => mmpm,
+            SpeedUnit::MmPerSec => mmpm / 60.0,
+        }
+    }
+
+    /// Convert display unit back to mm/min (internal)
+    pub fn to_mmpm(self, val: f32) -> f32 {
+        match self {
+            SpeedUnit::MmPerMin => val,
+            SpeedUnit::MmPerSec => val * 60.0,
+        }
+    }
+
+    pub fn toggle(self) -> Self {
+        match self {
+            SpeedUnit::MmPerMin => SpeedUnit::MmPerSec,
+            SpeedUnit::MmPerSec => SpeedUnit::MmPerMin,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AppSettings {
     #[serde(default = "default_theme")]
@@ -73,6 +117,8 @@ pub struct AppSettings {
     pub material_selected_preset: Option<String>,
     #[serde(default)]
     pub display_unit: DisplayUnit,
+    #[serde(default)]
+    pub speed_unit: SpeedUnit,
     #[serde(default)]
     pub first_run_done: bool,
     // Cost estimation (F17)
@@ -270,6 +316,7 @@ impl Default for AppSettings {
             camera_live_streaming: false,
             material_selected_preset: None,
             display_unit: DisplayUnit::Millimeters,
+            speed_unit: SpeedUnit::MmPerMin,
             first_run_done: false,
             cost_per_hour: default_cost_per_hour(),
             cost_per_m2: 0.0,

@@ -149,6 +149,7 @@ pub struct ActiveLayerSummary {
 pub struct MaterialsUiContext {
     pub machine_profile_name: Option<String>,
     pub active_layer: Option<ActiveLayerSummary>,
+    pub speed_unit: crate::config::settings::SpeedUnit,
 }
 
 #[derive(Clone, Debug)]
@@ -355,9 +356,10 @@ pub fn show_with_context(
         if let Some(layer) = &context.active_layer {
             ui.label(
                 RichText::new(format!(
-                    "Layer: {} | {} mm/min | S{} | {} pass(es)",
+                    "Layer: {} | {:.0} {} | S{} | {} pass(es)",
                     layer.name,
-                    layer.speed.round(),
+                    context.speed_unit.from_mmpm(layer.speed),
+                    context.speed_unit.label(),
                     layer.power.round(),
                     layer.passes
                 ))
@@ -411,13 +413,16 @@ pub fn show_with_context(
                 } else {
                     format!("Machine: {}", preset.machine_profile)
                 };
+                let su = context.speed_unit;
                 ui.label(
                     RichText::new(format!(
-                        "{}mm | Engrave {} / S{} | Cut {} / S{} | Passes {} | {}",
+                        "{}mm | Engrave {:.0} {} / S{} | Cut {:.0} {} / S{} | Passes {} | {}",
                         preset.thickness_mm,
-                        preset.speed,
+                        su.from_mmpm(preset.speed),
+                        su.label(),
                         preset.power,
-                        preset.cut_speed,
+                        su.from_mmpm(preset.cut_speed),
+                        su.label(),
                         preset.cut_power,
                         preset.recommended_passes,
                         machine_scope
@@ -487,14 +492,24 @@ pub fn show_with_context(
                 );
             });
             ui.horizontal(|ui| {
-                ui.label("Engrave Speed:");
-                ui.add(egui::DragValue::new(&mut ep.speed).speed(10.0));
+                let su = context.speed_unit;
+                ui.label(format!("Engrave Speed ({}):", su.label()));
+                let mut d = su.from_mmpm(ep.speed);
+                let drag = match su { crate::config::settings::SpeedUnit::MmPerMin => 10.0, _ => 1.0 };
+                if ui.add(egui::DragValue::new(&mut d).speed(drag)).changed() {
+                    ep.speed = su.to_mmpm(d);
+                }
                 ui.label("Power:");
                 ui.add(egui::DragValue::new(&mut ep.power).speed(5.0));
             });
             ui.horizontal(|ui| {
-                ui.label("Cut Speed:");
-                ui.add(egui::DragValue::new(&mut ep.cut_speed).speed(10.0));
+                let su = context.speed_unit;
+                ui.label(format!("Cut Speed ({}):", su.label()));
+                let mut d = su.from_mmpm(ep.cut_speed);
+                let drag = match su { crate::config::settings::SpeedUnit::MmPerMin => 10.0, _ => 1.0 };
+                if ui.add(egui::DragValue::new(&mut d).speed(drag)).changed() {
+                    ep.cut_speed = su.to_mmpm(d);
+                }
                 ui.label("Power:");
                 ui.add(egui::DragValue::new(&mut ep.cut_power).speed(5.0));
             });
@@ -610,6 +625,7 @@ mod tests {
                 passes: 1,
                 mode: CutMode::Line,
             }),
+            speed_unit: crate::config::settings::SpeedUnit::MmPerMin,
         };
 
         let idx = recommended_preset_index(&state, &ctx).expect("a preset should be recommended");

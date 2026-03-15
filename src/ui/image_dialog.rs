@@ -26,7 +26,7 @@ pub struct ImageImportResult {
     pub cancel: bool,
 }
 
-pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
+pub fn show(ui: &mut Ui, state: &mut ImageImportState, speed_unit: crate::config::settings::SpeedUnit) -> ImageImportResult {
     let mut result = ImageImportResult::default();
 
     ui.vertical_centered(|ui| {
@@ -267,10 +267,19 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
 
                         ui.add_space(8.0);
                         ui.label("Laser Settings:");
-                        ui.add(
-                            egui::Slider::new(&mut state.raster_params.max_speed, 100.0..=10000.0)
-                                .text("Speed (mm/min)"),
-                        );
+                        {
+                            let mut display_spd = speed_unit.from_mmpm(state.raster_params.max_speed);
+                            let (lo, hi) = match speed_unit {
+                                crate::config::settings::SpeedUnit::MmPerMin => (100.0, 10000.0),
+                                crate::config::settings::SpeedUnit::MmPerSec => (1.7, 167.0),
+                            };
+                            if ui.add(
+                                egui::Slider::new(&mut display_spd, lo..=hi)
+                                    .text(format!("Speed ({})", speed_unit.label())),
+                            ).changed() {
+                                state.raster_params.max_speed = speed_unit.to_mmpm(display_spd);
+                            }
+                        }
                         ui.add(
                             egui::Slider::new(&mut state.raster_params.max_power, 0.0..=1000.0)
                                 .text("Max Power (S)"),

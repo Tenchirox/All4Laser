@@ -75,6 +75,7 @@ pub fn show(
     state: &mut CutSettingsState,
     layers: &[CutLayer],
     shapes: &[ShapeParams],
+    speed_unit: crate::config::settings::SpeedUnit,
 ) -> CutSettingsAction {
     let mut action = CutSettingsAction {
         apply: None,
@@ -121,8 +122,15 @@ pub fn show(
                 ui.separator();
 
                 egui::Grid::new("cut_settings_grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-                    ui.label("Speed (mm/min):").on_hover_text("Travel speed of the laser head. Lower = deeper cut/darker engrave. Typical: 200-3000 for cut, 1000-10000 for engrave.");
-                    ui.add(egui::DragValue::new(&mut layer.speed).speed(10.0).range(1.0..=20000.0));
+                    ui.label(format!("Speed ({}):", speed_unit.label())).on_hover_text("Travel speed of the laser head. Lower = deeper cut/darker engrave. Typical: 200-3000 for cut, 1000-10000 for engrave.");
+                    let mut display_speed = speed_unit.from_mmpm(layer.speed);
+                    let (spd_drag, spd_max) = match speed_unit {
+                        crate::config::settings::SpeedUnit::MmPerMin => (10.0, 20000.0),
+                        crate::config::settings::SpeedUnit::MmPerSec => (1.0, 334.0),
+                    };
+                    if ui.add(egui::DragValue::new(&mut display_speed).speed(spd_drag).range(0.1..=spd_max)).changed() {
+                        layer.speed = speed_unit.to_mmpm(display_speed);
+                    }
                     ui.end_row();
 
                     ui.label("Max Power (S):").on_hover_text("Laser power (0-1000 S-value). Higher = more energy. Start low and increase. S1000 = 100% power.");
