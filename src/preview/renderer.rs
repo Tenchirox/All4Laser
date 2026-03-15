@@ -366,7 +366,7 @@ impl PreviewRenderer {
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
-                "Load a GCode file or draw shapes to preview",
+                &crate::i18n::tr("Load a GCode file or draw shapes to preview"),
                 egui::FontId::proportional(16.0),
                 theme::OVERLAY0,
             );

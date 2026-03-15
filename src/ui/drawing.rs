@@ -872,13 +872,13 @@ pub fn show(
 
         ui.horizontal(|ui| {
             if ui
-                .selectable_label(state.current.shape == ShapeKind::Rectangle, "▭ Rect")
+                .selectable_label(state.current.shape == ShapeKind::Rectangle, format!("▭ {}", crate::i18n::tr("Rect")))
                 .clicked()
             {
                 state.current.shape = ShapeKind::Rectangle;
             }
             if ui
-                .selectable_label(state.current.shape == ShapeKind::Circle, "○ Circle")
+                .selectable_label(state.current.shape == ShapeKind::Circle, format!("○ {}", crate::i18n::tr("Circle")))
                 .clicked()
             {
                 state.current.shape = ShapeKind::Circle;
@@ -888,7 +888,7 @@ pub fn show(
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.label("Origin X:");
+            ui.label(crate::i18n::tr("Origin X:"));
             ui.add(
                 egui::DragValue::new(&mut state.current.x)
                     .speed(1.0)
@@ -921,7 +921,7 @@ pub fn show(
             }
             ShapeKind::Circle => {
                 ui.horizontal(|ui| {
-                    ui.label("Radius:");
+                    ui.label(crate::i18n::tr("Radius:"));
                     ui.add(
                         egui::DragValue::new(&mut state.current.radius)
                             .speed(1.0)
@@ -930,7 +930,7 @@ pub fn show(
                 });
             }
             ShapeKind::TextLine => {
-                ui.label("Use the Text Tool panel below to create text paths.");
+                ui.label(crate::i18n::tr("Use the Text Tool panel below to create text paths."));
             }
             ShapeKind::Path(pts) => {
                 ui.label(format!("Path with {} points", pts.len()));
@@ -947,7 +947,7 @@ pub fn show(
 
         // Layer Selector
         ui.horizontal(|ui| {
-            ui.label("Layer:");
+            ui.label(crate::i18n::tr("Layer:"));
             // Simple integer drag for now, could be a combobox
             if ui
                 .add(egui::DragValue::new(&mut state.current.layer_idx).range(0..=29))
@@ -967,7 +967,7 @@ pub fn show(
         // However, standard UX is "new objects take active layer".
         // We can do this: if state.current.layer_idx != active_layer_idx AND shapes is empty, sync?
         // Let's just provide a button "Use Active Layer"
-        if ui.button("Set to Active Layer").clicked() {
+        if ui.button(crate::i18n::tr("Set to Active Layer")).clicked() {
             state.current.layer_idx = active_layer_idx;
         }
 
@@ -975,19 +975,19 @@ pub fn show(
 
         ui.horizontal(|ui| {
             if ui
-                .button(RichText::new("➕ Add Shape").color(theme::GREEN).strong())
+                .button(RichText::new(format!("➕ {}", crate::i18n::tr("Add Shape"))).color(theme::GREEN).strong())
                 .clicked()
             {
                 state.shapes.push(state.current.clone());
                 let lines = generate_all_gcode(state, layers);
                 action.generate_gcode = Some(lines);
             }
-            if ui.button("⮪ Undo").clicked() {
+            if ui.button(format!("⮪ {}", crate::i18n::tr("Undo"))).clicked() {
                 state.shapes.pop();
                 let lines = generate_all_gcode(state, layers);
                 action.generate_gcode = Some(lines);
             }
-            if ui.button("🗑 Clear").clicked() {
+            if ui.button(format!("🗑 {}", crate::i18n::tr("Clear"))).clicked() {
                 state.shapes.clear();
                 let lines = generate_all_gcode(state, layers);
                 action.generate_gcode = Some(lines);

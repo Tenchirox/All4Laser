@@ -318,7 +318,7 @@ pub fn show_with_context(
     ui.group(|ui| {
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new("📦 Material Presets")
+                RichText::new(format!("📦 {}", crate::i18n::tr("Material Presets")))
                     .color(theme::LAVENDER)
                     .strong(),
             );
@@ -373,7 +373,7 @@ pub fn show_with_context(
                             .color(theme::GREEN)
                             .strong(),
                     );
-                    if context.active_layer.is_some() && ui.button("Apply Recommended").clicked() {
+                    if context.active_layer.is_some() && ui.button(crate::i18n::tr("Apply Recommended")).clicked() {
                         action.apply_speed = Some(preset.speed);
                         action.apply_power = Some(preset.power);
                         action.apply_cut_speed = Some(preset.cut_speed);
@@ -437,7 +437,7 @@ pub fn show_with_context(
                     action.apply_cut_speed = Some(preset.cut_speed);
                     action.apply_cut_power = Some(preset.cut_power);
                 }
-                if context.active_layer.is_some() && ui.button("🎯 Apply to Active Layer").clicked()
+                if context.active_layer.is_some() && ui.button(format!("🎯 {}", crate::i18n::tr("Apply to Active Layer"))).clicked()
                 {
                     action.apply_to_active_layer = Some(preset.as_layer_update());
                     action.apply_speed = Some(preset.speed);
@@ -445,7 +445,7 @@ pub fn show_with_context(
                     action.apply_cut_speed = Some(preset.cut_speed);
                     action.apply_cut_power = Some(preset.cut_power);
                 }
-                if ui.button("✎ Edit").clicked() {
+                if ui.button(format!("✎ {}", crate::i18n::tr("Edit"))).clicked() {
                     state.editing = true;
                     state.edit_preset = preset.clone();
                 }
