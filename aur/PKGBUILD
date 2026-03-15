@@ -29,7 +29,7 @@ makedepends=(
 )
 provides=("all4laser=${pkgver}")
 conflicts=('all4laser')
-source=("${pkgname}::git+https://github.com/Tenchirox/All4Laser.git#branch=fix-lbrn2")
+source=("${pkgname}::git+https://github.com/Tenchirox/All4Laser.git")
 sha256sums=('SKIP')
 
 pkgver() {
