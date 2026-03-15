@@ -1057,11 +1057,11 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
         }
 
         builder.comment(&format!(
-            "Layer C{:02} ({}) — Speed:{:.0} Power:{:.0} Passes:{} Mode:{:?}{}",
+            "Layer C{:02} ({}) — Speed:{:.0} Power:{:.0}% Passes:{} Mode:{:?}{}",
             layer.id,
             layer.name,
             layer.speed,
-            layer.power,
+            layer.power / 10.0,
             layer.passes,
             layer.mode,
             if layer.air_assist {

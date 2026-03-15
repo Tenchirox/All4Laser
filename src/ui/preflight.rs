@@ -96,7 +96,7 @@ pub fn run_checks(shapes: &[ShapeParams], layers: &[CutLayer]) -> Vec<PreflightI
             if layer.power > 80.0 && layer.speed < 100.0 {
                 issues.push(PreflightIssue {
                     severity: Severity::Warning,
-                    message: format!("Layer {} has high power ({}) and low speed ({}). Fire risk!", layer.name, layer.power, layer.speed),
+                    message: format!("Layer {} has high power ({:.0}%) and low speed ({}). Fire risk!", layer.name, layer.power / 10.0, layer.speed),
                 });
             }
             if layer.speed <= 0.0 {
@@ -375,7 +375,7 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
             report.add_critical(format!("Layer {} has invalid speed (<= 0).", layer.name));
         }
         if layer.power < 0.0 {
-            report.add_critical(format!("Layer {} has invalid power (< 0).", layer.name));
+            report.add_critical(format!("Layer {} has invalid power (< 0%).", layer.name));
         }
         if layer.passes == 0 {
             report.add_critical(format!("Layer {} has invalid passes (= 0).", layer.name));
@@ -396,8 +396,8 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
         }
         if layer.power > 1000.0 {
             report.add_warning(format!(
-                "Layer {} power ({:.0}) exceeds nominal GRBL S1000 range.",
-                layer.name, layer.power
+                "Layer {} power ({:.0}%) exceeds 100%.",
+                layer.name, layer.power / 10.0
             ));
         }
     }

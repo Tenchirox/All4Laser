@@ -280,10 +280,15 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState, speed_unit: crate::config
                                 state.raster_params.max_speed = speed_unit.to_mmpm(display_spd);
                             }
                         }
-                        ui.add(
-                            egui::Slider::new(&mut state.raster_params.max_power, 0.0..=1000.0)
-                                .text("Max Power (S)"),
-                        );
+                        {
+                            let mut pct = state.raster_params.max_power / 10.0;
+                            if ui.add(
+                                egui::Slider::new(&mut pct, 0.0..=100.0)
+                                    .text("Max Power (%)"),
+                            ).changed() {
+                                state.raster_params.max_power = (pct * 10.0).clamp(0.0, 1000.0);
+                            }
+                        }
 
                         // --- Cutting Frame ---
                         ui.add_space(12.0);
@@ -306,13 +311,15 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState, speed_unit: crate::config
                                     )
                                     .text("Cut Speed"),
                                 );
-                                ui.add(
-                                    egui::Slider::new(
-                                        &mut state.raster_params.outline.power,
-                                        0.0..=1000.0,
-                                    )
-                                    .text("Cut Power"),
-                                );
+                                {
+                                    let mut pct = state.raster_params.outline.power / 10.0;
+                                    if ui.add(
+                                        egui::Slider::new(&mut pct, 0.0..=100.0)
+                                            .text("Cut Power (%)"),
+                                    ).changed() {
+                                        state.raster_params.outline.power = (pct * 10.0).clamp(0.0, 1000.0);
+                                    }
+                                }
                                 ui.horizontal(|ui| {
                                     ui.label("Passes:");
                                     ui.add(
@@ -381,12 +388,18 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState, speed_unit: crate::config
                                                         .range(100.0..=10000.0),
                                                 );
                                                 ui.add_space(8.0);
-                                                ui.label("Power:");
-                                                ui.add(
-                                                    egui::DragValue::new(&mut layer.power)
-                                                        .speed(1.0)
-                                                        .range(0.0..=1000.0),
-                                                );
+                                                ui.label("Power (%):");
+                                                {
+                                                    let mut pct = layer.power / 10.0;
+                                                    if ui.add(
+                                                        egui::DragValue::new(&mut pct)
+                                                            .speed(0.1)
+                                                            .range(0.0..=100.0)
+                                                            .suffix("%"),
+                                                    ).changed() {
+                                                        layer.power = (pct * 10.0).clamp(0.0, 1000.0);
+                                                    }
+                                                }
                                             });
                                         }
                                     });
@@ -414,13 +427,15 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState, speed_unit: crate::config
                                     )
                                     .text("Cut Speed"),
                                 );
-                                ui.add(
-                                    egui::Slider::new(
-                                        &mut state.svg_params.outline.power,
-                                        0.0..=1000.0,
-                                    )
-                                    .text("Cut Power"),
-                                );
+                                {
+                                    let mut pct = state.svg_params.outline.power / 10.0;
+                                    if ui.add(
+                                        egui::Slider::new(&mut pct, 0.0..=100.0)
+                                            .text("Cut Power (%)"),
+                                    ).changed() {
+                                        state.svg_params.outline.power = (pct * 10.0).clamp(0.0, 1000.0);
+                                    }
+                                }
                                 ui.horizontal(|ui| {
                                     ui.label("Passes:");
                                     ui.add(

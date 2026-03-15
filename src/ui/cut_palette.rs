@@ -83,8 +83,8 @@ pub fn show(ui: &mut Ui, layers: &[CutLayer], active_idx: usize) -> PaletteActio
                     }
 
                     response.on_hover_text(format!(
-                        "Layer C{:02}\nSpeed: {}\nPower: {}",
-                        i, layer.speed, layer.power
+                        "Layer C{:02}\nSpeed: {}\nPower: {:.0}%",
+                        i, layer.speed, layer.power / 10.0
                     ));
                 }
             });

@@ -108,9 +108,9 @@ pub fn show(
                     .monospace(),
             );
             ui.add_space(12.0);
-            ui.label(RichText::new(tr("Spindle:")).color(theme::SUBTEXT));
+            ui.label(RichText::new(tr("Power:")).color(theme::SUBTEXT));
             ui.label(
-                RichText::new(format!("{:.0} RPM", state.spindle_speed))
+                RichText::new(format!("{:.0}%", state.spindle_speed / 10.0))
                     .color(theme::MAUVE)
                     .monospace(),
             );

@@ -133,8 +133,13 @@ pub fn show(
                     }
                     ui.end_row();
 
-                    ui.label("Max Power (S):").on_hover_text("Laser power (0-1000 S-value). Higher = more energy. Start low and increase. S1000 = 100% power.");
-                    ui.add(egui::DragValue::new(&mut layer.power).speed(1.0).range(0.0..=1000.0));
+                    ui.label("Max Power (%):").on_hover_text("Laser power (0-100%). Higher = more energy. Start low and increase. 100% = full power.");
+                    {
+                        let mut pct = layer.power / 10.0;
+                        if ui.add(egui::DragValue::new(&mut pct).speed(0.1).range(0.0..=100.0).suffix("%")).changed() {
+                            layer.power = (pct * 10.0).clamp(0.0, 1000.0);
+                        }
+                    }
                     ui.end_row();
 
                     ui.label("Output Mode:").on_hover_text("Line = vector cut along paths. Fill = raster scan inside closed shapes. Fill+Line = both. Offset = concentric fill.");
@@ -163,8 +168,13 @@ pub fn show(
                         );
                         ui.end_row();
 
-                        ui.label("Min Power (S):").on_hover_text("Power used during acceleration/deceleration at line ends. Set to 0 for clean edges.");
-                        ui.add(egui::DragValue::new(&mut layer.min_power).speed(1.0).range(0.0..=1000.0));
+                        ui.label("Min Power (%):").on_hover_text("Power used during acceleration/deceleration at line ends. Set to 0 for clean edges.");
+                        {
+                            let mut pct = layer.min_power / 10.0;
+                            if ui.add(egui::DragValue::new(&mut pct).speed(0.1).range(0.0..=100.0).suffix("%")).changed() {
+                                layer.min_power = (pct * 10.0).clamp(0.0, 1000.0);
+                            }
+                        }
                         ui.end_row();
 
                         ui.label("Bidirectional Scan:").on_hover_text("Scan in both directions (faster) vs one direction only (more consistent).");

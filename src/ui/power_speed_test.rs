@@ -84,11 +84,21 @@ pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState, speed_unit: cr
                         }
                     }
                     ui.end_row();
-                    ui.label("Power min (S):");
-                    ui.add(egui::DragValue::new(&mut state.power_min).speed(10.0));
+                    ui.label("Power min (%):");
+                    {
+                        let mut pct = state.power_min / 10.0;
+                        if ui.add(egui::DragValue::new(&mut pct).speed(1.0).range(0.0..=100.0).suffix("%")).changed() {
+                            state.power_min = (pct * 10.0).clamp(0.0, 1000.0);
+                        }
+                    }
                     ui.end_row();
-                    ui.label("Power max (S):");
-                    ui.add(egui::DragValue::new(&mut state.power_max).speed(10.0));
+                    ui.label("Power max (%):");
+                    {
+                        let mut pct = state.power_max / 10.0;
+                        if ui.add(egui::DragValue::new(&mut pct).speed(1.0).range(0.0..=100.0).suffix("%")).changed() {
+                            state.power_max = (pct * 10.0).clamp(0.0, 1000.0);
+                        }
+                    }
                     ui.end_row();
                     ui.label("Cell size (mm):");
                     ui.add(egui::DragValue::new(&mut state.cell_size).range(2.0..=50.0));

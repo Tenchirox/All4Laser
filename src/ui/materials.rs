@@ -356,11 +356,11 @@ pub fn show_with_context(
         if let Some(layer) = &context.active_layer {
             ui.label(
                 RichText::new(format!(
-                    "Layer: {} | {:.0} {} | S{} | {} pass(es)",
+                    "Layer: {} | {:.0} {} | {:.0}% | {} pass(es)",
                     layer.name,
                     context.speed_unit.from_mmpm(layer.speed),
                     context.speed_unit.label(),
-                    layer.power.round(),
+                    layer.power / 10.0,
                     layer.passes
                 ))
                 .small(),
@@ -416,14 +416,14 @@ pub fn show_with_context(
                 let su = context.speed_unit;
                 ui.label(
                     RichText::new(format!(
-                        "{}mm | Engrave {:.0} {} / S{} | Cut {:.0} {} / S{} | Passes {} | {}",
+                        "{}mm | Engrave {:.0} {} / {:.0}% | Cut {:.0} {} / {:.0}% | Passes {} | {}",
                         preset.thickness_mm,
                         su.from_mmpm(preset.speed),
                         su.label(),
-                        preset.power,
+                        preset.power / 10.0,
                         su.from_mmpm(preset.cut_speed),
                         su.label(),
-                        preset.cut_power,
+                        preset.cut_power / 10.0,
                         preset.recommended_passes,
                         machine_scope
                     ))
@@ -499,8 +499,13 @@ pub fn show_with_context(
                 if ui.add(egui::DragValue::new(&mut d).speed(drag)).changed() {
                     ep.speed = su.to_mmpm(d);
                 }
-                ui.label("Power:");
-                ui.add(egui::DragValue::new(&mut ep.power).speed(5.0));
+                ui.label("Power (%):");
+                {
+                    let mut pct = ep.power / 10.0;
+                    if ui.add(egui::DragValue::new(&mut pct).speed(0.5).range(0.0..=100.0).suffix("%")).changed() {
+                        ep.power = (pct * 10.0).clamp(0.0, 1000.0);
+                    }
+                }
             });
             ui.horizontal(|ui| {
                 let su = context.speed_unit;
@@ -510,8 +515,13 @@ pub fn show_with_context(
                 if ui.add(egui::DragValue::new(&mut d).speed(drag)).changed() {
                     ep.cut_speed = su.to_mmpm(d);
                 }
-                ui.label("Power:");
-                ui.add(egui::DragValue::new(&mut ep.cut_power).speed(5.0));
+                ui.label("Power (%):");
+                {
+                    let mut pct = ep.cut_power / 10.0;
+                    if ui.add(egui::DragValue::new(&mut pct).speed(0.5).range(0.0..=100.0).suffix("%")).changed() {
+                        ep.cut_power = (pct * 10.0).clamp(0.0, 1000.0);
+                    }
+                }
             });
             ui.horizontal(|ui| {
                 ui.label("Recommended Passes:");

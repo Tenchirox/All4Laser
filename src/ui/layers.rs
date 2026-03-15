@@ -46,11 +46,17 @@ pub fn show(ui: &mut Ui, layers: &mut [LayerSettings]) {
                                 ui.label("Passes:");
                                 ui.add(egui::DragValue::new(&mut layer.passes).range(1..=50));
                                 ui.label("Pwr:");
-                                ui.add(
-                                    egui::DragValue::new(&mut layer.power)
-                                        .speed(10.0)
-                                        .range(0.0..=1000.0),
-                                );
+                                {
+                                    let mut pct = layer.power / 10.0;
+                                    if ui.add(
+                                        egui::DragValue::new(&mut pct)
+                                            .speed(1.0)
+                                            .range(0.0..=100.0)
+                                            .suffix("%"),
+                                    ).changed() {
+                                        layer.power = (pct * 10.0).clamp(0.0, 1000.0);
+                                    }
+                                }
                             });
                         }
                     });

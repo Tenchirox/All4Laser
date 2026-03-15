@@ -5295,12 +5295,18 @@ impl All4LaserApp {
                         .num_columns(2)
                         .spacing([8.0, 4.0])
                         .show(ui, |ui| {
-                            ui.label("Power (S):");
-                            ui.add(
-                                egui::DragValue::new(&mut self.test_fire.power)
-                                    .range(1.0..=1000.0)
-                                    .speed(5.0),
-                            );
+                            ui.label("Power (%):");
+                            {
+                                let mut pct = self.test_fire.power / 10.0;
+                                if ui.add(
+                                    egui::DragValue::new(&mut pct)
+                                        .range(0.1..=100.0)
+                                        .speed(0.5)
+                                        .suffix("%"),
+                                ).changed() {
+                                    self.test_fire.power = (pct * 10.0).clamp(0.0, 1000.0);
+                                }
+                            }
                             ui.end_row();
                             ui.label("Duration (ms):");
                             ui.add(

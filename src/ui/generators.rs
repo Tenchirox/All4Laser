@@ -213,8 +213,13 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
             ui.horizontal(|ui| {
                 ui.label("Feed:");
                 ui.add(egui::DragValue::new(&mut state.fiducial_feed).range(50.0..=10000.0));
-                ui.label("Power (S):");
-                ui.add(egui::DragValue::new(&mut state.fiducial_power).range(1.0..=1000.0));
+                ui.label("Power (%):");
+                {
+                    let mut pct = state.fiducial_power / 10.0;
+                    if ui.add(egui::DragValue::new(&mut pct).speed(0.5).range(0.0..=100.0).suffix("%")).changed() {
+                        state.fiducial_power = (pct * 10.0).clamp(0.0, 1000.0);
+                    }
+                }
             });
             ui.checkbox(&mut state.fiducial_draw_frame, "Include outer frame");
 

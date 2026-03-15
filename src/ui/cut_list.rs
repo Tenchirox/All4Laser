@@ -123,7 +123,7 @@ pub fn show(
                     }
 
                     // 3. Speed / Power
-                    ui.label(format!("{:.0} / {:.0}", layer.speed, layer.power));
+                    ui.label(format!("{:.0} / {:.0}%", layer.speed, layer.power / 10.0));
 
                     // 4. Output Toggle
                     if ui
