@@ -5652,7 +5652,7 @@ impl All4LaserApp {
                 self.import_state = None;
             } else {
                 self.import_state = Some(state);
-                });
+            }
             if self.notify_sound_enabled {
                 crate::ui::sound::play_notification_sound();
             }
