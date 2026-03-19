@@ -214,6 +214,561 @@ pub struct All4LaserApp {
 }
 
 impl All4LaserApp {
+    fn render_ui_layout(&mut self, ctx: &egui::Context) {
+        // === TOP: Toolbar ===
+        let is_connected = self.is_connected();
+        let is_running = self.running;
+        let is_light = self.light_mode;
+        let caps = self.controller_capabilities();
+
+        let mut menu_actions = ui::toolbar::ToolbarAction::default();
+        if self.ui_theme == theme::UiTheme::Industrial || self.ui_theme == theme::UiTheme::Pro {
+            TopBottomPanel::top("menu_bar_panel").show(ctx, |ui| {
+                menu_actions = ui::toolbar::show_menu_bar(
+                    ui,
+                    &self.recent_files,
+                    self.loaded_file.is_some(),
+                    !self.drawing_state.shapes.is_empty(),
+                    self.beginner_mode,
+                    self.light_mode,
+                    caps,
+                );
+            });
+        }
+
+        TopBottomPanel::top("toolbar").show(ctx, |ui| {
+            ui.add_space(4.0);
+            let has_file = self.loaded_file.is_some();
+            let has_shapes = !self.drawing_state.shapes.is_empty();
+            let mut actions = ui::toolbar::show(
+                ui,
+                is_connected,
+                is_running,
+                is_light,
+                self.beginner_mode,
+                self.framing_active,
+                &self.recent_files,
+                has_file,
+                has_shapes,
+                caps,
+            );
+            actions.merge(menu_actions);
+            ui.add_space(4.0);
+
+            self.handle_toolbar_actions(ctx, actions);
+        });
+
+        // === BOTTOM: Progress bar + Status bar ===
+        TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+            if self.running && !self.program_lines.is_empty() {
+                let progress = self.program_index as f32 / self.program_lines.len() as f32;
+                let bar = egui::ProgressBar::new(progress).text(format!(
+                    "{}/{}",
+                    self.program_index,
+                    self.program_lines.len()
+                ));
+                ui.add(bar);
+                ui.add_space(4.0);
+            }
+
+            let file_info = self
+                .loaded_file
+                .as_ref()
+                .map(|f| (f.filename.as_str(), f.line_count(), f.estimated_time));
+            let progress = if self.running {
+                Some((self.program_index, self.program_lines.len()))
+            } else {
+                None
+            };
+
+            ui.add_space(4.0);
+            let cost = if self.estimation.total_burn_mm > 0.0 {
+                let time_hours = self
+                    .loaded_file
+                    .as_ref()
+                    .map(|f| f.estimated_time.as_secs_f32() / 3600.0)
+                    .unwrap_or(0.0);
+                Some((
+                    time_hours * self.settings.cost_per_hour,
+                    self.settings.cost_currency.as_str(),
+                ))
+            } else {
+                None
+            };
+            let sb_actions = ui::status_bar::show(
+                ui,
+                &self.grbl_state,
+                file_info,
+                progress,
+                caps,
+                self.display_unit,
+                self.speed_unit,
+                cost,
+            );
+            ui.add_space(4.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            // Palette
+            let pal_action = ui::cut_palette::show(ui, &self.layers, self.active_layer_idx);
+            if let Some(idx) = pal_action.select_layer {
+                self.assign_selected_shapes_to_layer(idx);
+                self.active_layer_idx = idx;
+                // Automatically set drawing tool to this layer
+                self.drawing_state.current.layer_idx = idx;
+            }
+            if let Some(idx) = pal_action.open_settings {
+                self.cut_settings_state.editing_layer_idx = Some(idx);
+                self.cut_settings_state.is_open = true;
+            }
+
+            if sb_actions.feed_up {
+                self.send_realtime_or_warn(RealtimeCommand::FeedOverridePlus10, "Feed override");
+            }
+            if sb_actions.feed_down {
+                self.send_realtime_or_warn(RealtimeCommand::FeedOverrideMinus10, "Feed override");
+            }
+            if sb_actions.rapid_up {
+                self.send_realtime_or_warn(RealtimeCommand::RapidOverride100, "Rapid override");
+            }
+            if sb_actions.rapid_down {
+                self.send_realtime_or_warn(RealtimeCommand::RapidOverride25, "Rapid override");
+            }
+            if sb_actions.spindle_up {
+                self.send_realtime_or_warn(
+                    RealtimeCommand::SpindleOverridePlus10,
+                    "Laser power override",
+                );
+            }
+            if sb_actions.spindle_down {
+                self.send_realtime_or_warn(
+                    RealtimeCommand::SpindleOverrideMinus10,
+                    "Laser power override",
+                );
+            }
+            if sb_actions.toggle_unit {
+                use crate::config::settings::DisplayUnit;
+                self.display_unit = match self.display_unit {
+                    DisplayUnit::Millimeters => DisplayUnit::Inches,
+                    DisplayUnit::Inches => DisplayUnit::Millimeters,
+                };
+                self.sync_settings();
+            }
+            if sb_actions.toggle_speed_unit {
+                self.speed_unit = self.speed_unit.toggle();
+                self.sync_settings();
+            }
+        });
+
+        // === LEFT: Control panels ===
+        let connected = self.is_connected();
+        // === LEFT SIDEBAR ===
+        let left_panel_width = match self.ui_layout {
+            theme::UiLayout::Modern => LEFT_PANEL_WIDTH,
+            theme::UiLayout::Pro => 300.0,
+            theme::UiLayout::Classic => 220.0,
+        };
+        SidePanel::left("left_panel")
+            .resizable(true)
+            .default_width(left_panel_width)
+            .width_range(120.0..=600.0)
+            .show(ctx, |ui| {
+                egui::ScrollArea::both()
+                    .id_salt("left_scroll")
+                    .auto_shrink([true, false])
+                    .show(ui, |ui| {
+                        if self.ui_layout == theme::UiLayout::Classic {
+                            self.ui_left_tools_classic(ui);
+                        } else {
+                            self.ui_left_content(ui, connected);
+                        }
+                    });
+            });
+
+        // === RIGHT SIDEBAR ===
+        let right_panel_width = match self.ui_layout {
+            theme::UiLayout::Modern => 220.0,
+            theme::UiLayout::Pro => 280.0,
+            theme::UiLayout::Classic => 340.0,
+        };
+        SidePanel::right("right_panel")
+            .resizable(true)
+            .default_width(right_panel_width)
+            .width_range(120.0..=600.0)
+            .show(ctx, |ui| {
+                if self.ui_layout == theme::UiLayout::Modern {
+                    self.ui_right_content(ui);
+                } else {
+                    // Pro and Classic use the Tabbed interface on the right
+                    self.ui_right_tabs(ui, connected);
+                }
+            });
+
+        // === BOTTOM PANEL (Pro Layout Only) ===
+        if self.ui_layout == theme::UiLayout::Pro {
+            egui::TopBottomPanel::bottom("bottom_console_panel")
+                .resizable(true)
+                .default_height(150.0)
+                .show(ctx, |ui| {
+                    self.ui_right_content(ui);
+                });
+        }
+
+        // === CENTER: Preview ===
+        self.update_preview(ctx);
+    }
+
+    fn process_modals(&mut self, ctx: &egui::Context) {
+        // === Preflight Modal ===
+        let preflight_action = ui::preflight::show(ctx, &mut self.preflight_state);
+        if preflight_action.proceed {
+            self.preflight_state.bypass = true;
+            self.run_program_with_preflight();
+        }
+
+        // === Handle Settings Modal ===
+        let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
+        let mut settings_write_blocked = false;
+        if let Some(state) = &mut self.settings_state {
+            ui::settings_dialog::show(ctx, state);
+            if !state.is_open {
+                self.settings_state = None;
+            } else {
+                // If there are pending writes, send them
+                if !state.pending_writes.is_empty() {
+                    if !supports_grbl_settings {
+                        settings_write_blocked = true;
+                        state.pending_writes.clear();
+                    } else {
+                        let writes = std::mem::take(&mut state.pending_writes);
+                        for (id, val) in writes {
+                            if id == -1 && val == "$$" {
+                                self.send_command("$$"); // Refresh
+                            } else {
+                                self.send_command(&format!("${}={}", id, val));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if settings_write_blocked {
+            self.log("GRBL settings write not supported by this controller.".into());
+        }
+
+        // Tool windows dispatch
+        self.update_tool_windows(ctx);
+
+        // Import modal
+        self.update_import_modal(ctx);
+
+        // Modals dispatch (cut settings, GRBL settings)
+        self.update_modals(ctx);
+    }
+
+    fn process_notifications(&mut self, ctx: &egui::Context) {
+        // === Error Notification ===
+        // We clone the error first to avoid borrowing `self` in the closure
+        let error_to_show = self.last_error.clone();
+        if let Some(err) = error_to_show {
+            let mut open = true;
+            egui::Window::new("❌ Error")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.label(egui::RichText::new(err).color(theme::RED));
+                    ui.add_space(8.0);
+                    if ui.button("OK").clicked() {
+                        self.last_error = None;
+                    }
+                });
+            if !open {
+                self.last_error = None;
+            }
+        }
+
+        // === Job Done Notification ===
+        if self.notify_job_done {
+            egui::Window::new("✅ Job Complete")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.label(egui::RichText::new("Program finished successfully!").size(16.0));
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.notify_sound_enabled, "🔔 Sound");
+                    });
+                    ui.add_space(4.0);
+                    if ui.button("OK").clicked() {
+                        self.notify_job_done = false;
+                    }
+                });
+            if self.notify_sound_enabled {
+                crate::ui::sound::play_notification_sound();
+            }
+            self.notify_job_done = false;
+        }
+
+        if self.about_open {
+            let mut open = true;
+            let mut close_clicked = false;
+            egui::Window::new("About All4Laser")
+                .open(&mut open)
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.label(egui::RichText::new("All4Laser").strong().size(20.0));
+                    ui.label("Advanced Laser Control Software");
+                    ui.add_space(8.0);
+                    if ui.button("OK").clicked() {
+                        close_clicked = true;
+                    }
+                });
+            if !open || close_clicked {
+                self.about_open = false;
+            }
+        }
+
+        // === Update Notification ===
+        let mut close_update = false;
+        let mut log_message = None;
+        if let Some(new_version) = &self.update_available {
+            let new_version_str = new_version.clone();
+            egui::Window::new("🎉 Update Available!")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-10.0, -10.0))
+                .show(ctx, |ui| {
+                    ui.label(format!("A new version ({}) is available.", new_version_str));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Download").clicked() {
+                            if let Err(e) = webbrowser::open(
+                                "https://github.com/arkypita/All4Laser/releases/latest",
+                            ) {
+                                log_message = Some(format!("Failed to open browser: {}", e));
+                            }
+                            close_update = true;
+                        }
+                        if ui.button("Dismiss").clicked() {
+                            close_update = true;
+                        }
+                    });
+                });
+        }
+
+        if let Some(msg) = log_message {
+            self.log(msg);
+        }
+
+        if close_update {
+            self.update_available = None;
+        }
+    }
+
+    fn process_session_lifecycle(&mut self, ctx: &egui::Context) {
+        // Auto-save (F71)
+        self.perform_autosave();
+
+        // Recovery prompt (F71)
+        if self.autosave.show_recovery_prompt {
+            let mut restore = false;
+            let mut discard = false;
+            egui::Window::new(format!("🔄 {}", crate::i18n::tr("Session Recovery")))
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.label(crate::i18n::tr("A previous session was interrupted. Restore it?"));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(format!("✅ {}", crate::i18n::tr("Restore"))).clicked() {
+                            restore = true;
+                        }
+                        if ui.button(format!("🗑 {}", crate::i18n::tr("Discard"))).clicked() {
+                            discard = true;
+                        }
+                    });
+                });
+            if restore {
+                if let Some(recovery) = self.autosave.pending_recovery.take() {
+                    self.apply_recovery(recovery);
+                }
+                self.autosave.show_recovery_prompt = false;
+            }
+            if discard {
+                self.autosave.pending_recovery = None;
+                self.autosave.show_recovery_prompt = false;
+                crate::config::project::ProjectFile::clear_recovery();
+            }
+        }
+
+        // Startup wizard (F43)
+        {
+            let mut wctx = ui::wizard::WizardContext {
+                wizard: &mut self.wizard,
+                language: &mut self.language,
+                machine_profile: &mut self.machine_profile,
+            };
+            let wresult = ui::wizard::show_wizard(ctx, &mut wctx);
+            if wresult.controller_changed {
+                self.sync_controller_backend();
+            }
+            if wresult.finished {
+                self.settings.first_run_done = true;
+                if let Some(p) = self
+                    .profile_store
+                    .profiles
+                    .get_mut(self.profile_store.active_index)
+                {
+                    *p = self.machine_profile.clone();
+                }
+                self.profile_store.save();
+                self.sync_settings();
+                self.log("Setup wizard completed.".into());
+            }
+        }
+
+        // Request repaint for live updates
+        ctx.request_repaint_after(Duration::from_millis(50));
+
+        // Auto-fit after file load
+        if self.needs_auto_fit {
+            if let Some(file) = &self.loaded_file {
+                let rect = ctx.available_rect();
+                let offset = egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y);
+                self.renderer
+                    .auto_fit(&file.segments, rect, offset, self.job_transform.rotation);
+                self.needs_auto_fit = false;
+            }
+        }
+
+        // Sync workspace size from machine profile to renderer
+        self.renderer.workspace_size = egui::vec2(
+            self.machine_profile.workspace_x_mm,
+            self.machine_profile.workspace_y_mm,
+        );
+    }
+
+    fn process_input(&mut self, ctx: &egui::Context) {
+        // Handle keyboard shortcuts (only when no text input is focused)
+        if !ctx.wants_keyboard_input() {
+            self.handle_keyboard(ctx);
+        }
+
+        // Handle drag-and-drop
+        self.handle_file_drop(ctx);
+    }
+
+    fn process_background_updates(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.update_receiver {
+            match rx.try_recv() {
+                Ok(version) => {
+                    self.update_available = Some(version);
+                    self.update_receiver = None; // Stop listening
+                }
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.update_receiver = None; // Stop listening
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => {}
+            }
+        }
+
+        // Poll background LightBurn import
+        if let Some(rx) = &self.lbrn_import_receiver {
+            match rx.try_recv() {
+                Ok(Ok((shapes, layer_overrides, fname))) => {
+                    self.lbrn_import_receiver = None;
+                    self.lbrn_loading_msg = None;
+                    self.drawing_state.shapes = shapes;
+                    for ovr in layer_overrides {
+                        if let Some(layer) = self.layers.iter_mut().find(|l| l.id == ovr.index) {
+                            layer.speed = ovr.speed;
+                            layer.power = ovr.power;
+                            layer.mode = ovr.mode;
+                            layer.passes = ovr.passes;
+                        } else {
+                            self.layers.push(crate::ui::layers_new::CutLayer {
+                                id: ovr.index,
+                                speed: ovr.speed,
+                                power: ovr.power,
+                                mode: ovr.mode,
+                                passes: ovr.passes,
+                                visible: true,
+                                air_assist: false,
+                                z_offset: 0.0,
+                                min_power: 0.0,
+                                fill_interval_mm: 0.1,
+                                fill_bidirectional: true,
+                                fill_overscan_mm: 0.0,
+                                fill_angle_deg: 0.0,
+                                output_order: ovr.index as i32,
+                                lead_in_mm: 0.0,
+                                lead_out_mm: 0.0,
+                                kerf_mm: 0.0,
+                                tab_enabled: false,
+                                tab_spacing: 50.0,
+                                tab_size: 0.5,
+                                perforation_enabled: false,
+                                perforation_cut_mm: 5.0,
+                                perforation_gap_mm: 2.0,
+                                fill_pattern: crate::ui::layers_new::FillPattern::Horizontal,
+                                contour_offset_enabled: false,
+                                contour_offset_count: 3,
+                                contour_offset_step_mm: 0.5,
+                                print_and_cut_marks: false,
+                                spiral_fill_enabled: false,
+                                relief_enabled: false,
+                                relief_max_z_mm: 5.0,
+                                is_construction: false,
+                                pass_offset_mm: 0.0,
+                                exhaust_enabled: false,
+                                exhaust_post_delay_s: 5.0,
+                                ramp_enabled: false,
+                                ramp_length_mm: 5.0,
+                                ramp_start_pct: 20.0,
+                                corner_power_enabled: false,
+                                corner_power_pct: 60.0,
+                                corner_angle_threshold: 90.0,
+                                name: format!("Layer {}", ovr.index),
+                                color: egui::Color32::RED,
+                            });
+                        }
+                    }
+                    // Skip heavy GCode generation here — shapes are already
+                    // visible in the preview. GCode will be generated on-demand
+                    // when the user starts a job or explicitly requests it.
+                    // self.regenerate_drawing_gcode();
+                    self.log(format!(
+                        "LightBurn imported: {fname} ({} shapes)",
+                        self.drawing_state.shapes.len()
+                    ));
+                }
+                Ok(Err(e)) => {
+                    self.lbrn_import_receiver = None;
+                    self.lbrn_loading_msg = None;
+                    self.show_error(e);
+                }
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    self.lbrn_import_receiver = None;
+                    self.lbrn_loading_msg = None;
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => {
+                    // Still loading — request repaint to keep polling
+                    ctx.request_repaint();
+                }
+            }
+        }
+
+        self.poll_camera_stream(ctx);
+
+        // Poll serial
+        self.poll_serial();
+    }
+
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let ports = connection::list_ports();
         let profile_store = MachineProfileStore::load();
@@ -5097,6 +5652,9 @@ impl All4LaserApp {
                 self.import_state = None;
             } else {
                 self.import_state = Some(state);
+                });
+            if self.notify_sound_enabled {
+                crate::ui::sound::play_notification_sound();
             }
         }
     }
@@ -5367,543 +5925,12 @@ impl All4LaserApp {
 
 impl eframe::App for All4LaserApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if let Some(rx) = &self.update_receiver {
-            match rx.try_recv() {
-                Ok(version) => {
-                    self.update_available = Some(version);
-                    self.update_receiver = None; // Stop listening
-                }
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    self.update_receiver = None; // Stop listening
-                }
-                Err(crossbeam_channel::TryRecvError::Empty) => {}
-            }
-        }
-
-        // Poll background LightBurn import
-        if let Some(rx) = &self.lbrn_import_receiver {
-            match rx.try_recv() {
-                Ok(Ok((shapes, layer_overrides, fname))) => {
-                    self.lbrn_import_receiver = None;
-                    self.lbrn_loading_msg = None;
-                    self.drawing_state.shapes = shapes;
-                    for ovr in layer_overrides {
-                        if let Some(layer) = self.layers.iter_mut().find(|l| l.id == ovr.index) {
-                            layer.speed = ovr.speed;
-                            layer.power = ovr.power;
-                            layer.mode = ovr.mode;
-                            layer.passes = ovr.passes;
-                        } else {
-                            self.layers.push(crate::ui::layers_new::CutLayer {
-                                id: ovr.index,
-                                speed: ovr.speed,
-                                power: ovr.power,
-                                mode: ovr.mode,
-                                passes: ovr.passes,
-                                visible: true,
-                                air_assist: false,
-                                z_offset: 0.0,
-                                min_power: 0.0,
-                                fill_interval_mm: 0.1,
-                                fill_bidirectional: true,
-                                fill_overscan_mm: 0.0,
-                                fill_angle_deg: 0.0,
-                                output_order: ovr.index as i32,
-                                lead_in_mm: 0.0,
-                                lead_out_mm: 0.0,
-                                kerf_mm: 0.0,
-                                tab_enabled: false,
-                                tab_spacing: 50.0,
-                                tab_size: 0.5,
-                                perforation_enabled: false,
-                                perforation_cut_mm: 5.0,
-                                perforation_gap_mm: 2.0,
-                                fill_pattern: crate::ui::layers_new::FillPattern::Horizontal,
-                                contour_offset_enabled: false,
-                                contour_offset_count: 3,
-                                contour_offset_step_mm: 0.5,
-                                print_and_cut_marks: false,
-                                spiral_fill_enabled: false,
-                                relief_enabled: false,
-                                relief_max_z_mm: 5.0,
-                                is_construction: false,
-                                pass_offset_mm: 0.0,
-                                exhaust_enabled: false,
-                                exhaust_post_delay_s: 5.0,
-                                ramp_enabled: false,
-                                ramp_length_mm: 5.0,
-                                ramp_start_pct: 20.0,
-                                corner_power_enabled: false,
-                                corner_power_pct: 60.0,
-                                corner_angle_threshold: 90.0,
-                                name: format!("Layer {}", ovr.index),
-                                color: egui::Color32::RED,
-                            });
-                        }
-                    }
-                    // Skip heavy GCode generation here — shapes are already
-                    // visible in the preview. GCode will be generated on-demand
-                    // when the user starts a job or explicitly requests it.
-                    // self.regenerate_drawing_gcode();
-                    self.log(format!("LightBurn imported: {fname} ({} shapes)", self.drawing_state.shapes.len()));
-                }
-                Ok(Err(e)) => {
-                    self.lbrn_import_receiver = None;
-                    self.lbrn_loading_msg = None;
-                    self.show_error(e);
-                }
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    self.lbrn_import_receiver = None;
-                    self.lbrn_loading_msg = None;
-                }
-                Err(crossbeam_channel::TryRecvError::Empty) => {
-                    // Still loading — request repaint to keep polling
-                    ctx.request_repaint();
-                }
-            }
-        }
-
-        self.poll_camera_stream(ctx);
-
-        // Poll serial
-        self.poll_serial();
-
-        // Handle keyboard shortcuts (only when no text input is focused)
-        if !ctx.wants_keyboard_input() {
-            self.handle_keyboard(ctx);
-        }
-
-        // Handle drag-and-drop
-        self.handle_file_drop(ctx);
-
-        // Auto-save (F71)
-        self.perform_autosave();
-
-        // Recovery prompt (F71)
-        if self.autosave.show_recovery_prompt {
-            let mut restore = false;
-            let mut discard = false;
-            egui::Window::new(format!("🔄 {}", crate::i18n::tr("Session Recovery")))
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    ui.label(crate::i18n::tr("A previous session was interrupted. Restore it?"));
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.button(format!("✅ {}", crate::i18n::tr("Restore"))).clicked() {
-                            restore = true;
-                        }
-                        if ui.button(format!("🗑 {}", crate::i18n::tr("Discard"))).clicked() {
-                            discard = true;
-                        }
-                    });
-                });
-            if restore {
-                if let Some(recovery) = self.autosave.pending_recovery.take() {
-                    self.apply_recovery(recovery);
-                }
-                self.autosave.show_recovery_prompt = false;
-            }
-            if discard {
-                self.autosave.pending_recovery = None;
-                self.autosave.show_recovery_prompt = false;
-                crate::config::project::ProjectFile::clear_recovery();
-            }
-        }
-
-        // Startup wizard (F43)
-        {
-            let mut wctx = ui::wizard::WizardContext {
-                wizard: &mut self.wizard,
-                language: &mut self.language,
-                machine_profile: &mut self.machine_profile,
-            };
-            let wresult = ui::wizard::show_wizard(ctx, &mut wctx);
-            if wresult.controller_changed {
-                self.sync_controller_backend();
-            }
-            if wresult.finished {
-                self.settings.first_run_done = true;
-                if let Some(p) = self
-                    .profile_store
-                    .profiles
-                    .get_mut(self.profile_store.active_index)
-                {
-                    *p = self.machine_profile.clone();
-                }
-                self.profile_store.save();
-                self.sync_settings();
-                self.log("Setup wizard completed.".into());
-            }
-        }
-
-        // Request repaint for live updates
-        ctx.request_repaint_after(Duration::from_millis(50));
-
-        // Auto-fit after file load
-        if self.needs_auto_fit {
-            if let Some(file) = &self.loaded_file {
-                let rect = ctx.available_rect();
-                let offset = egui::vec2(self.job_transform.offset_x, self.job_transform.offset_y);
-                self.renderer
-                    .auto_fit(&file.segments, rect, offset, self.job_transform.rotation);
-                self.needs_auto_fit = false;
-            }
-        }
-
-        // Sync workspace size from machine profile to renderer
-        self.renderer.workspace_size = egui::vec2(
-            self.machine_profile.workspace_x_mm,
-            self.machine_profile.workspace_y_mm,
-        );
-
-        // === Error Notification ===
-        // We clone the error first to avoid borrowing `self` in the closure
-        let error_to_show = self.last_error.clone();
-        if let Some(err) = error_to_show {
-            let mut open = true;
-            egui::Window::new("❌ Error")
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    ui.label(egui::RichText::new(err).color(theme::RED));
-                    ui.add_space(8.0);
-                    if ui.button("OK").clicked() {
-                        self.last_error = None;
-                    }
-                });
-            if !open {
-                self.last_error = None;
-            }
-        }
-
-        // === Job Done Notification ===
-        if self.notify_job_done {
-            egui::Window::new("✅ Job Complete")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-                .show(ctx, |ui| {
-                    ui.label(egui::RichText::new("Program finished successfully!").size(16.0));
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.notify_sound_enabled, "🔔 Sound");
-                    });
-                    ui.add_space(4.0);
-                    if ui.button("OK").clicked() {
-                        self.notify_job_done = false;
-                    }
-                });
-            if self.notify_sound_enabled {
-                crate::ui::sound::play_notification_sound();
-            }
-            self.notify_job_done = false;
-        }
-
-        if self.about_open {
-            let mut open = true;
-            let mut close_clicked = false;
-            egui::Window::new("About All4Laser")
-                .open(&mut open)
-                .collapsible(false)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    ui.label(egui::RichText::new("All4Laser").strong().size(20.0));
-                    ui.label("Advanced Laser Control Software");
-                    ui.add_space(8.0);
-                    if ui.button("OK").clicked() {
-                        close_clicked = true;
-                    }
-                });
-            if !open || close_clicked {
-                self.about_open = false;
-            }
-        }
-
-        // === Preflight Modal ===
-        let preflight_action = ui::preflight::show(ctx, &mut self.preflight_state);
-        if preflight_action.proceed {
-            self.preflight_state.bypass = true;
-            self.run_program_with_preflight();
-        }
-
-        // === Handle Settings Modal ===
-        let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
-        let mut settings_write_blocked = false;
-        if let Some(state) = &mut self.settings_state {
-            ui::settings_dialog::show(ctx, state);
-            if !state.is_open {
-                self.settings_state = None;
-            } else {
-                // If there are pending writes, send them
-                if !state.pending_writes.is_empty() {
-                    if !supports_grbl_settings {
-                        settings_write_blocked = true;
-                        state.pending_writes.clear();
-                    } else {
-                        let writes = std::mem::take(&mut state.pending_writes);
-                        for (id, val) in writes {
-                            if id == -1 && val == "$$" {
-                                self.send_command("$$"); // Refresh
-                            } else {
-                                self.send_command(&format!("${}={}", id, val));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if settings_write_blocked {
-            self.log("GRBL settings write not supported by this controller.".into());
-        }
-
-        // === Update Notification ===
-        let mut close_update = false;
-        let mut log_message = None;
-        if let Some(new_version) = &self.update_available {
-            let new_version_str = new_version.clone();
-            egui::Window::new("🎉 Update Available!")
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-10.0, -10.0))
-                .show(ctx, |ui| {
-                    ui.label(format!("A new version ({}) is available.", new_version_str));
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("Download").clicked() {
-                            if let Err(e) = webbrowser::open("https://github.com/arkypita/All4Laser/releases/latest") {
-                                log_message = Some(format!("Failed to open browser: {}", e));
-                            }
-                            close_update = true;
-                        }
-                        if ui.button("Dismiss").clicked() {
-                            close_update = true;
-                        }
-                    });
-                });
-        }
-
-        if let Some(msg) = log_message {
-            self.log(msg);
-        }
-
-        if close_update {
-            self.update_available = None;
-        }
-
-        // Tool windows dispatch
-        self.update_tool_windows(ctx);
-
-        // Import modal
-        self.update_import_modal(ctx);
-
-        // Modals dispatch (cut settings, GRBL settings)
-        self.update_modals(ctx);
-
-        // === TOP: Toolbar ===
-        let is_connected = self.is_connected();
-        let is_running = self.running;
-        let is_light = self.light_mode;
-        let caps = self.controller_capabilities();
-
-        let mut menu_actions = ui::toolbar::ToolbarAction::default();
-        if self.ui_theme == theme::UiTheme::Industrial || self.ui_theme == theme::UiTheme::Pro {
-            TopBottomPanel::top("menu_bar_panel").show(ctx, |ui| {
-                menu_actions = ui::toolbar::show_menu_bar(
-                    ui,
-                    &self.recent_files,
-                    self.loaded_file.is_some(),
-                    !self.drawing_state.shapes.is_empty(),
-                    self.beginner_mode,
-                    self.light_mode,
-                    caps,
-                );
-            });
-        }
-
-        TopBottomPanel::top("toolbar").show(ctx, |ui| {
-            ui.add_space(4.0);
-            let has_file = self.loaded_file.is_some();
-            let has_shapes = !self.drawing_state.shapes.is_empty();
-            let mut actions = ui::toolbar::show(
-                ui,
-                is_connected,
-                is_running,
-                is_light,
-                self.beginner_mode,
-                self.framing_active,
-                &self.recent_files,
-                has_file,
-                has_shapes,
-                caps,
-            );
-            actions.merge(menu_actions);
-            ui.add_space(4.0);
-
-            self.handle_toolbar_actions(ctx, actions);
-        });
-
-        // === BOTTOM: Progress bar + Status bar ===
-        TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            if self.running && !self.program_lines.is_empty() {
-                let progress = self.program_index as f32 / self.program_lines.len() as f32;
-                let bar = egui::ProgressBar::new(progress).text(format!(
-                    "{}/{}",
-                    self.program_index,
-                    self.program_lines.len()
-                ));
-                ui.add(bar);
-                ui.add_space(4.0);
-            }
-
-            let file_info = self
-                .loaded_file
-                .as_ref()
-                .map(|f| (f.filename.as_str(), f.line_count(), f.estimated_time));
-            let progress = if self.running {
-                Some((self.program_index, self.program_lines.len()))
-            } else {
-                None
-            };
-
-            ui.add_space(4.0);
-            let cost = if self.estimation.total_burn_mm > 0.0 {
-                let time_hours = self
-                    .loaded_file
-                    .as_ref()
-                    .map(|f| f.estimated_time.as_secs_f32() / 3600.0)
-                    .unwrap_or(0.0);
-                Some((
-                    time_hours * self.settings.cost_per_hour,
-                    self.settings.cost_currency.as_str(),
-                ))
-            } else {
-                None
-            };
-            let sb_actions = ui::status_bar::show(
-                ui,
-                &self.grbl_state,
-                file_info,
-                progress,
-                caps,
-                self.display_unit,
-                self.speed_unit,
-                cost,
-            );
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(4.0);
-
-            // Palette
-            let pal_action = ui::cut_palette::show(ui, &self.layers, self.active_layer_idx);
-            if let Some(idx) = pal_action.select_layer {
-                self.assign_selected_shapes_to_layer(idx);
-                self.active_layer_idx = idx;
-                // Automatically set drawing tool to this layer
-                self.drawing_state.current.layer_idx = idx;
-            }
-            if let Some(idx) = pal_action.open_settings {
-                self.cut_settings_state.editing_layer_idx = Some(idx);
-                self.cut_settings_state.is_open = true;
-            }
-
-            if sb_actions.feed_up {
-                self.send_realtime_or_warn(RealtimeCommand::FeedOverridePlus10, "Feed override");
-            }
-            if sb_actions.feed_down {
-                self.send_realtime_or_warn(RealtimeCommand::FeedOverrideMinus10, "Feed override");
-            }
-            if sb_actions.rapid_up {
-                self.send_realtime_or_warn(RealtimeCommand::RapidOverride100, "Rapid override");
-            }
-            if sb_actions.rapid_down {
-                self.send_realtime_or_warn(RealtimeCommand::RapidOverride25, "Rapid override");
-            }
-            if sb_actions.spindle_up {
-                self.send_realtime_or_warn(
-                    RealtimeCommand::SpindleOverridePlus10,
-                    "Laser power override",
-                );
-            }
-            if sb_actions.spindle_down {
-                self.send_realtime_or_warn(
-                    RealtimeCommand::SpindleOverrideMinus10,
-                    "Laser power override",
-                );
-            }
-            if sb_actions.toggle_unit {
-                use crate::config::settings::DisplayUnit;
-                self.display_unit = match self.display_unit {
-                    DisplayUnit::Millimeters => DisplayUnit::Inches,
-                    DisplayUnit::Inches => DisplayUnit::Millimeters,
-                };
-                self.sync_settings();
-            }
-            if sb_actions.toggle_speed_unit {
-                self.speed_unit = self.speed_unit.toggle();
-                self.sync_settings();
-            }
-        });
-
-        // === LEFT: Control panels ===
-        let connected = self.is_connected();
-        // === LEFT SIDEBAR ===
-        let left_panel_width = match self.ui_layout {
-            theme::UiLayout::Modern => LEFT_PANEL_WIDTH,
-            theme::UiLayout::Pro => 300.0,
-            theme::UiLayout::Classic => 220.0,
-        };
-        SidePanel::left("left_panel")
-            .resizable(true)
-            .default_width(left_panel_width)
-            .width_range(120.0..=600.0)
-            .show(ctx, |ui| {
-                egui::ScrollArea::both()
-                    .id_salt("left_scroll")
-                    .auto_shrink([true, false])
-                    .show(ui, |ui| {
-                        if self.ui_layout == theme::UiLayout::Classic {
-                            self.ui_left_tools_classic(ui);
-                        } else {
-                            self.ui_left_content(ui, connected);
-                        }
-                    });
-            });
-
-        // === RIGHT SIDEBAR ===
-        let right_panel_width = match self.ui_layout {
-            theme::UiLayout::Modern => 220.0,
-            theme::UiLayout::Pro => 280.0,
-            theme::UiLayout::Classic => 340.0,
-        };
-        SidePanel::right("right_panel")
-            .resizable(true)
-            .default_width(right_panel_width)
-            .width_range(120.0..=600.0)
-            .show(ctx, |ui| {
-                if self.ui_layout == theme::UiLayout::Modern {
-                    self.ui_right_content(ui);
-                } else {
-                    // Pro and Classic use the Tabbed interface on the right
-                    self.ui_right_tabs(ui, connected);
-                }
-            });
-
-        // === BOTTOM PANEL (Pro Layout Only) ===
-        if self.ui_layout == theme::UiLayout::Pro {
-            egui::TopBottomPanel::bottom("bottom_console_panel")
-                .resizable(true)
-                .default_height(150.0)
-                .show(ctx, |ui| {
-                    self.ui_right_content(ui);
-                });
-        }
-
-        // === CENTER: Preview ===
-        self.update_preview(ctx);
+        self.process_background_updates(ctx);
+        self.process_input(ctx);
+        self.process_session_lifecycle(ctx);
+        self.process_notifications(ctx);
+        self.process_modals(ctx);
+        self.render_ui_layout(ctx);
     }
 }
 
