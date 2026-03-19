@@ -147,6 +147,183 @@ impl ToolbarAction {
     }
 }
 
+fn ui_menu_item(ui: &mut Ui, label: String, action: &mut bool) {
+    if ui.button(label).clicked() {
+        *action = true;
+        ui.close_menu();
+    }
+}
+
+fn ui_menu_item_enabled(ui: &mut Ui, enabled: bool, label: String, action: &mut bool) {
+    if ui
+        .add_enabled(enabled, egui::Button::new(label))
+        .clicked()
+    {
+        *action = true;
+        ui.close_menu();
+    }
+}
+
+fn build_recent_files_menu(ui: &mut Ui, recent: &RecentFiles, open_recent: &mut Option<String>) {
+    if recent.paths.is_empty() {
+        ui.label(tr("No recent files"));
+    } else {
+        for path in &recent.paths {
+            let display = std::path::Path::new(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(path);
+            if ui.selectable_label(false, display).clicked() {
+                *open_recent = Some(path.clone());
+                ui.close_menu();
+            }
+        }
+    }
+}
+
+fn build_language_items(ui: &mut Ui, set_language: &mut Option<Language>) {
+    let current_lang = i18n::get_language();
+    let langs = [
+        Language::English,
+        Language::French,
+        Language::Japanese,
+        Language::German,
+        Language::Italian,
+        Language::Arabic,
+        Language::Spanish,
+        Language::Portuguese,
+    ];
+    for lang in langs {
+        if ui
+            .selectable_label(current_lang == lang, lang.name())
+            .clicked()
+        {
+            *set_language = Some(lang);
+            ui.close_menu();
+        }
+    }
+}
+
+fn build_view_menu_contents(
+    ui: &mut Ui,
+    action: &mut ToolbarAction,
+    beginner_mode: bool,
+    light_mode: bool,
+) {
+    ui.label(RichText::new(format!("{}:", tr("Theme"))).strong());
+    if ui
+        .selectable_label(false, tr("Modern (recommended)"))
+        .clicked()
+    {
+        action.set_theme = Some(theme::UiTheme::Modern);
+        ui.close_menu();
+    }
+    if ui.selectable_label(false, tr("Pro (new)")).clicked() {
+        action.set_theme = Some(theme::UiTheme::Pro);
+        ui.close_menu();
+    }
+    if ui
+        .selectable_label(false, tr("Industrial (advanced)"))
+        .clicked()
+    {
+        action.set_theme = Some(theme::UiTheme::Industrial);
+        ui.close_menu();
+    }
+
+    ui.separator();
+    ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());
+    if ui
+        .selectable_label(false, tr("Modern layout (simple)"))
+        .clicked()
+    {
+        action.set_layout = Some(theme::UiLayout::Modern);
+        ui.close_menu();
+    }
+    if ui
+        .selectable_label(false, tr("Pro layout (aesthetic & practical)"))
+        .clicked()
+    {
+        action.set_layout = Some(theme::UiLayout::Pro);
+        ui.close_menu();
+    }
+    if ui
+        .selectable_label(false, tr("Classic layout (expert)"))
+        .clicked()
+    {
+        action.set_layout = Some(theme::UiLayout::Classic);
+        ui.close_menu();
+    }
+
+    ui.separator();
+    let beginner_label = if beginner_mode {
+        format!("✅ {}", tr("Beginner Mode"))
+    } else {
+        tr("Beginner Mode")
+    };
+    if ui.selectable_label(beginner_mode, beginner_label).clicked() {
+        action.toggle_beginner_mode = true;
+        ui.close_menu();
+    }
+
+    ui.separator();
+    ui.label(RichText::new(format!("{}:", tr("Language"))).strong());
+    build_language_items(ui, &mut action.set_language);
+
+    ui.separator();
+    let theme_toggle_label = if light_mode {
+        format!("🌙 {}", tr("Dark UI"))
+    } else {
+        format!("☀ {}", tr("Light UI"))
+    };
+    if ui.button(theme_toggle_label).clicked() {
+        action.toggle_light_mode = true;
+        ui.close_menu();
+    }
+}
+
+fn build_tools_menu_contents(
+    ui: &mut Ui,
+    action: &mut ToolbarAction,
+    has_file: bool,
+    has_shapes: bool,
+    caps: &ControllerCapabilities,
+) {
+    ui_menu_item(ui, format!("⊞ {}", tr("Power/Speed Test")), &mut action.open_power_speed_test);
+    ui_menu_item(ui, format!("🔥 {}", tr("Test Fire")), &mut action.open_test_fire);
+    ui.separator();
+    ui_menu_item_enabled(ui, has_file, format!("📝 {}", tr("GCode Editor")), &mut action.open_gcode_editor);
+    ui_menu_item_enabled(ui, has_file, format!("⊟ {}", tr("Tiling")), &mut action.open_tiling);
+    ui_menu_item_enabled(ui, has_shapes, format!("🧩 {}", tr("Auto Nesting")), &mut action.open_nesting);
+    ui_menu_item_enabled(ui, has_file, format!("📚 {}", tr("Job Queue")), &mut action.open_job_queue);
+    ui_menu_item(ui, format!("⌨ {}", tr("Shortcuts")), &mut action.open_shortcuts);
+
+    ui.separator();
+    if ui.button(format!("💾 {}", tr("Save Layer Template"))).on_hover_text(tr("Save Layer Template")).clicked() {
+        action.save_job_template = true;
+        ui.close_menu();
+    }
+    if ui.button(format!("📂 {}", tr("Load Layer Template"))).on_hover_text(tr("Load Layer Template")).clicked() {
+        action.load_job_template = true;
+        ui.close_menu();
+    }
+    ui.separator();
+    ui_menu_item_enabled(ui, caps.supports_grbl_settings, format!("⚙ {}", tr("Settings")), &mut action.open_settings);
+}
+
+fn build_project_export_items(
+    ui: &mut Ui,
+    action: &mut ToolbarAction,
+    has_file: bool,
+    has_shapes: bool,
+) {
+    ui_menu_item(ui, format!("📂 {} (.a4l)", tr("Open Project")), &mut action.open_project);
+    ui_menu_item_enabled(ui, has_file, format!("💾 {} (.a4l)", tr("Save Project")), &mut action.save_project);
+    ui.separator();
+    ui_menu_item_enabled(ui, has_shapes, "📤 Export .lbrn2".to_string(), &mut action.export_lbrn2);
+    ui_menu_item_enabled(ui, has_shapes, "📤 Export .svg".to_string(), &mut action.export_svg);
+    ui_menu_item_enabled(ui, has_file, format!("📊 {}", tr("Export Job Report")), &mut action.export_job_report);
+}
+
 pub fn show(
     ui: &mut Ui,
     connected: bool,
@@ -198,20 +375,7 @@ pub fn show(
         // Recent files dropdown
         egui::menu::menu_button(ui, "▾", |ui| {
             ui.set_min_width(280.0);
-            if recent.paths.is_empty() {
-                ui.label(tr("No recent files"));
-            } else {
-                for path in &recent.paths {
-                    let display = std::path::Path::new(path)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(path);
-                    if ui.selectable_label(false, display).clicked() {
-                        action.open_recent = Some(path.clone());
-                        ui.close_menu();
-                    }
-                }
-            }
+            build_recent_files_menu(ui, recent, &mut action.open_recent);
         })
         .response
         .on_hover_text(tr("Recent Files"));
@@ -226,39 +390,7 @@ pub fn show(
 
         // Project menu
         egui::menu::menu_button(ui, label("📁", &tr("Project")), |ui| {
-            if ui.button(format!("📂 {} (.a4l)", tr("Open Project"))).clicked() {
-                action.open_project = true;
-                ui.close_menu();
-            }
-            if ui
-                .add_enabled(has_file, egui::Button::new(format!("💾 {} (.a4l)", tr("Save Project"))))
-                .clicked()
-            {
-                action.save_project = true;
-                ui.close_menu();
-            }
-            ui.separator();
-            if ui
-                .add_enabled(has_shapes, egui::Button::new("📤 Export .lbrn2"))
-                .clicked()
-            {
-                action.export_lbrn2 = true;
-                ui.close_menu();
-            }
-            if ui
-                .add_enabled(has_shapes, egui::Button::new("📤 Export .svg"))
-                .clicked()
-            {
-                action.export_svg = true;
-                ui.close_menu();
-            }
-            if ui
-                .add_enabled(has_file, egui::Button::new(format!("📊 {}", tr("Export Job Report"))))
-                .clicked()
-            {
-                action.export_job_report = true;
-                ui.close_menu();
-            }
+            build_project_export_items(ui, &mut action, has_file, has_shapes);
         });
 
         ui.separator();
@@ -396,128 +528,12 @@ pub fn show(
 
         // View menu
         egui::menu::menu_button(ui, label("👁", &tr("View")), |ui| {
-            ui.label(RichText::new(format!("{}:", tr("Theme"))).strong());
-            if ui
-                .selectable_label(false, tr("Modern (recommended)"))
-                .clicked()
-            {
-                action.set_theme = Some(theme::UiTheme::Modern);
-                ui.close_menu();
-            }
-            if ui.selectable_label(false, tr("Pro (new)")).clicked() {
-                action.set_theme = Some(theme::UiTheme::Pro);
-                ui.close_menu();
-            }
-            if ui
-                .selectable_label(false, tr("Industrial (advanced)"))
-                .clicked()
-            {
-                action.set_theme = Some(theme::UiTheme::Industrial);
-                ui.close_menu();
-            }
-
-            ui.separator();
-            ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());
-            if ui
-                .selectable_label(false, tr("Modern layout (simple)"))
-                .clicked()
-            {
-                action.set_layout = Some(theme::UiLayout::Modern);
-                ui.close_menu();
-            }
-            if ui
-                .selectable_label(false, tr("Pro layout (aesthetic & practical)"))
-                .clicked()
-            {
-                action.set_layout = Some(theme::UiLayout::Pro);
-                ui.close_menu();
-            }
-            if ui
-                .selectable_label(false, tr("Classic layout (expert)"))
-                .clicked()
-            {
-                action.set_layout = Some(theme::UiLayout::Classic);
-                ui.close_menu();
-            }
-
-            ui.separator();
-            let beginner_label = if beginner_mode {
-                format!("✅ {}", tr("Beginner Mode"))
-            } else {
-                tr("Beginner Mode")
-            };
-            if ui.selectable_label(beginner_mode, beginner_label).clicked() {
-                action.toggle_beginner_mode = true;
-                ui.close_menu();
-            }
-
-            ui.separator();
-            ui.label(RichText::new(format!("{}:", tr("Language"))).strong());
-            let current_lang = i18n::get_language();
-            let langs = [
-                Language::English,
-                Language::French,
-                Language::Japanese,
-                Language::German,
-                Language::Italian,
-                Language::Arabic,
-                Language::Spanish,
-                Language::Portuguese,
-            ];
-            for lang in langs {
-                if ui
-                    .selectable_label(current_lang == lang, lang.name())
-                    .clicked()
-                {
-                    action.set_language = Some(lang);
-                    ui.close_menu();
-                }
-            }
+            build_view_menu_contents(ui, &mut action, beginner_mode, light_mode);
         });
 
         // Tools menu
         egui::menu::menu_button(ui, label("🔧", &tr("Tools")), |ui| {
-            if ui.button(format!("⊞ {}", tr("Power/Speed Test"))).clicked() {
-                action.open_power_speed_test = true;
-                ui.close_menu();
-            }
-            if ui.button(format!("🔥 {}", tr("Test Fire"))).clicked() {
-                action.open_test_fire = true;
-                ui.close_menu();
-            }
-            ui.separator();
-            if ui
-                .add_enabled(has_file, egui::Button::new(format!("📝 {}", tr("GCode Editor"))))
-                .clicked()
-            {
-                action.open_gcode_editor = true;
-                ui.close_menu();
-            }
-            if ui
-                .add_enabled(has_file, egui::Button::new(format!("⊟ {}", tr("Tiling"))))
-                .clicked()
-            {
-                action.open_tiling = true;
-                ui.close_menu();
-            }
-            if ui
-                .add_enabled(has_shapes, egui::Button::new(format!("🧩 {}", tr("Auto Nesting"))))
-                .clicked()
-            {
-                action.open_nesting = true;
-                ui.close_menu();
-            }
-            if ui
-                .add_enabled(has_file, egui::Button::new(format!("📚 {}", tr("Job Queue"))))
-                .clicked()
-            {
-                action.open_job_queue = true;
-                ui.close_menu();
-            }
-            if ui.button(format!("⌨ {}", tr("Shortcuts"))).clicked() {
-                action.open_shortcuts = true;
-                ui.close_menu();
-            }
+            build_tools_menu_contents(ui, &mut action, has_file, has_shapes, &caps);
         });
 
         ui.separator();
@@ -556,86 +572,23 @@ fn build_file_menu(
     has_shapes: bool,
 ) {
     ui.menu_button(format!("📂 {}", tr("File")), |ui| {
-        if ui.button(format!("📂 {}", tr("Open"))).clicked() {
-            action.open_file = true;
-            ui.close_menu();
-        }
+        ui_menu_item(ui, format!("📂 {}", tr("Open")), &mut action.open_file);
         ui.menu_button(format!("▾ {}", tr("Recent Files")), |ui| {
-            if recent.paths.is_empty() {
-                ui.label(tr("No recent files"));
-            } else {
-                for path in &recent.paths {
-                    let display = std::path::Path::new(path)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(path);
-                    if ui.selectable_label(false, display).clicked() {
-                        action.open_recent = Some(path.clone());
-                        ui.close_menu();
-                    }
-                }
-            }
+            build_recent_files_menu(ui, recent, &mut action.open_recent);
         });
-        if ui.button(format!("💾 {}", tr("Save"))).clicked() {
-            action.save_file = true;
-            ui.close_menu();
-        }
+        ui_menu_item(ui, format!("💾 {}", tr("Save")), &mut action.save_file);
         ui.separator();
-        if ui.button(format!("📂 {} (.a4l)", tr("Open Project"))).clicked() {
-            action.open_project = true;
-            ui.close_menu();
-        }
-        if ui
-            .add_enabled(has_file, egui::Button::new(format!("💾 {} (.a4l)", tr("Save Project"))))
-            .clicked()
-        {
-            action.save_project = true;
-            ui.close_menu();
-        }
-        ui.separator();
-        if ui
-            .add_enabled(has_shapes, egui::Button::new("📤 Export .lbrn2"))
-            .clicked()
-        {
-            action.export_lbrn2 = true;
-            ui.close_menu();
-        }
-        if ui
-            .add_enabled(has_shapes, egui::Button::new("📤 Export .svg"))
-            .clicked()
-        {
-            action.export_svg = true;
-            ui.close_menu();
-        }
-        if ui
-            .add_enabled(has_file, egui::Button::new(format!("📊 {}", tr("Export Job Report"))))
-            .clicked()
-        {
-            action.export_job_report = true;
-            ui.close_menu();
-        }
+        build_project_export_items(ui, &mut action, has_file, has_shapes);
     });
 }
 
 fn build_edit_menu(ui: &mut Ui, action: &mut ToolbarAction) {
     ui.menu_button(format!("✏ {}", tr("Edit")), |ui| {
-        if ui.button(format!("↶ {}", tr("Undo"))).clicked() {
-            action.undo = true;
-            ui.close_menu();
-        }
-        if ui.button(format!("↷ {}", tr("Redo"))).clicked() {
-            action.redo = true;
-            ui.close_menu();
-        }
+        ui_menu_item(ui, format!("↶ {}", tr("Undo")), &mut action.undo);
+        ui_menu_item(ui, format!("↷ {}", tr("Redo")), &mut action.redo);
         ui.separator();
-        if ui.button(format!("🔍 {}", tr("Zoom In"))).clicked() {
-            action.zoom_in = true;
-            ui.close_menu();
-        }
-        if ui.button(format!("🔎 {}", tr("Zoom Out"))).clicked() {
-            action.zoom_out = true;
-            ui.close_menu();
-        }
+        ui_menu_item(ui, format!("🔍 {}", tr("Zoom In")), &mut action.zoom_in);
+        ui_menu_item(ui, format!("🔎 {}", tr("Zoom Out")), &mut action.zoom_out);
     });
 }
 
@@ -646,94 +599,7 @@ fn build_view_menu(
     light_mode: bool,
 ) {
     ui.menu_button(format!("👁 {}", tr("View")), |ui| {
-        ui.label(RichText::new(format!("{}:", tr("Theme"))).strong());
-        if ui
-            .selectable_label(false, tr("Modern (recommended)"))
-            .clicked()
-        {
-            action.set_theme = Some(theme::UiTheme::Modern);
-            ui.close_menu();
-        }
-        if ui.selectable_label(false, tr("Pro (new)")).clicked() {
-            action.set_theme = Some(theme::UiTheme::Pro);
-            ui.close_menu();
-        }
-        if ui
-            .selectable_label(false, tr("Industrial (advanced)"))
-            .clicked()
-        {
-            action.set_theme = Some(theme::UiTheme::Industrial);
-            ui.close_menu();
-        }
-
-        ui.separator();
-        ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());
-        if ui
-            .selectable_label(false, tr("Modern layout (simple)"))
-            .clicked()
-        {
-            action.set_layout = Some(theme::UiLayout::Modern);
-            ui.close_menu();
-        }
-        if ui
-            .selectable_label(false, tr("Pro layout (aesthetic & practical)"))
-            .clicked()
-        {
-            action.set_layout = Some(theme::UiLayout::Pro);
-            ui.close_menu();
-        }
-        if ui
-            .selectable_label(false, tr("Classic layout (expert)"))
-            .clicked()
-        {
-            action.set_layout = Some(theme::UiLayout::Classic);
-            ui.close_menu();
-        }
-
-        ui.separator();
-        let beginner_label = if beginner_mode {
-            format!("✅ {}", tr("Beginner Mode"))
-        } else {
-            tr("Beginner Mode")
-        };
-        if ui.selectable_label(beginner_mode, beginner_label).clicked() {
-            action.toggle_beginner_mode = true;
-            ui.close_menu();
-        }
-
-        ui.separator();
-        ui.label(RichText::new(format!("{}:", tr("Language"))).strong());
-        let current_lang = i18n::get_language();
-        let langs = [
-            Language::English,
-            Language::French,
-            Language::Japanese,
-            Language::German,
-            Language::Italian,
-            Language::Arabic,
-            Language::Spanish,
-            Language::Portuguese,
-        ];
-        for lang in langs {
-            if ui
-                .selectable_label(current_lang == lang, lang.name())
-                .clicked()
-            {
-                action.set_language = Some(lang);
-                ui.close_menu();
-            }
-        }
-
-        ui.separator();
-        let theme_toggle_label = if light_mode {
-            format!("🌙 {}", tr("Dark UI"))
-        } else {
-            format!("☀ {}", tr("Light UI"))
-        };
-        if ui.button(theme_toggle_label).clicked() {
-            action.toggle_light_mode = true;
-            ui.close_menu();
-        }
+        build_view_menu_contents(ui, action, beginner_mode, light_mode);
     });
 }
 
@@ -745,81 +611,19 @@ fn build_tools_menu(
     caps: ControllerCapabilities,
 ) {
     ui.menu_button(format!("🔧 {}", tr("Tools")), |ui| {
-        if ui.button(format!("⊞ {}", tr("Power/Speed Test"))).clicked() {
-            action.open_power_speed_test = true;
-            ui.close_menu();
-        }
-        if ui.button(format!("🔥 {}", tr("Test Fire"))).clicked() {
-            action.open_test_fire = true;
-            ui.close_menu();
-        }
-        ui.separator();
-        if ui
-            .add_enabled(has_file, egui::Button::new(format!("📝 {}", tr("GCode Editor"))))
-            .clicked()
-        {
-            action.open_gcode_editor = true;
-            ui.close_menu();
-        }
-        if ui
-            .add_enabled(has_file, egui::Button::new(format!("⊟ {}", tr("Tiling"))))
-            .clicked()
-        {
-            action.open_tiling = true;
-            ui.close_menu();
-        }
-        if ui
-            .add_enabled(has_shapes, egui::Button::new(format!("🧩 {}", tr("Auto Nesting"))))
-            .clicked()
-        {
-            action.open_nesting = true;
-            ui.close_menu();
-        }
-        if ui
-            .add_enabled(has_file, egui::Button::new(format!("📚 {}", tr("Job Queue"))))
-            .clicked()
-        {
-            action.open_job_queue = true;
-            ui.close_menu();
-        }
-        if ui.button(format!("⌨ {}", tr("Shortcuts"))).clicked() {
-            action.open_shortcuts = true;
-            ui.close_menu();
-        }
-        ui.separator();
-        if ui.button(format!("💾 {}", tr("Save Layer Template"))).on_hover_text(tr("Save Layer Template")).clicked() {
-            action.save_job_template = true;
-            ui.close_menu();
-        }
-        if ui.button(format!("📂 {}", tr("Load Layer Template"))).on_hover_text(tr("Load Layer Template")).clicked() {
-            action.load_job_template = true;
-            ui.close_menu();
-        }
-        ui.separator();
-        if ui
-            .add_enabled(
-                caps.supports_grbl_settings,
-                egui::Button::new(format!("⚙ {}", tr("Settings"))),
-            )
-            .clicked()
-        {
-            action.open_settings = true;
-            ui.close_menu();
-        }
+        build_tools_menu_contents(ui, action, has_file, has_shapes, &caps);
     });
 }
 
 fn build_help_menu(ui: &mut Ui, action: &mut ToolbarAction) {
     ui.menu_button(format!("ℹ {}", tr("Help")), |ui| {
-        if ui.button(format!("ℹ {}", tr("About"))).clicked() {
-            action.open_about = true;
-            ui.close_menu();
-        }
+        ui_menu_item(ui, format!("ℹ {}", tr("About")), &mut action.open_about);
     });
 }
 
 pub fn show_menu_bar(
     ui: &mut Ui,
+    action: &mut ToolbarAction,
     recent: &RecentFiles,
     has_file: bool,
     has_shapes: bool,
