@@ -578,7 +578,7 @@ fn build_file_menu(
         });
         ui_menu_item(ui, format!("💾 {}", tr("Save")), &mut action.save_file);
         ui.separator();
-        build_project_export_items(ui, &mut action, has_file, has_shapes);
+        build_project_export_items(ui, action, has_file, has_shapes);
     });
 }
 
@@ -623,7 +623,6 @@ fn build_help_menu(ui: &mut Ui, action: &mut ToolbarAction) {
 
 pub fn show_menu_bar(
     ui: &mut Ui,
-    action: &mut ToolbarAction,
     recent: &RecentFiles,
     has_file: bool,
     has_shapes: bool,
