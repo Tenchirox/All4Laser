@@ -1156,26 +1156,12 @@ impl PreviewRenderer {
         camera_state: &crate::ui::camera::CameraState,
         camera_pick_active: bool,
     ) -> InteractiveAction {
-        let mut action = InteractiveAction::None;
-
-        // ── Middle mouse button: ALWAYS pan, regardless of selection ──
-        if response.dragged_by(egui::PointerButton::Middle) {
-            let delta = response.drag_delta();
-            self.pan += delta;
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-            return action;
+        if self.handle_pan(ui, response) {
+            return InteractiveAction::None;
         }
 
         if let Some(hover) = response.hover_pos() {
-            // Zoom logic (scroll wheel)
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-            if scroll != 0.0 {
-                let old_zoom = self.zoom;
-                let factor = if scroll > 0.0 { 1.1 } else { 1.0 / 1.1 };
-                self.zoom = (self.zoom * factor).clamp(0.01, 10000.0);
-                self.pan.x = hover.x - (hover.x - self.pan.x) * (self.zoom / old_zoom);
-                self.pan.y = hover.y - (hover.y - self.pan.y) * (self.zoom / old_zoom);
-            }
+            self.handle_zoom(ui, hover);
 
             // Convert screen hover to world
             let wx = (hover.x - self.pan.x) / self.zoom;
@@ -1195,22 +1181,18 @@ impl PreviewRenderer {
             // ── Measurement tool (F50): intercept clicks before selection ──
             if self.measure_mode {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-            }
-            if self.measure_mode && response.clicked_by(egui::PointerButton::Primary) {
-                if self.measure_start.is_none() {
-                    self.measure_start = Some((wx, wy));
-                } else if self.measure_end.is_none() {
-                    self.measure_end = Some((wx, wy));
-                } else {
-                    // Third click: start a new measurement
-                    self.measure_start = Some((wx, wy));
-                    self.measure_end = None;
+                if response.clicked_by(egui::PointerButton::Primary) {
+                    if self.measure_start.is_none() {
+                        self.measure_start = Some((wx, wy));
+                    } else if self.measure_end.is_none() {
+                        self.measure_end = Some((wx, wy));
+                    } else {
+                        // Third click: start a new measurement
+                        self.measure_start = Some((wx, wy));
+                        self.measure_end = None;
+                    }
+                    return InteractiveAction::None;
                 }
-                return action;
-            }
-
-            if response.clicked_by(egui::PointerButton::Secondary) {
-                // Right click actions could be handled here or returned as a new InteractiveAction type later
             }
 
             // 1. Detect Hover
@@ -1221,175 +1203,236 @@ impl PreviewRenderer {
                 }
             }
 
-            // 2. Left-click/Drag Selection Logic
-            if response.drag_started_by(egui::PointerButton::Primary) {
-                if self.node_edit_mode {
-                    if let Some((shape_idx, node_idx)) = self.selected_node {
-                        if let Some(shape) = shapes.get(shape_idx) {
-                            if let ShapeKind::Path(pts) = &shape.shape {
-                                let angle = shape.rotation.to_radians();
-                                let (sin_a, cos_a) = angle.sin_cos();
+            let action = self.handle_click_selection(ui, response, wx, wy, shapes, is_multi);
+            if !matches!(action, InteractiveAction::None) {
+                return action;
+            }
+        }
 
-                                if node_idx > 0 {
-                                    let p = pts[node_idx - 1];
-                                    let hp = Pos2::new(
-                                        shape.x + p.0 * cos_a - p.1 * sin_a,
-                                        shape.y + p.0 * sin_a + p.1 * cos_a,
-                                    );
-                                    if hp.distance(Pos2::new(wx, wy)) <= 6.0 / self.zoom {
-                                        self.dragging_node_handle =
-                                            Some((shape_idx, node_idx, NodeHandleKind::In));
-                                    }
+        let action = self.handle_drag_logic(ui, response, shapes);
+
+        // Set cursor
+        if self.hover_shape_idx.is_some() || self.dragging_rotation.is_some() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+
+        action
+    }
+
+    fn handle_zoom(&mut self, ui: &egui::Ui, hover: Pos2) {
+        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+        if scroll != 0.0 {
+            let old_zoom = self.zoom;
+            let factor = if scroll > 0.0 { 1.1 } else { 1.0 / 1.1 };
+            self.zoom = (self.zoom * factor).clamp(0.01, 10000.0);
+            self.pan.x = hover.x - (hover.x - self.pan.x) * (self.zoom / old_zoom);
+            self.pan.y = hover.y - (hover.y - self.pan.y) * (self.zoom / old_zoom);
+        }
+    }
+
+    fn handle_pan(&mut self, ui: &egui::Ui, response: &egui::Response) -> bool {
+        // ── Middle mouse button: ALWAYS pan, regardless of selection ──
+        if response.dragged_by(egui::PointerButton::Middle) {
+            let delta = response.drag_delta();
+            self.pan += delta;
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            return true;
+        }
+
+        // ── Left-drag on empty space also pans ──
+        if response.dragged_by(egui::PointerButton::Primary) && self._drag_start.is_some() {
+            let delta = response.drag_delta();
+            self.pan += delta;
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            return true;
+        }
+
+        false
+    }
+
+    fn handle_click_selection(
+        &mut self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        wx: f32,
+        wy: f32,
+        shapes: &[ShapeParams],
+        is_multi: bool,
+    ) -> InteractiveAction {
+        // 2. Left-click/Drag Selection Logic
+        if response.drag_started_by(egui::PointerButton::Primary) {
+            if self.node_edit_mode {
+                if let Some((shape_idx, node_idx)) = self.selected_node {
+                    if let Some(shape) = shapes.get(shape_idx) {
+                        if let ShapeKind::Path(pts) = &shape.shape {
+                            let angle = shape.rotation.to_radians();
+                            let (sin_a, cos_a) = angle.sin_cos();
+
+                            if node_idx > 0 {
+                                let p = pts[node_idx - 1];
+                                let hp = Pos2::new(
+                                    shape.x + p.0 * cos_a - p.1 * sin_a,
+                                    shape.y + p.0 * sin_a + p.1 * cos_a,
+                                );
+                                if hp.distance(Pos2::new(wx, wy)) <= 6.0 / self.zoom {
+                                    self.dragging_node_handle =
+                                        Some((shape_idx, node_idx, NodeHandleKind::In));
                                 }
-                                if self.dragging_node_handle.is_none() && node_idx + 1 < pts.len() {
-                                    let p = pts[node_idx + 1];
-                                    let hp = Pos2::new(
-                                        shape.x + p.0 * cos_a - p.1 * sin_a,
-                                        shape.y + p.0 * sin_a + p.1 * cos_a,
-                                    );
-                                    if hp.distance(Pos2::new(wx, wy)) <= 6.0 / self.zoom {
-                                        self.dragging_node_handle =
-                                            Some((shape_idx, node_idx, NodeHandleKind::Out));
-                                    }
+                            }
+                            if self.dragging_node_handle.is_none() && node_idx + 1 < pts.len() {
+                                let p = pts[node_idx + 1];
+                                let hp = Pos2::new(
+                                    shape.x + p.0 * cos_a - p.1 * sin_a,
+                                    shape.y + p.0 * sin_a + p.1 * cos_a,
+                                );
+                                if hp.distance(Pos2::new(wx, wy)) <= 6.0 / self.zoom {
+                                    self.dragging_node_handle =
+                                        Some((shape_idx, node_idx, NodeHandleKind::Out));
                                 }
                             }
                         }
-                    }
-                }
-
-                // Check for rotation handle first if a single shape is selected
-                if self.selected_shape_idx.len() == 1 && self.dragging_node_handle.is_none() {
-                    let s_idx = *self.selected_shape_idx.iter().next().unwrap();
-                    if let Some(shape) = shapes.get(s_idx) {
-                        let handle_pos = self.get_rotation_handle_pos(shape);
-                        if (handle_pos.x - wx).abs() < 8.0 / self.zoom
-                            && (handle_pos.y - wy).abs() < 8.0 / self.zoom
-                        {
-                            self.dragging_rotation = Some(s_idx);
-                        }
-                    }
-                }
-
-                if self.dragging_rotation.is_none()
-                    && self.dragging_node_handle.is_none()
-                    && self.hover_shape_idx.is_none()
-                    && !self.node_edit_mode
-                {
-                    if is_multi {
-                        // Ctrl/Shift + drag on empty space → selection box
-                        self.selection_box_start = Some(Pos2::new(wx, wy));
-                        self.selection_box_end = Some(Pos2::new(wx, wy));
-                        self.selection_box_additive = is_multi;
-                    } else {
-                        // Plain drag on empty space → pan the view
-                        self._drag_start = Some(Pos2::new(wx, wy));
                     }
                 }
             }
 
-            if response.clicked_by(egui::PointerButton::Primary) && self.dragging_rotation.is_none()
+            // Check for rotation handle first if a single shape is selected
+            if self.selected_shape_idx.len() == 1 && self.dragging_node_handle.is_none() {
+                let s_idx = *self.selected_shape_idx.iter().next().unwrap();
+                if let Some(shape) = shapes.get(s_idx) {
+                    let handle_pos = self.get_rotation_handle_pos(shape);
+                    if (handle_pos.x - wx).abs() < 8.0 / self.zoom
+                        && (handle_pos.y - wy).abs() < 8.0 / self.zoom
+                    {
+                        self.dragging_rotation = Some(s_idx);
+                    }
+                }
+            }
+
+            if self.dragging_rotation.is_none()
+                && self.dragging_node_handle.is_none()
+                && self.hover_shape_idx.is_none()
+                && !self.node_edit_mode
             {
-                if let Some(idx) = self.hover_shape_idx {
-                    let mut add_node_action: Option<InteractiveAction> = None;
-                    if self.node_edit_mode {
-                        let mut node_hit = None;
-                        if let Some(shape) = shapes.get(idx) {
-                            if let ShapeKind::Path(pts) = &shape.shape {
-                                let angle = shape.rotation.to_radians();
-                                let (sin_a, cos_a) = angle.sin_cos();
-                                for (v_idx, p) in pts.iter().enumerate() {
-                                    let vp = Pos2::new(
-                                        shape.x + p.0 * cos_a - p.1 * sin_a,
-                                        shape.y + p.0 * sin_a + p.1 * cos_a,
-                                    );
-                                    if (vp.x - wx).abs() < 4.0 / self.zoom
-                                        && (vp.y - wy).abs() < 4.0 / self.zoom
-                                    {
-                                        node_hit = Some(v_idx);
-                                        break;
-                                    }
-                                }
-
-                                if node_hit.is_none() && pts.len() > 1 {
-                                    let click = Pos2::new(wx, wy);
-                                    let mut best_dist = f32::MAX;
-                                    let mut best_seg = 0usize;
-                                    let mut best_point = click;
-                                    for i in 0..(pts.len() - 1) {
-                                        let a = Pos2::new(
-                                            shape.x + pts[i].0 * cos_a - pts[i].1 * sin_a,
-                                            shape.y + pts[i].0 * sin_a + pts[i].1 * cos_a,
-                                        );
-                                        let b = Pos2::new(
-                                            shape.x + pts[i + 1].0 * cos_a - pts[i + 1].1 * sin_a,
-                                            shape.y + pts[i + 1].0 * sin_a + pts[i + 1].1 * cos_a,
-                                        );
-                                        let (dist, proj) = point_segment_distance(click, a, b);
-                                        if dist < best_dist {
-                                            best_dist = dist;
-                                            best_seg = i;
-                                            best_point = proj;
-                                        }
-                                    }
-
-                                    if best_dist <= 8.0 / self.zoom {
-                                        add_node_action = Some(InteractiveAction::AddNode {
-                                            shape_idx: idx,
-                                            insert_after: best_seg,
-                                            new_pos: best_point,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-
-                        if let Some(node_idx) = node_hit {
-                            self.selected_node = Some((idx, node_idx));
-                            if is_multi {
-                                let key = (idx, node_idx);
-                                if self.selected_nodes.contains(&key) {
-                                    self.selected_nodes.shift_remove(&key);
-                                } else {
-                                    self.selected_nodes.insert(key);
-                                }
-                            } else {
-                                self.selected_nodes.clear();
-                                self.selected_nodes.insert((idx, node_idx));
-                            }
-                        } else if !is_multi {
-                            self.selected_node = None;
-                            self.selected_nodes.clear();
-                        }
-                    }
-
-                    if is_multi {
-                        if self.selected_shape_idx.contains(&idx) {
-                            self.selected_shape_idx.shift_remove(&idx);
-                        } else {
-                            self.selected_shape_idx.insert(idx);
-                        }
-                    } else {
-                        self.selected_shape_idx.clear();
-                        self.selected_shape_idx.insert(idx);
-                    }
-                    action =
-                        add_node_action.unwrap_or(InteractiveAction::SelectShape(idx, is_multi));
-                } else if !is_multi {
-                    self.selected_shape_idx.clear();
-                    self.selected_node = None;
-                    self.selected_nodes.clear();
-                    action = InteractiveAction::Deselect;
+                if is_multi {
+                    // Ctrl/Shift + drag on empty space → selection box
+                    self.selection_box_start = Some(Pos2::new(wx, wy));
+                    self.selection_box_end = Some(Pos2::new(wx, wy));
+                    self.selection_box_additive = is_multi;
+                } else {
+                    // Plain drag on empty space → pan the view
+                    self._drag_start = Some(Pos2::new(wx, wy));
                 }
             }
         }
 
+        if response.clicked_by(egui::PointerButton::Primary) && self.dragging_rotation.is_none() {
+            if let Some(idx) = self.hover_shape_idx {
+                let mut add_node_action: Option<InteractiveAction> = None;
+                if self.node_edit_mode {
+                    let mut node_hit = None;
+                    if let Some(shape) = shapes.get(idx) {
+                        if let ShapeKind::Path(pts) = &shape.shape {
+                            let angle = shape.rotation.to_radians();
+                            let (sin_a, cos_a) = angle.sin_cos();
+                            for (v_idx, p) in pts.iter().enumerate() {
+                                let vp = Pos2::new(
+                                    shape.x + p.0 * cos_a - p.1 * sin_a,
+                                    shape.y + p.0 * sin_a + p.1 * cos_a,
+                                );
+                                if (vp.x - wx).abs() < 4.0 / self.zoom
+                                    && (vp.y - wy).abs() < 4.0 / self.zoom
+                                {
+                                    node_hit = Some(v_idx);
+                                    break;
+                                }
+                            }
+
+                            if node_hit.is_none() && pts.len() > 1 {
+                                let click = Pos2::new(wx, wy);
+                                let mut best_dist = f32::MAX;
+                                let mut best_seg = 0usize;
+                                let mut best_point = click;
+                                for i in 0..(pts.len() - 1) {
+                                    let a = Pos2::new(
+                                        shape.x + pts[i].0 * cos_a - pts[i].1 * sin_a,
+                                        shape.y + pts[i].0 * sin_a + pts[i].1 * cos_a,
+                                    );
+                                    let b = Pos2::new(
+                                        shape.x + pts[i + 1].0 * cos_a - pts[i + 1].1 * sin_a,
+                                        shape.y + pts[i + 1].0 * sin_a + pts[i + 1].1 * cos_a,
+                                    );
+                                    let (dist, proj) = point_segment_distance(click, a, b);
+                                    if dist < best_dist {
+                                        best_dist = dist;
+                                        best_seg = i;
+                                        best_point = proj;
+                                    }
+                                }
+
+                                if best_dist <= 8.0 / self.zoom {
+                                    add_node_action = Some(InteractiveAction::AddNode {
+                                        shape_idx: idx,
+                                        insert_after: best_seg,
+                                        new_pos: best_point,
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(node_idx) = node_hit {
+                        self.selected_node = Some((idx, node_idx));
+                        if is_multi {
+                            let key = (idx, node_idx);
+                            if self.selected_nodes.contains(&key) {
+                                self.selected_nodes.shift_remove(&key);
+                            } else {
+                                self.selected_nodes.insert(key);
+                            }
+                        } else {
+                            self.selected_nodes.clear();
+                            self.selected_nodes.insert((idx, node_idx));
+                        }
+                    } else if !is_multi {
+                        self.selected_node = None;
+                        self.selected_nodes.clear();
+                    }
+                }
+
+                if is_multi {
+                    if self.selected_shape_idx.contains(&idx) {
+                        self.selected_shape_idx.shift_remove(&idx);
+                    } else {
+                        self.selected_shape_idx.insert(idx);
+                    }
+                } else {
+                    self.selected_shape_idx.clear();
+                    self.selected_shape_idx.insert(idx);
+                }
+                return add_node_action.unwrap_or(InteractiveAction::SelectShape(idx, is_multi));
+            } else if !is_multi {
+                self.selected_shape_idx.clear();
+                self.selected_node = None;
+                self.selected_nodes.clear();
+                return InteractiveAction::Deselect;
+            }
+        }
+
+        InteractiveAction::None
+    }
+
+    fn handle_drag_logic(
+        &mut self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        shapes: &[ShapeParams],
+    ) -> InteractiveAction {
+        let mut action = InteractiveAction::None;
+
         // ── Left mouse drag: pan / shape/node operations ──
         if response.dragged_by(egui::PointerButton::Primary) {
             if self._drag_start.is_some() {
-                // Pan the view (left-drag on empty space)
-                let delta = response.drag_delta();
-                self.pan += delta;
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                // Handled in handle_pan
             } else if self.selection_box_start.is_some() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     let ex = (pos.x - self.pan.x) / self.zoom;
@@ -1498,11 +1541,6 @@ impl PreviewRenderer {
             self._drag_start = None;
             self.dragging_rotation = None;
             self.dragging_node_handle = None;
-        }
-
-        // Set cursor
-        if self.hover_shape_idx.is_some() || self.dragging_rotation.is_some() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
 
         action
