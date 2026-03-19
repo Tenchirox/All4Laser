@@ -148,14 +148,10 @@ fn parse_entities(data: &str) -> Vec<DxfEntity> {
 
     while let Some(code_line) = lines_iter.next() {
         let code = code_line.trim().parse::<i32>().unwrap_or(-1);
-        let value = lines_iter
-            .next()
-            .map(|l| l.trim())
-            .unwrap_or("")
-            .to_string();
+        let value = lines_iter.next().map(|l| l.trim()).unwrap_or("");
 
         if code == 0 {
-            match value.as_str() {
+            match value {
                 "LINE" => {
                     if let Some(e) = read_line(&mut lines_iter) {
                         entities.push(e);
@@ -185,15 +181,15 @@ fn parse_entities(data: &str) -> Vec<DxfEntity> {
     entities
 }
 
-fn read_pairs<'a>(iter: &mut impl Iterator<Item = &'a str>) -> Vec<(i32, String)> {
+fn read_pairs<'a>(iter: &mut impl Iterator<Item = &'a str>) -> Vec<(i32, &'a str)> {
     let mut pairs = Vec::new();
     loop {
         let code_str = match iter.next() {
-            Some(s) => s.trim().to_string(),
+            Some(s) => s.trim(),
             None => break,
         };
         let val_str = match iter.next() {
-            Some(s) => s.trim().to_string(),
+            Some(s) => s.trim(),
             None => break,
         };
         let code: i32 = code_str.parse().unwrap_or(-1);
@@ -205,7 +201,7 @@ fn read_pairs<'a>(iter: &mut impl Iterator<Item = &'a str>) -> Vec<(i32, String)
     pairs
 }
 
-fn parse_f<'a>(pairs: &[(i32, String)], group: i32) -> f32 {
+fn parse_f(pairs: &[(i32, &str)], group: i32) -> f32 {
     pairs
         .iter()
         .find(|(c, _)| *c == group)
@@ -216,7 +212,7 @@ fn parse_f<'a>(pairs: &[(i32, String)], group: i32) -> f32 {
 fn read_line<'a>(
     iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
 ) -> Option<DxfEntity> {
-    let flat: Vec<String> = read_flat_pairs(iter);
+    let flat = read_flat_pairs(iter);
     let pairs = parse_flat(&flat);
     Some(DxfEntity::Line {
         x1: parse_f(&pairs, 10),
@@ -281,7 +277,7 @@ fn read_polyline<'a>(
 
 fn read_flat_pairs<'a>(
     iter: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
-) -> Vec<String> {
+) -> Vec<&'a str> {
     let mut flat = Vec::new();
     loop {
         let peeked = iter.peek().copied().unwrap_or("").trim();
@@ -290,9 +286,9 @@ fn read_flat_pairs<'a>(
             break;
         }
         if let Some(code_line) = iter.next() {
-            flat.push(code_line.trim().to_string());
+            flat.push(code_line.trim());
             if let Some(val_line) = iter.next() {
-                flat.push(val_line.trim().to_string());
+                flat.push(val_line.trim());
             }
         } else {
             break;
@@ -301,8 +297,8 @@ fn read_flat_pairs<'a>(
     flat
 }
 
-fn parse_flat(flat: &[String]) -> Vec<(i32, String)> {
+fn parse_flat<'a>(flat: &[&'a str]) -> Vec<(i32, &'a str)> {
     flat.chunks_exact(2)
-        .map(|c| (c[0].parse().unwrap_or(-1), c[1].clone()))
+        .map(|c| (c[0].parse().unwrap_or(-1), c[1]))
         .collect()
 }
