@@ -299,6 +299,18 @@ impl Default for MaterialApplyAction {
     }
 }
 
+impl MaterialApplyAction {
+    pub fn apply_preset(&mut self, preset: &MaterialPreset, to_active_layer: bool) {
+        self.apply_speed = Some(preset.speed);
+        self.apply_power = Some(preset.power);
+        self.apply_cut_speed = Some(preset.cut_speed);
+        self.apply_cut_power = Some(preset.cut_power);
+        if to_active_layer {
+            self.apply_to_active_layer = Some(preset.as_layer_update());
+        }
+    }
+}
+
 pub fn show(ui: &mut Ui, state: &mut MaterialsState) -> MaterialApplyAction {
     show_with_context(ui, state, &MaterialsUiContext::default())
 }
@@ -376,11 +388,7 @@ pub fn show_with_context(
                             .strong(),
                     );
                     if context.active_layer.is_some() && ui.button(crate::i18n::tr("Apply Recommended")).clicked() {
-                        action.apply_speed = Some(preset.speed);
-                        action.apply_power = Some(preset.power);
-                        action.apply_cut_speed = Some(preset.cut_speed);
-                        action.apply_cut_power = Some(preset.cut_power);
-                        action.apply_to_active_layer = Some(preset.as_layer_update());
+                        action.apply_preset(preset, true);
                         state.selected = idx;
                     }
                 });
@@ -437,18 +445,11 @@ pub fn show_with_context(
                     .button(RichText::new("✔ Apply").color(theme::GREEN))
                     .clicked()
                 {
-                    action.apply_speed = Some(preset.speed);
-                    action.apply_power = Some(preset.power);
-                    action.apply_cut_speed = Some(preset.cut_speed);
-                    action.apply_cut_power = Some(preset.cut_power);
+                    action.apply_preset(&preset, false);
                 }
                 if context.active_layer.is_some() && ui.button(format!("🎯 {}", crate::i18n::tr("Apply to Active Layer"))).clicked()
                 {
-                    action.apply_to_active_layer = Some(preset.as_layer_update());
-                    action.apply_speed = Some(preset.speed);
-                    action.apply_power = Some(preset.power);
-                    action.apply_cut_speed = Some(preset.cut_speed);
-                    action.apply_cut_power = Some(preset.cut_power);
+                    action.apply_preset(&preset, true);
                 }
                 if ui.button(format!("✎ {}", crate::i18n::tr("Edit"))).clicked() {
                     state.editing = true;
@@ -491,38 +492,8 @@ pub fn show_with_context(
                         .suffix(" mm"),
                 );
             });
-            ui.horizontal(|ui| {
-                let su = context.speed_unit;
-                ui.label(format!("Engrave Speed ({}):", su.label()));
-                let mut d = su.from_mmpm(ep.speed);
-                let drag = match su { crate::config::settings::SpeedUnit::MmPerMin => 10.0, _ => 1.0 };
-                if ui.add(egui::DragValue::new(&mut d).speed(drag)).changed() {
-                    ep.speed = su.to_mmpm(d);
-                }
-                ui.label("Power (%):");
-                {
-                    let mut pct = ep.power / 10.0;
-                    if ui.add(egui::DragValue::new(&mut pct).speed(0.5).range(0.0..=100.0).suffix("%")).changed() {
-                        ep.power = (pct * 10.0).clamp(0.0, 1000.0);
-                    }
-                }
-            });
-            ui.horizontal(|ui| {
-                let su = context.speed_unit;
-                ui.label(format!("Cut Speed ({}):", su.label()));
-                let mut d = su.from_mmpm(ep.cut_speed);
-                let drag = match su { crate::config::settings::SpeedUnit::MmPerMin => 10.0, _ => 1.0 };
-                if ui.add(egui::DragValue::new(&mut d).speed(drag)).changed() {
-                    ep.cut_speed = su.to_mmpm(d);
-                }
-                ui.label("Power (%):");
-                {
-                    let mut pct = ep.cut_power / 10.0;
-                    if ui.add(egui::DragValue::new(&mut pct).speed(0.5).range(0.0..=100.0).suffix("%")).changed() {
-                        ep.cut_power = (pct * 10.0).clamp(0.0, 1000.0);
-                    }
-                }
-            });
+            edit_speed_power_row(ui, "Engrave Speed", &mut ep.speed, &mut ep.power, context.speed_unit);
+            edit_speed_power_row(ui, "Cut Speed", &mut ep.cut_speed, &mut ep.cut_power, context.speed_unit);
             ui.horizontal(|ui| {
                 ui.label("Recommended Passes:");
                 ui.add(egui::DragValue::new(&mut ep.recommended_passes).range(1..=20));
@@ -580,6 +551,41 @@ pub fn show_with_context(
     });
 
     action
+}
+
+fn edit_speed_power_row(
+    ui: &mut Ui,
+    label: &str,
+    speed: &mut f32,
+    power: &mut f32,
+    speed_unit: crate::config::settings::SpeedUnit,
+) {
+    ui.horizontal(|ui| {
+        ui.label(format!("{} ({}):", label, speed_unit.label()));
+        let mut d = speed_unit.from_mmpm(*speed);
+        let drag = match speed_unit {
+            crate::config::settings::SpeedUnit::MmPerMin => 10.0,
+            _ => 1.0,
+        };
+        if ui.add(egui::DragValue::new(&mut d).speed(drag)).changed() {
+            *speed = speed_unit.to_mmpm(d);
+        }
+        ui.label("Power (%):");
+        {
+            let mut pct = *power / 10.0;
+            if ui
+                .add(
+                    egui::DragValue::new(&mut pct)
+                        .speed(0.5)
+                        .range(0.0..=100.0)
+                        .suffix("%"),
+                )
+                .changed()
+            {
+                *power = (pct * 10.0).clamp(0.0, 1000.0);
+            }
+        }
+    });
 }
 
 #[cfg(test)]

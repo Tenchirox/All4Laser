@@ -623,6 +623,7 @@ fn build_help_menu(ui: &mut Ui, action: &mut ToolbarAction) {
 
 pub fn show_menu_bar(
     ui: &mut Ui,
+    action: &mut ToolbarAction,
     recent: &RecentFiles,
     has_file: bool,
     has_shapes: bool,
