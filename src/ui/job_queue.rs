@@ -83,24 +83,22 @@ impl JobQueueState {
         }
     }
 
-    pub fn record_completion(&mut self, job: QueuedJob) {
+    fn push_history(&mut self, job: QueuedJob, status: String) {
         self.history.push(JobHistoryEntry {
             id: job.id,
             name: job.name,
             lines: job.lines,
             attempts: job.attempts,
-            status: "Completed".to_string(),
+            status,
         });
     }
 
+    pub fn record_completion(&mut self, job: QueuedJob) {
+        self.push_history(job, "Completed".to_string());
+    }
+
     pub fn record_failure(&mut self, job: QueuedJob, reason: String) {
-        self.history.push(JobHistoryEntry {
-            id: job.id,
-            name: job.name,
-            lines: job.lines,
-            attempts: job.attempts,
-            status: format!("Failed: {reason}"),
-        });
+        self.push_history(job, format!("Failed: {reason}"));
     }
 
     /// Job history statistics summary (F52)
@@ -175,13 +173,7 @@ impl JobQueueState {
     }
 
     pub fn record_aborted(&mut self, job: QueuedJob) {
-        self.history.push(JobHistoryEntry {
-            id: job.id,
-            name: job.name,
-            lines: job.lines,
-            attempts: job.attempts,
-            status: "Aborted".to_string(),
-        });
+        self.push_history(job, "Aborted".to_string());
     }
 
     pub fn retry_last_failed(&mut self) -> Option<u64> {
