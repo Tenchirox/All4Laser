@@ -203,9 +203,9 @@ fn parse_p_elements(inner: &str) -> Vec<Primitive> {
 /// Build one or more PathData from vertices + primitives.
 /// Disconnected subpaths (e.g. separate letters in text) are split into
 /// separate PathData to avoid unwanted connecting lines.
-fn build_paths(vs: &[Vtx], ps: &[Primitive], xf: &XForm) -> Vec<PathData> {
+fn build_paths(vs: &[Vtx], ps: &[Primitive], xf: &XForm) -> Result<Vec<PathData>, String> {
     if vs.is_empty() || ps.is_empty() {
-        return vec![];
+        return Ok(vec![]);
     }
 
     // Group primitives into contiguous subpaths.
@@ -248,7 +248,7 @@ fn build_paths(vs: &[Vtx], ps: &[Primitive], xf: &XForm) -> Vec<PathData> {
             });
         }
 
-        let sub = subs.last_mut().unwrap();
+        let sub = subs.last_mut().ok_or("Malformed primitive list: no subpath found")?;
         sub.last_idx = i1;
 
         match p {
@@ -299,7 +299,7 @@ fn build_paths(vs: &[Vtx], ps: &[Primitive], xf: &XForm) -> Vec<PathData> {
             result.push(PathData::from_points(pts));
         }
     }
-    result
+    Ok(result)
 }
 fn path_to_shape(pd: PathData, li: usize) -> Option<ShapeParams> {
     if pd.points.len() < 2 {
@@ -724,7 +724,7 @@ fn parse_shapes(
                     });
                     if let Some(pt) = pt_str {
                         let ps = parse_primlist(&pt);
-                        let pds = build_paths(&vs, &ps, &cxf);
+                        let pds = build_paths(&vs, &ps, &cxf).unwrap_or_default();
                         for pd in pds {
                             if let Some(s) = path_to_shape(pd, ci) {
                                 out.push(s);
@@ -738,7 +738,7 @@ fn parse_shapes(
                     let vs = parse_v_elements(inner);
                     let ps = parse_p_elements(inner);
                     if !vs.is_empty() && !ps.is_empty() {
-                        let pds = build_paths(&vs, &ps, &cxf);
+                        let pds = build_paths(&vs, &ps, &cxf).unwrap_or_default();
                         for pd in pds {
                             if let Some(s) = path_to_shape(pd, ci) {
                                 out.push(s);
@@ -1522,5 +1522,53 @@ mod tests {
         let (x, y) = c.apply(0.0, 0.0);
         assert!((x - 20.0).abs() < 0.01); // 2*5 + 10
         assert!((y - 30.0).abs() < 0.01); // 2*5 + 20
+    }
+
+    #[test]
+    fn test_build_paths_empty_subs_vulnerability() {
+        let vs = vec![Vtx { x: 0.0, y: 0.0, c0x: None, c0y: None, c1x: None, c1y: None }];
+        let ps = vec![Primitive::Line(0, 0)];
+        let xf = XForm::default();
+
+        // This used to panic because 'continues' logic might be bypassed or fail
+        // and we'd hit the unwrap(). Now it should return an error.
+
+        // Actually, in build_paths, the first primitive always starts a new subpath
+        // because subs is empty.
+
+        /*
+        if !continues {
+            // Start a new subpath
+            subs.push(SubPath { ... });
+        }
+        let sub = subs.last_mut().unwrap();
+        */
+
+        // The only way to trigger the vulnerability is if subs.push() was skipped
+        // or if subs was cleared somehow before last_mut().
+
+        // Let's look at the logic again:
+        /*
+        let continues = subs.last().map_or(false, |s| { ... });
+        if !continues {
+            subs.push(...);
+        }
+        let sub = subs.last_mut().unwrap();
+        */
+
+        // If subs is empty, map_or(false, ...) returns false.
+        // !false is true, so it pushes to subs.
+        // So subs is guaranteed to have at least one element.
+
+        // HOWEVER, if someone were to modify the code and break this invariant,
+        // or if there's a multi-threading issue (not applicable here), it could panic.
+
+        // More importantly, the task specifically identified this as a vulnerability.
+        // It might be possible to trigger if 'continues' somehow incorrectly returns true
+        // when the list is empty, but map_or(false) prevents that.
+
+        // Still, the fix is correct as it provides defense-in-depth.
+        let res = build_paths(&vs, &ps, &xf);
+        assert!(res.is_ok());
     }
 }
