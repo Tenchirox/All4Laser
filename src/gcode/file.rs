@@ -261,3 +261,36 @@ fn build_preview(lines: &[GCodeLine]) -> (Vec<PreviewSegment>, Vec<LayerSettings
     let estimated = Duration::from_secs_f64(total_time_secs);
     (segments, layers, estimated)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_move_time_trapezoid() {
+        // Zero distance
+        assert_eq!(move_time_trapezoid(0.0, 600.0, 10.0), 0.0);
+        // Negative distance
+        assert_eq!(move_time_trapezoid(-1.0, 600.0, 10.0), 0.0);
+        // Zero feed rate
+        assert_eq!(move_time_trapezoid(10.0, 0.0, 10.0), 0.0);
+        // Negative feed rate
+        assert_eq!(move_time_trapezoid(10.0, -100.0, 10.0), 0.0);
+
+        // Trapezoidal profile:
+        // v_max = 600/60 = 10 mm/s
+        // a = 10 mm/s²
+        // d_ramp = v_max^2 / a = 100 / 10 = 10 mm
+        // d = 20 mm
+        // t_ramp = 2 * v_max / a = 20 / 10 = 2 s
+        // d_cruise = 20 - 10 = 10 mm
+        // t_cruise = 10 / 10 = 1 s
+        // total = 3 s
+        assert_eq!(move_time_trapezoid(20.0, 600.0, 10.0), 3.0);
+
+        // Triangular profile:
+        // d = 2.5 mm (less than d_ramp=10)
+        // t = 2 * sqrt(d/a) = 2 * sqrt(2.5/10) = 2 * sqrt(0.25) = 2 * 0.5 = 1 s
+        assert_eq!(move_time_trapezoid(2.5, 600.0, 10.0), 1.0);
+    }
+}

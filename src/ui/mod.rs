@@ -28,6 +28,7 @@ pub mod preflight;
 pub mod preview_panel;
 pub mod settings_dialog;
 pub mod shortcuts;
+pub mod sound;
 pub mod status_bar;
 pub mod text;
 pub mod tiling;

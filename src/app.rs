@@ -29,23 +29,6 @@ use crate::ui::preflight::{PreflightContext, PreflightReport, PreflightSeverity}
 
 const MAX_LOG_LINES: usize = 500;
 
-/// Play a system notification sound (F14)
-fn play_notification_sound() {
-    #[cfg(target_os = "windows")]
-    {
-        #[link(name = "user32")]
-        unsafe extern "system" {
-            fn MessageBeep(uType: u32) -> i32;
-        }
-        unsafe {
-            MessageBeep(0x40);
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        print!("\x07");
-    }
-}
 const STATUS_POLL_MS: u64 = 250;
 const LEFT_PANEL_WIDTH: f32 = 280.0;
 
@@ -5669,6 +5652,9 @@ impl All4LaserApp {
                 self.import_state = None;
             } else {
                 self.import_state = Some(state);
+                });
+            if self.notify_sound_enabled {
+                crate::ui::sound::play_notification_sound();
             }
         }
     }
