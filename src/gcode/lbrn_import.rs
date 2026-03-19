@@ -209,8 +209,6 @@ fn build_paths(vs: &[Vtx], ps: &[Primitive], xf: &XForm) -> Vec<PathData> {
     }
 
     // Group primitives into contiguous subpaths.
-    // A new subpath starts when the start vertex of a primitive doesn't
-    // match the end vertex of the previous primitive.
     struct SubPath {
         start: (f32, f32),
         segments: Vec<PathSegment>,
