@@ -35,21 +35,6 @@ pub struct CutSettingsAction {
     pub close: bool,
 }
 
-fn path_is_closed_for_fill(points: &[(f32, f32)]) -> bool {
-    if points.len() < 3 {
-        return false;
-    }
-
-    let (Some(first), Some(last)) = (points.first(), points.last()) else {
-        return false;
-    };
-
-    let dx = first.0 - last.0;
-    let dy = first.1 - last.1;
-    let dist = (dx * dx + dy * dy).sqrt();
-    dist <= 0.05
-}
-
 fn layer_non_fillable_path_count(shapes: &[ShapeParams], layer_idx: usize) -> usize {
     shapes
         .iter()
@@ -57,7 +42,7 @@ fn layer_non_fillable_path_count(shapes: &[ShapeParams], layer_idx: usize) -> us
         .filter(|shape| {
             matches!(
                 &shape.shape,
-                ShapeKind::Path(points) if points.len() < 3 || !path_is_closed_for_fill(points)
+                ShapeKind::Path(points) if !points.is_closed()
             )
         })
         .count()
@@ -158,7 +143,7 @@ pub fn show(
                         });
                     ui.end_row();
 
-                    if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
+                    if layer.mode.is_fill_mode() {
                         ui.label("Fill Interval (mm):").on_hover_text("Distance between scan lines. Smaller = denser fill, slower job. 0.1mm typical for engraving.");
                         ui.add(
                             egui::DragValue::new(&mut layer.fill_interval_mm)
@@ -360,7 +345,7 @@ pub fn show(
                     });
                 });
 
-                if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
+                if layer.mode.is_fill_mode() {
                     if let Some(layer_idx) = state.editing_layer_idx {
                         let non_fillable = layer_non_fillable_path_count(shapes, layer_idx);
                         if non_fillable > 0 {

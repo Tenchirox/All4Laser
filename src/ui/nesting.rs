@@ -192,21 +192,16 @@ pub fn apply_nesting(
         return NestingResult::default();
     }
 
-    let mut target_indices: Vec<usize> = if options.selection_only && !selection.is_empty() {
-        selection.to_vec()
-    } else {
-        (0..drawing.shapes.len()).collect()
-    };
-    target_indices.retain(|idx| *idx < drawing.shapes.len());
+    let mut target_indices = drawing.get_target_indices(selection, options.selection_only);
     if target_indices.is_empty() {
         return NestingResult::default();
     }
 
     target_indices.sort_by(|a, b| {
-        let a_area = shape_world_bounds(&drawing.shapes[*a])
+        let a_area = drawing.shapes[*a].world_bounds()
             .map(|(x0, y0, x1, y1)| (x1 - x0).abs() * (y1 - y0).abs())
             .unwrap_or(0.0);
-        let b_area = shape_world_bounds(&drawing.shapes[*b])
+        let b_area = drawing.shapes[*b].world_bounds()
             .map(|(x0, y0, x1, y1)| (x1 - x0).abs() * (y1 - y0).abs())
             .unwrap_or(0.0);
         b_area.partial_cmp(&a_area).unwrap_or(Ordering::Equal)
@@ -251,7 +246,7 @@ pub fn apply_nesting(
             continue;
         }
 
-        let Some((shape_min_x, shape_min_y, _, _)) = shape_world_bounds(&candidate.shape) else {
+        let Some((shape_min_x, shape_min_y, _, _)) = candidate.shape.world_bounds() else {
             result.skipped += 1;
             continue;
         };
@@ -308,7 +303,7 @@ fn choose_candidate_for_row<'a>(
 }
 
 fn candidate_for_shape(shape: &ShapeParams, rotated: bool) -> Option<Candidate> {
-    let (min_x, min_y, max_x, max_y) = shape_world_bounds(shape)?;
+    let (min_x, min_y, max_x, max_y) = shape.world_bounds()?;
     let width = (max_x - min_x).abs();
     let height = (max_y - min_y).abs();
     if width <= 1e-6 || height <= 1e-6 {
@@ -321,67 +316,6 @@ fn candidate_for_shape(shape: &ShapeParams, rotated: bool) -> Option<Candidate> 
         height,
         rotated,
     })
-}
-
-fn shape_world_bounds(shape: &ShapeParams) -> Option<(f32, f32, f32, f32)> {
-    fn transform(shape: &ShapeParams, lx: f32, ly: f32) -> (f32, f32) {
-        let angle = shape.rotation.to_radians();
-        let (sin_a, cos_a) = angle.sin_cos();
-        (
-            shape.x + lx * cos_a - ly * sin_a,
-            shape.y + lx * sin_a + ly * cos_a,
-        )
-    }
-
-    let points: Vec<(f32, f32)> = match &shape.shape {
-        ShapeKind::Rectangle => vec![
-            transform(shape, 0.0, 0.0),
-            transform(shape, shape.width, 0.0),
-            transform(shape, shape.width, shape.height),
-            transform(shape, 0.0, shape.height),
-        ],
-        ShapeKind::Circle => vec![
-            (shape.x - shape.radius, shape.y - shape.radius),
-            (shape.x + shape.radius, shape.y + shape.radius),
-        ],
-        ShapeKind::TextLine => {
-            let char_w = shape.font_size_mm * 0.6;
-            let w = shape.text.len() as f32 * char_w;
-            vec![
-                transform(shape, 0.0, 0.0),
-                transform(shape, w, 0.0),
-                transform(shape, w, shape.font_size_mm),
-                transform(shape, 0.0, shape.font_size_mm),
-            ]
-        }
-        ShapeKind::Path(pts) => {
-            if pts.is_empty() {
-                return None;
-            }
-            pts.iter()
-                .map(|(lx, ly)| transform(shape, *lx, *ly))
-                .collect()
-        }
-        ShapeKind::RasterImage { params, .. } => vec![
-            transform(shape, 0.0, 0.0),
-            transform(shape, params.width_mm, 0.0),
-            transform(shape, params.width_mm, params.height_mm),
-            transform(shape, 0.0, params.height_mm),
-        ],
-    };
-
-    let mut min_x = f32::MAX;
-    let mut min_y = f32::MAX;
-    let mut max_x = f32::MIN;
-    let mut max_y = f32::MIN;
-    for (x, y) in points {
-        min_x = min_x.min(x);
-        min_y = min_y.min(y);
-        max_x = max_x.max(x);
-        max_y = max_y.max(y);
-    }
-
-    Some((min_x, min_y, max_x, max_y))
 }
 
 #[cfg(test)]
@@ -401,7 +335,7 @@ mod tests {
     }
 
     fn bounds(shape: &ShapeParams) -> (f32, f32, f32, f32) {
-        shape_world_bounds(shape).unwrap()
+        shape.world_bounds().unwrap()
     }
 
     #[test]

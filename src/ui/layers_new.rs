@@ -15,6 +15,13 @@ impl Default for CutMode {
     }
 }
 
+impl CutMode {
+    /// Returns true if the mode involves area-based filling (Fill, Fill+Line, or Offset).
+    pub fn is_fill_mode(&self) -> bool {
+        matches!(self, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset)
+    }
+}
+
 fn default_min_power() -> f32 {
     0.0
 }

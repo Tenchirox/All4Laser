@@ -60,6 +60,18 @@ impl PathData {
         }
     }
 
+    /// Returns true if the path is closed (start and end points are near each other).
+    pub fn is_closed(&self) -> bool {
+        if self.points.len() < 3 {
+            return false;
+        }
+        let first = self.points.first().unwrap();
+        let last = self.points.last().unwrap();
+        let dx = first.0 - last.0;
+        let dy = first.1 - last.1;
+        (dx * dx + dy * dy).sqrt() <= 0.05
+    }
+
     /// Create a path from Bézier segments, auto-flattening to points.
     pub fn from_segments(start: (f32, f32), segs: Vec<PathSegment>) -> Self {
         let points = Self::flatten_segments(start, &segs);
@@ -188,6 +200,63 @@ impl ShapeParams {
         let rx = lx * angle.cos() - ly * angle.sin();
         let ry = lx * angle.sin() + ly * angle.cos();
         (self.x + rx, self.y + ry)
+    }
+
+    /// Returns the bounding box of the shape in world coordinates (min_x, min_y, max_x, max_y).
+    pub fn world_bounds(&self) -> Option<(f32, f32, f32, f32)> {
+        let points: Vec<(f32, f32)> = match &self.shape {
+            ShapeKind::Rectangle => vec![
+                self.world_pos(0.0, 0.0),
+                self.world_pos(self.width, 0.0),
+                self.world_pos(self.width, self.height),
+                self.world_pos(0.0, self.height),
+            ],
+            ShapeKind::Circle => vec![
+                (self.x - self.radius, self.y - self.radius),
+                (self.x + self.radius, self.y + self.radius),
+            ],
+            ShapeKind::TextLine => {
+                let char_w = self.font_size_mm * 0.6;
+                let w = self.text.len() as f32 * char_w;
+                vec![
+                    self.world_pos(0.0, 0.0),
+                    self.world_pos(w, 0.0),
+                    self.world_pos(w, self.font_size_mm),
+                    self.world_pos(0.0, self.font_size_mm),
+                ]
+            }
+            ShapeKind::Path(pts) => {
+                if pts.is_empty() {
+                    return None;
+                }
+                pts.iter()
+                    .map(|(lx, ly)| self.world_pos(*lx, *ly))
+                    .collect()
+            }
+            ShapeKind::RasterImage { params, .. } => vec![
+                self.world_pos(0.0, 0.0),
+                self.world_pos(params.width_mm, 0.0),
+                self.world_pos(params.width_mm, params.height_mm),
+                self.world_pos(0.0, params.height_mm),
+            ],
+        };
+
+        if points.is_empty() {
+            return None;
+        }
+
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+        for (x, y) in points {
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+
+        Some((min_x, min_y, max_x, max_y))
     }
 
     pub fn local_center(&self) -> (f32, f32) {
@@ -343,9 +412,8 @@ pub fn align_shapes(shapes: &mut [ShapeParams], selection: &[usize], op: AlignOp
     let bounds: Vec<(usize, f32, f32, f32, f32)> = selection
         .iter()
         .filter_map(|&i| {
-            shapes.get(i).map(|s| {
-                let b = shape_world_bounds(s);
-                (i, b.0, b.1, b.2, b.3)
+            shapes.get(i).and_then(|s| {
+                s.world_bounds().map(|b| (i, b.0, b.1, b.2, b.3))
             })
         })
         .collect();
@@ -434,11 +502,6 @@ pub fn align_shapes(shapes: &mut [ShapeParams], selection: &[usize], op: AlignOp
             }
         }
     }
-}
-
-/// Public wrapper for shape_world_bounds (F59)
-pub fn shape_world_bounds_pub(s: &ShapeParams) -> (f32, f32, f32, f32) {
-    shape_world_bounds(s)
 }
 
 /// Group selected shapes under a new group ID (F51)
@@ -721,11 +784,12 @@ pub fn export_shapes_to_svg(shapes: &[ShapeParams], layers: &[CutLayer]) -> Stri
     let mut gmax_x = f32::MIN;
     let mut gmax_y = f32::MIN;
     for s in shapes {
-        let (a, b, c, d) = shape_world_bounds(s);
-        gmin_x = gmin_x.min(a);
-        gmin_y = gmin_y.min(b);
-        gmax_x = gmax_x.max(c);
-        gmax_y = gmax_y.max(d);
+        if let Some((a, b, c, d)) = s.world_bounds() {
+            gmin_x = gmin_x.min(a);
+            gmin_y = gmin_y.min(b);
+            gmax_x = gmax_x.max(c);
+            gmax_y = gmax_y.max(d);
+        }
     }
     let w = (gmax_x - gmin_x).max(1.0);
     let h = (gmax_y - gmin_y).max(1.0);
@@ -850,6 +914,20 @@ impl Default for DrawingState {
             current: ShapeParams::default(),
             shapes: Vec::new(),
         }
+    }
+}
+
+impl DrawingState {
+    /// Returns shape indices to operate on, based on selection and a "selection only" toggle.
+    /// If selection_only is true but nothing is selected, it falls back to all shapes.
+    pub fn get_target_indices(&self, selection: &[usize], selection_only: bool) -> Vec<usize> {
+        let mut target: Vec<usize> = if selection_only && !selection.is_empty() {
+            selection.to_vec()
+        } else {
+            (0..self.shapes.len()).collect()
+        };
+        target.retain(|&idx| idx < self.shapes.len());
+        target
     }
 }
 
@@ -1171,7 +1249,7 @@ fn gen_rect(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
     let (x0, y0) = (0.0, 0.0);
     let (x1, y1) = (s.width, s.height);
     let pts = vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)];
-    let path: Vec<(f32, f32)> = pts.into_iter().map(|p| rotate_point(p.0, p.1, s)).collect();
+    let path: Vec<(f32, f32)> = pts.into_iter().map(|p| s.world_pos(p.0, p.1)).collect();
     gen_layer_path(builder, &path, layer);
 }
 
@@ -1187,7 +1265,7 @@ fn gen_circle(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
         let py = r * angle.sin();
         pts.push((px, py));
     }
-    let path: Vec<(f32, f32)> = pts.into_iter().map(|p| rotate_point(p.0, p.1, s)).collect();
+    let path: Vec<(f32, f32)> = pts.into_iter().map(|p| s.world_pos(p.0, p.1)).collect();
     gen_layer_path(builder, &path, layer);
 }
 
@@ -1196,7 +1274,7 @@ fn gen_path(builder: &mut GCodeBuilder, points: &[(f32, f32)], s: &ShapeParams, 
         return;
     }
 
-    let abs_path: Vec<(f32, f32)> = points.iter().map(|p| rotate_point(p.0, p.1, s)).collect();
+    let abs_path: Vec<(f32, f32)> = points.iter().map(|p| s.world_pos(p.0, p.1)).collect();
 
     gen_layer_path(builder, &abs_path, layer);
 }
@@ -1395,7 +1473,7 @@ fn gen_raster(
         for col in cols {
             let pixel = resized.get_pixel(col, row)[0];
             let lx = col as f32 * x_scale;
-            let (wx, wy) = rotate_point(lx, ly, s);
+            let (wx, wy) = s.world_pos(lx, ly);
 
             if pixel == 255 {
                 // Fully white (transparent after alpha composite) — skip with rapid
