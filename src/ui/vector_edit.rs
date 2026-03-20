@@ -76,7 +76,7 @@ pub fn insert_node_on_segment(
     let Some(shape) = drawing.shapes.get_mut(shape_idx) else {
         return Err("Invalid shape selection".into());
     };
-    let ShapeKind::Path(pts) = &mut shape.shape else {
+    let ShapeKind::Path(ref mut pts) = &mut shape.shape else {
         return Err("Selected shape is not a path".into());
     };
     if pts.len() < 2 || insert_after >= pts.len() - 1 {
@@ -95,7 +95,7 @@ pub fn insert_midpoint_after(
     let Some(shape) = drawing.shapes.get_mut(shape_idx) else {
         return Err("Invalid shape selection".into());
     };
-    let ShapeKind::Path(pts) = &mut shape.shape else {
+    let ShapeKind::Path(ref mut pts) = &mut shape.shape else {
         return Err("Selected shape is not a path".into());
     };
     if pts.len() < 2 || node_idx >= pts.len() - 1 {
@@ -117,7 +117,7 @@ pub fn delete_node(
     let Some(shape) = drawing.shapes.get_mut(shape_idx) else {
         return Err("Invalid shape selection".into());
     };
-    let ShapeKind::Path(pts) = &mut shape.shape else {
+    let ShapeKind::Path(ref mut pts) = &mut shape.shape else {
         return Err("Selected shape is not a path".into());
     };
 
@@ -152,7 +152,7 @@ pub fn delete_nodes(
     let Some(shape) = drawing.shapes.get_mut(shape_idx) else {
         return Err("Invalid shape selection".into());
     };
-    let ShapeKind::Path(pts) = &mut shape.shape else {
+    let ShapeKind::Path(ref mut pts) = &mut shape.shape else {
         return Err("Selected shape is not a path".into());
     };
 
@@ -246,7 +246,7 @@ pub fn smooth_node_weighted(
     let Some(shape) = drawing.shapes.get_mut(shape_idx) else {
         return Err("Invalid shape selection".into());
     };
-    let ShapeKind::Path(pts) = &mut shape.shape else {
+    let ShapeKind::Path(ref mut pts) = &mut shape.shape else {
         return Err("Selected shape is not a path".into());
     };
     if pts.len() < 3 || node_idx == 0 || node_idx >= pts.len() - 1 {
@@ -280,7 +280,7 @@ pub fn corner_node_weighted(
     let Some(shape) = drawing.shapes.get_mut(shape_idx) else {
         return Err("Invalid shape selection".into());
     };
-    let ShapeKind::Path(pts) = &mut shape.shape else {
+    let ShapeKind::Path(ref mut pts) = &mut shape.shape else {
         return Err("Selected shape is not a path".into());
     };
     if pts.len() < 3 || node_idx == 0 || node_idx >= pts.len() - 1 {
@@ -343,7 +343,7 @@ pub fn simplify_path(
     let Some(shape) = drawing.shapes.get_mut(shape_idx) else {
         return Err("Invalid shape selection".into());
     };
-    let ShapeKind::Path(pts) = &mut shape.shape else {
+    let ShapeKind::Path(ref mut pts) = &mut shape.shape else {
         return Err("Selected shape is not a path".into());
     };
     if pts.len() < 3 {
@@ -400,7 +400,7 @@ pub fn smooth_path(
     let Some(shape) = drawing.shapes.get_mut(shape_idx) else {
         return Err("Invalid shape selection".into());
     };
-    let ShapeKind::Path(pts) = &mut shape.shape else {
+    let ShapeKind::Path(ref mut pts) = &mut shape.shape else {
         return Err("Selected shape is not a path".into());
     };
     if pts.len() < 3 {

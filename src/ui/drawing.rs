@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::gcode::fill::rotate_point;
 use crate::gcode::generator::GCodeBuilder;
 use crate::imaging::raster::RasterParams;
 use crate::theme;
@@ -44,8 +45,8 @@ pub enum PathSegment {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PathData {
-    pub points: Vec<(f32, f32)>,
-    pub segments: Vec<PathSegment>,
+    pub points: Arc<Vec<(f32, f32)>>,
+    pub segments: Arc<Vec<PathSegment>>,
     pub start: (f32, f32),
 }
 
@@ -53,8 +54,8 @@ impl PathData {
     /// Create a polyline-only path (no curve data).
     pub fn from_points(pts: Vec<(f32, f32)>) -> Self {
         Self {
-            points: pts,
-            segments: vec![],
+            points: Arc::new(pts),
+            segments: Arc::new(vec![]),
             start: (0.0, 0.0),
         }
     }
@@ -63,8 +64,8 @@ impl PathData {
     pub fn from_segments(start: (f32, f32), segs: Vec<PathSegment>) -> Self {
         let points = Self::flatten_segments(start, &segs);
         Self {
-            points,
-            segments: segs,
+            points: Arc::new(points),
+            segments: Arc::new(segs),
             start,
         }
     }
@@ -116,6 +117,14 @@ impl PathData {
     pub fn has_curves(&self) -> bool {
         !self.segments.is_empty()
     }
+
+    pub fn points(&self) -> &[(f32, f32)] {
+        &self.points
+    }
+
+    pub fn segments(&self) -> &[PathSegment] {
+        &self.segments
+    }
 }
 
 impl std::ops::Deref for PathData {
@@ -127,7 +136,7 @@ impl std::ops::Deref for PathData {
 
 impl std::ops::DerefMut for PathData {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.points
+        Arc::make_mut(&mut self.points)
     }
 }
 
@@ -143,7 +152,7 @@ impl<'a> IntoIterator for &'a mut PathData {
     type Item = &'a mut (f32, f32);
     type IntoIter = std::slice::IterMut<'a, (f32, f32)>;
     fn into_iter(self) -> Self::IntoIter {
-        self.points.iter_mut()
+        Arc::make_mut(&mut self.points).iter_mut()
     }
 }
 
@@ -191,7 +200,7 @@ impl ShapeParams {
                 (w / 2.0, self.font_size_mm / 2.0)
             }
             ShapeKind::Path(data) => {
-                let pts = &data.points;
+                let pts = data.points();
                 if pts.is_empty() {
                     return (0.0, 0.0);
                 }
@@ -263,7 +272,7 @@ fn shape_world_bounds(s: &ShapeParams) -> (f32, f32, f32, f32) {
             let mut max_x = f32::MIN;
             let mut min_y = f32::MAX;
             let mut max_y = f32::MIN;
-            for p in &data.points {
+            for p in data.points() {
                 let (wx, wy) = s.world_pos(p.0, p.1);
                 min_x = min_x.min(wx);
                 max_x = max_x.max(wx);
@@ -773,7 +782,7 @@ pub fn export_shapes_to_svg(shapes: &[ShapeParams], layers: &[CutLayer]) -> Stri
                     // Bézier-aware SVG path export
                     let (wx, wy) = s.world_pos(data.start.0, data.start.1);
                     let mut d = format!("M{wx:.3},{wy:.3}");
-                    for seg in &data.segments {
+                    for seg in data.segments() {
                         match seg {
                             PathSegment::LineTo(ex, ey) => {
                                 let (wex, wey) = s.world_pos(*ex, *ey);
@@ -1125,7 +1134,7 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
                         ShapeKind::Rectangle => gen_rect(&mut builder, shape, layer),
                         ShapeKind::Circle => gen_circle(&mut builder, shape, layer),
                         ShapeKind::TextLine => gen_text(&mut builder, shape, layer),
-                        ShapeKind::Path(pts) => gen_path(&mut builder, pts, shape, layer),
+                        ShapeKind::Path(pts) => gen_path(&mut builder, pts.points(), shape, layer),
                         ShapeKind::RasterImage { .. } => {
                             // Skip expensive pixel-by-pixel raster GCode during
                             // interactive edits. Raster GCode is generated on-demand
@@ -1412,12 +1421,6 @@ fn gen_raster(
     builder.laser_off();
 }
 
-fn rotate_point(lx: f32, ly: f32, s: &ShapeParams) -> (f32, f32) {
-    let angle = s.rotation.to_radians();
-    let rx = lx * angle.cos() - ly * angle.sin();
-    let ry = lx * angle.sin() + ly * angle.cos();
-    (s.x + rx, s.y + ry)
-}
 
 #[cfg(test)]
 mod tests {

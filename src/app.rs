@@ -5402,7 +5402,7 @@ impl All4LaserApp {
                             }
 
                             if let Some(shape_rw) = self.drawing_state.shapes.get_mut(shape_idx) {
-                                if let ShapeKind::Path(pts_rw) = &mut shape_rw.shape {
+                                if let ShapeKind::Path(ref mut pts_rw) = &mut shape_rw.shape {
                                     for idx in selected_nodes {
                                         if let Some(p) = pts_rw.get_mut(idx) {
                                             p.0 += dlx;
@@ -5429,7 +5429,7 @@ impl All4LaserApp {
                 if let Some(shape_ro) = self.drawing_state.shapes.get(shape_idx) {
                     let (lx, ly) = Self::world_to_shape_local(shape_ro, new_pos.x, new_pos.y);
                     if let Some(shape_rw) = self.drawing_state.shapes.get_mut(shape_idx) {
-                        if let ShapeKind::Path(pts) = &mut shape_rw.shape {
+                        if let ShapeKind::Path(ref mut pts) = &mut shape_rw.shape {
                             let target_idx = match handle {
                                 crate::preview::renderer::NodeHandleKind::In => {
                                     node_idx.saturating_sub(1)
