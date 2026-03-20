@@ -214,8 +214,7 @@ pub struct All4LaserApp {
 }
 
 impl All4LaserApp {
-    fn render_ui_layout(&mut self, ctx: &egui::Context) {
-        // === TOP: Toolbar ===
+    fn render_top_panel(&mut self, ctx: &egui::Context) {
         let is_connected = self.is_connected();
         let is_running = self.running;
         let is_light = self.light_mode;
@@ -257,8 +256,10 @@ impl All4LaserApp {
 
             self.handle_toolbar_actions(ctx, actions);
         });
+    }
 
-        // === BOTTOM: Progress bar + Status bar ===
+    fn render_bottom_panel(&mut self, ctx: &egui::Context) {
+        let caps = self.controller_capabilities();
         TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             if self.running && !self.program_lines.is_empty() {
                 let progress = self.program_index as f32 / self.program_lines.len() as f32;
@@ -359,10 +360,10 @@ impl All4LaserApp {
                 self.sync_settings();
             }
         });
+    }
 
-        // === LEFT: Control panels ===
+    fn render_left_panel(&mut self, ctx: &egui::Context) {
         let connected = self.is_connected();
-        // === LEFT SIDEBAR ===
         let left_panel_width = match self.ui_layout {
             theme::UiLayout::Modern => LEFT_PANEL_WIDTH,
             theme::UiLayout::Pro => 300.0,
@@ -384,8 +385,10 @@ impl All4LaserApp {
                         }
                     });
             });
+    }
 
-        // === RIGHT SIDEBAR ===
+    fn render_right_panel(&mut self, ctx: &egui::Context) {
+        let connected = self.is_connected();
         let right_panel_width = match self.ui_layout {
             theme::UiLayout::Modern => 220.0,
             theme::UiLayout::Pro => 280.0,
@@ -399,12 +402,10 @@ impl All4LaserApp {
                 if self.ui_layout == theme::UiLayout::Modern {
                     self.ui_right_content(ui);
                 } else {
-                    // Pro and Classic use the Tabbed interface on the right
                     self.ui_right_tabs(ui, connected);
                 }
             });
 
-        // === BOTTOM PANEL (Pro Layout Only) ===
         if self.ui_layout == theme::UiLayout::Pro {
             egui::TopBottomPanel::bottom("bottom_console_panel")
                 .resizable(true)
@@ -413,8 +414,13 @@ impl All4LaserApp {
                     self.ui_right_content(ui);
                 });
         }
+    }
 
-        // === CENTER: Preview ===
+    fn render_ui_layout(&mut self, ctx: &egui::Context) {
+        self.render_top_panel(ctx);
+        self.render_bottom_panel(ctx);
+        self.render_left_panel(ctx);
+        self.render_right_panel(ctx);
         self.update_preview(ctx);
     }
 
@@ -4893,24 +4899,29 @@ impl All4LaserApp {
         }
     }
 
-    fn handle_toolbar_actions(&mut self, ctx: &egui::Context, actions: ui::toolbar::ToolbarAction) {
-        let is_connected = self.is_connected();
-        if actions.connect_toggle {
-            if is_connected {
-                self.disconnect();
-            } else {
-                self.connect();
-            }
-        }
+    fn handle_toolbar_file_actions(
+        &mut self,
+        ctx: &egui::Context,
+        actions: &ui::toolbar::ToolbarAction,
+    ) {
         if actions.open_file {
             self.open_file();
         }
-        if let Some(path) = actions.open_recent {
-            self.load_file_path(&path);
+        if let Some(path) = &actions.open_recent {
+            self.load_file_path(path);
         }
         if actions.save_file {
             self.save_file();
         }
+        if actions.open_project {
+            self.handle_open_project(ctx);
+        }
+        if actions.save_project {
+            self.handle_save_project();
+        }
+    }
+
+    fn handle_toolbar_job_actions(&mut self, actions: &ui::toolbar::ToolbarAction) {
         if actions.run_program {
             self.is_dry_run = false;
             if self.run_preflight("run", true) {
@@ -4937,6 +4948,17 @@ impl All4LaserApp {
         if actions.resume {
             self.send_realtime_or_warn(RealtimeCommand::CycleStart, "Cycle start");
         }
+    }
+
+    fn handle_toolbar_machine_actions(&mut self, actions: &ui::toolbar::ToolbarAction) {
+        let is_connected = self.is_connected();
+        if actions.connect_toggle {
+            if is_connected {
+                self.disconnect();
+            } else {
+                self.connect();
+            }
+        }
         if actions.home {
             self.send_command("$H");
         }
@@ -4949,18 +4971,25 @@ impl All4LaserApp {
         if actions.reset {
             self.send_realtime_or_warn(RealtimeCommand::Reset, "Reset");
         }
-        if let Some(t) = actions.set_theme {
-            self.ui_theme = t;
+    }
+
+    fn handle_toolbar_ui_actions(
+        &mut self,
+        ctx: &egui::Context,
+        actions: &ui::toolbar::ToolbarAction,
+    ) {
+        if let Some(t) = &actions.set_theme {
+            self.ui_theme = *t;
             self.apply_theme(ctx);
             self.sync_settings();
         }
-        if let Some(l) = actions.set_layout {
-            self.ui_layout = l;
+        if let Some(l) = &actions.set_layout {
+            self.ui_layout = *l;
             self.sync_settings();
         }
-        if let Some(lang) = actions.set_language {
-            self.language = lang;
-            crate::i18n::set_language(lang);
+        if let Some(lang) = &actions.set_language {
+            self.language = *lang;
+            crate::i18n::set_language(*lang);
             self.sync_settings();
         }
         if actions.toggle_light_mode {
@@ -4972,6 +5001,28 @@ impl All4LaserApp {
             self.beginner_mode = !self.beginner_mode;
             self.sync_settings();
         }
+        if actions.zoom_in {
+            self.renderer.zoom_in();
+        }
+        if actions.zoom_out {
+            self.renderer.zoom_out();
+        }
+        if actions.undo {
+            if !self.undo_node_edit() {
+                self.log("Nothing to undo.".into());
+            }
+        }
+        if actions.redo {
+            if !self.redo_node_edit() {
+                self.log("Nothing to redo.".into());
+            }
+        }
+        if actions.open_about {
+            self.about_open = true;
+        }
+    }
+
+    fn handle_toolbar_tool_actions(&mut self, actions: &ui::toolbar::ToolbarAction) {
         if actions.open_power_speed_test {
             self.power_speed_test.is_open = true;
         }
@@ -4993,12 +5044,6 @@ impl All4LaserApp {
         if actions.open_test_fire {
             self.test_fire.is_open = true;
         }
-        if actions.open_project {
-            self.handle_open_project(ctx);
-        }
-        if actions.save_project {
-            self.handle_save_project();
-        }
         if actions.open_settings {
             if self.settings_state.is_none() {
                 let mut state = ui::settings_dialog::SettingsDialogState::default();
@@ -5007,25 +5052,9 @@ impl All4LaserApp {
                 self.settings_state = Some(state);
             }
         }
-        if actions.zoom_in {
-            self.renderer.zoom_in();
-        }
-        if actions.zoom_out {
-            self.renderer.zoom_out();
-        }
-        if actions.undo {
-            if !self.undo_node_edit() {
-                self.log("Nothing to undo.".into());
-            }
-        }
-        if actions.redo {
-            if !self.redo_node_edit() {
-                self.log("Nothing to redo.".into());
-            }
-        }
-        if actions.open_about {
-            self.about_open = true;
-        }
+    }
+
+    fn handle_toolbar_export_actions(&mut self, actions: &ui::toolbar::ToolbarAction) {
         if actions.export_lbrn2 {
             self.handle_export_lbrn2();
         }
@@ -5041,6 +5070,15 @@ impl All4LaserApp {
         if actions.load_job_template {
             self.handle_load_job_template();
         }
+    }
+
+    fn handle_toolbar_actions(&mut self, ctx: &egui::Context, actions: ui::toolbar::ToolbarAction) {
+        self.handle_toolbar_file_actions(ctx, &actions);
+        self.handle_toolbar_job_actions(&actions);
+        self.handle_toolbar_machine_actions(&actions);
+        self.handle_toolbar_ui_actions(ctx, &actions);
+        self.handle_toolbar_tool_actions(&actions);
+        self.handle_toolbar_export_actions(&actions);
     }
 
     fn handle_save_job_template(&mut self) {
