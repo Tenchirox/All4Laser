@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::layers_new::{CutLayer, CutMode};
 use egui::{Color32, Grid, RichText, Sense, StrokeKind, Ui};
@@ -44,7 +45,7 @@ pub fn show(
 
     ui.group(|ui| {
         Grid::new("cut_list_grid")
-            .num_columns(5)
+            .num_columns(4)
             .spacing([8.0, 4.0])
             .striped(true)
             .min_col_width(20.0)
@@ -53,8 +54,7 @@ pub fn show(
                 ui.label("#");
                 ui.label(crate::i18n::tr("Mode"));
                 ui.label(crate::i18n::tr("Spd/Pwr"));
-                ui.label(crate::i18n::tr("Out"));
-                ui.label(crate::i18n::tr("View"));
+                ui.label("👁");
                 ui.end_row();
 
                 for &i in &visible_indices {
@@ -99,7 +99,7 @@ pub fn show(
                         action.open_settings = Some(i);
                     }
                     response.on_hover_text(format!(
-                        "Layer C{:02} — click to select, double-click for settings",
+                        "C{:02} — click → select, 2×click → settings",
                         i
                     ));
 
@@ -107,16 +107,16 @@ pub fn show(
                     let mode_before = layer.mode;
                     egui::ComboBox::from_id_salt(format!("layer_mode_{i}"))
                         .selected_text(match layer.mode {
-                            CutMode::Line => "Line",
-                            CutMode::Fill => "Fill",
-                            CutMode::FillAndLine => "Fill+Line",
-                            CutMode::Offset => "Offset",
+                            CutMode::Line => tr("Line"),
+                            CutMode::Fill => tr("Fill"),
+                            CutMode::FillAndLine => tr("Fill+Line"),
+                            CutMode::Offset => tr("Offset"),
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut layer.mode, CutMode::Line, "Line");
-                            ui.selectable_value(&mut layer.mode, CutMode::Fill, "Fill");
-                            ui.selectable_value(&mut layer.mode, CutMode::FillAndLine, "Fill+Line");
-                            ui.selectable_value(&mut layer.mode, CutMode::Offset, "Offset");
+                            ui.selectable_value(&mut layer.mode, CutMode::Line, tr("Line"));
+                            ui.selectable_value(&mut layer.mode, CutMode::Fill, tr("Fill"));
+                            ui.selectable_value(&mut layer.mode, CutMode::FillAndLine, tr("Fill+Line"));
+                            ui.selectable_value(&mut layer.mode, CutMode::Offset, tr("Offset"));
                         });
                     if layer.mode != mode_before {
                         action.layers_changed = true;
@@ -125,17 +125,20 @@ pub fn show(
                     // 3. Speed / Power
                     ui.label(format!("{:.0} / {:.0}%", layer.speed, layer.power / 10.0));
 
-                    // 4. Output Toggle
+                    // 4. Output toggle (eye icon)
+                    let eye_label = if layer.visible {
+                        RichText::new("👁").color(theme::GREEN)
+                    } else {
+                        RichText::new("Ø").color(theme::SURFACE2)
+                    };
                     if ui
-                        .checkbox(&mut layer.visible, "")
-                        .on_hover_text("Enable/disable layer output")
-                        .changed()
+                        .button(eye_label)
+                        .on_hover_text(tr("Enable/disable layer output"))
+                        .clicked()
                     {
+                        layer.visible = !layer.visible;
                         action.layers_changed = true;
                     }
-
-                    // 5. Preview visibility (currently tied to layer.enabled in this app)
-                    ui.label(if layer.visible { "👁" } else { "Ø" });
 
                     ui.end_row();
                 }
@@ -144,8 +147,9 @@ pub fn show(
         ui.add_space(4.0);
         ui.label(
             RichText::new(format!(
-                "{} layer(s) visible in Cuts (filtered by preview)",
-                visible_indices.len()
+                "{} {}",
+                visible_indices.len(),
+                tr("layer(s) in Cuts")
             ))
             .small()
             .color(theme::SUBTEXT),

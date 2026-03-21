@@ -107,6 +107,7 @@ pub struct PreviewSegment {
     pub y2: f32,
     pub laser_on: bool,
     pub power: f32, // Normalized 0.0 to 1.0 (relative to max S)
+    pub speed: f32, // Feed rate mm/min (used for opacity modulation)
     pub layer_id: usize,
 }
 

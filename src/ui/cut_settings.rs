@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::ui::layers_new::{CutLayer, CutMode};
@@ -35,21 +36,6 @@ pub struct CutSettingsAction {
     pub close: bool,
 }
 
-fn path_is_closed_for_fill(points: &[(f32, f32)]) -> bool {
-    if points.len() < 3 {
-        return false;
-    }
-
-    let (Some(first), Some(last)) = (points.first(), points.last()) else {
-        return false;
-    };
-
-    let dx = first.0 - last.0;
-    let dy = first.1 - last.1;
-    let dist = (dx * dx + dy * dy).sqrt();
-    dist <= 0.05
-}
-
 fn layer_non_fillable_path_count(shapes: &[ShapeParams], layer_idx: usize) -> usize {
     shapes
         .iter()
@@ -57,7 +43,7 @@ fn layer_non_fillable_path_count(shapes: &[ShapeParams], layer_idx: usize) -> us
         .filter(|shape| {
             matches!(
                 &shape.shape,
-                ShapeKind::Path(points) if points.len() < 3 || !path_is_closed_for_fill(points)
+                ShapeKind::Path(points) if !points.is_closed()
             )
         })
         .count()
@@ -99,7 +85,7 @@ pub fn show(
     let mut kerf_nominal = state.kerf_test_nominal_mm;
     let mut kerf_measured = state.kerf_test_measured_mm;
 
-    egui::Window::new("⚙ Cut Settings")
+    egui::Window::new(format!("⚙ {}", tr("Cut Settings")))
         .open(&mut open)
         .resizable(false)
         .collapsible(false)
@@ -122,7 +108,7 @@ pub fn show(
                 ui.separator();
 
                 egui::Grid::new("cut_settings_grid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-                    ui.label(format!("Speed ({}):", speed_unit.label())).on_hover_text("Travel speed of the laser head. Lower = deeper cut/darker engrave. Typical: 200-3000 for cut, 1000-10000 for engrave.");
+                    ui.label(format!("{} ({}):", tr("Speed"), speed_unit.label())).on_hover_text(tr("Travel speed of the laser head"));
                     let mut display_speed = speed_unit.from_mmpm(layer.speed);
                     let (spd_drag, spd_max) = match speed_unit {
                         crate::config::settings::SpeedUnit::MmPerMin => (10.0, 20000.0),
@@ -133,7 +119,7 @@ pub fn show(
                     }
                     ui.end_row();
 
-                    ui.label("Max Power (%):").on_hover_text("Laser power (0-100%). Higher = more energy. Start low and increase. 100% = full power.");
+                    ui.label(tr("Max Power (%):")).on_hover_text(tr("Laser power (0-100%)"));
                     {
                         let mut pct = layer.power / 10.0;
                         if ui.add(egui::DragValue::new(&mut pct).speed(0.1).range(0.0..=100.0).suffix("%")).changed() {
@@ -142,24 +128,24 @@ pub fn show(
                     }
                     ui.end_row();
 
-                    ui.label("Output Mode:").on_hover_text("Line = vector cut along paths. Fill = raster scan inside closed shapes. Fill+Line = both. Offset = concentric fill.");
+                    ui.label(tr("Output Mode:")).on_hover_text(tr("Output mode description"));
                     egui::ComboBox::from_id_salt("mode_combo")
                         .selected_text(match layer.mode {
-                            CutMode::Line => "Line (Cut)",
-                            CutMode::Fill => "Fill (Scan)",
-                            CutMode::FillAndLine => "Fill + Line",
-                            CutMode::Offset => "Offset Fill",
+                            CutMode::Line => tr("Line (Cut)"),
+                            CutMode::Fill => tr("Fill (Scan)"),
+                            CutMode::FillAndLine => tr("Fill + Line"),
+                            CutMode::Offset => tr("Offset Fill"),
                         })
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut layer.mode, CutMode::Line, "Line (Cut)");
-                            ui.selectable_value(&mut layer.mode, CutMode::Fill, "Fill (Scan)");
-                            ui.selectable_value(&mut layer.mode, CutMode::FillAndLine, "Fill + Line");
-                            ui.selectable_value(&mut layer.mode, CutMode::Offset, "Offset Fill");
+                            ui.selectable_value(&mut layer.mode, CutMode::Line, tr("Line (Cut)"));
+                            ui.selectable_value(&mut layer.mode, CutMode::Fill, tr("Fill (Scan)"));
+                            ui.selectable_value(&mut layer.mode, CutMode::FillAndLine, tr("Fill + Line"));
+                            ui.selectable_value(&mut layer.mode, CutMode::Offset, tr("Offset Fill"));
                         });
                     ui.end_row();
 
-                    if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
-                        ui.label("Fill Interval (mm):").on_hover_text("Distance between scan lines. Smaller = denser fill, slower job. 0.1mm typical for engraving.");
+                    if layer.mode.is_fill_mode() {
+                        ui.label(tr("Fill Interval (mm):")).on_hover_text(tr("Distance between scan lines"));
                         ui.add(
                             egui::DragValue::new(&mut layer.fill_interval_mm)
                                 .speed(0.01)
@@ -168,7 +154,7 @@ pub fn show(
                         );
                         ui.end_row();
 
-                        ui.label("Min Power (%):").on_hover_text("Power used during acceleration/deceleration at line ends. Set to 0 for clean edges.");
+                        ui.label(tr("Min Power (%):")).on_hover_text(tr("Power at accel/decel"));
                         {
                             let mut pct = layer.min_power / 10.0;
                             if ui.add(egui::DragValue::new(&mut pct).speed(0.1).range(0.0..=100.0).suffix("%")).changed() {
@@ -177,11 +163,11 @@ pub fn show(
                         }
                         ui.end_row();
 
-                        ui.label("Bidirectional Scan:").on_hover_text("Scan in both directions (faster) vs one direction only (more consistent).");
+                        ui.label(tr("Bidirectional Scan:")).on_hover_text(tr("Scan both directions"));
                         ui.checkbox(&mut layer.fill_bidirectional, "");
                         ui.end_row();
 
-                        ui.label("Overscan (mm):").on_hover_text("Extra travel beyond the shape edges to allow deceleration. Prevents edge burn. 1-5mm typical.");
+                        ui.label(tr("Overscan (mm):")).on_hover_text(tr("Extra deceleration travel"));
                         ui.add(
                             egui::DragValue::new(&mut layer.fill_overscan_mm)
                                 .speed(0.1)
@@ -190,7 +176,16 @@ pub fn show(
                         );
                         ui.end_row();
 
-                        ui.label("Fill Angle (°):");
+                        ui.label(tr("Overscan Speed Factor:")).on_hover_text(tr("Overscan = max(fixed, speed×factor). 0 = disabled."));
+                        ui.add(
+                            egui::DragValue::new(&mut layer.fill_overscan_speed_factor)
+                                .speed(0.01)
+                                .range(0.0..=1.0)
+                                .max_decimals(2),
+                        );
+                        ui.end_row();
+
+                        ui.label(tr("Fill Angle (°):"));
                         ui.add(
                             egui::DragValue::new(&mut layer.fill_angle_deg)
                                 .speed(1.0)
@@ -200,11 +195,11 @@ pub fn show(
                         ui.end_row();
                     }
 
-                    ui.label("Output Order:");
+                    ui.label(tr("Output Order:"));
                     ui.add(egui::DragValue::new(&mut layer.output_order).speed(1.0));
                     ui.end_row();
 
-                    ui.label("Lead-In (mm):").on_hover_text("Extra approach distance before cutting starts. Prevents burn marks at the cut entry point.");
+                    ui.label(tr("Lead-In (mm):")).on_hover_text(tr("Approach distance before cut"));
                     ui.add(
                         egui::DragValue::new(&mut layer.lead_in_mm)
                             .speed(0.1)
@@ -213,7 +208,7 @@ pub fn show(
                     );
                     ui.end_row();
 
-                    ui.label("Lead-Out (mm):").on_hover_text("Extra exit distance after cutting ends. Ensures clean exit from the material.");
+                    ui.label(tr("Lead-Out (mm):")).on_hover_text(tr("Exit distance after cut"));
                     ui.add(
                         egui::DragValue::new(&mut layer.lead_out_mm)
                             .speed(0.1)
@@ -222,7 +217,7 @@ pub fn show(
                     );
                     ui.end_row();
 
-                    ui.label("Kerf Offset (mm):").on_hover_text("Compensates for material removed by the laser beam width. Positive = outward offset.");
+                    ui.label(tr("Kerf Offset (mm):")).on_hover_text(tr("Beam width compensation"));
                     ui.add(
                         egui::DragValue::new(&mut layer.kerf_mm)
                             .speed(0.01)
@@ -231,24 +226,53 @@ pub fn show(
                     );
                     ui.end_row();
 
-                    ui.label("Passes:");
+                    ui.label(tr("Passes:"));
                     ui.add(egui::DragValue::new(&mut layer.passes).range(1..=100));
                     ui.end_row();
 
-                    ui.label("Z Offset (mm):");
+                    ui.label(tr("Z Offset (mm):"));
                     ui.add(egui::DragValue::new(&mut layer.z_offset).speed(0.1));
                     ui.end_row();
 
-                    ui.label(RichText::new("🏗 Tabs / Bridges:").strong());
-                    ui.checkbox(&mut layer.tab_enabled, "Enabled");
+                    ui.label(RichText::new(format!("📐 {}", tr("2.5D Depth Engraving:"))).strong());
+                    ui.checkbox(&mut layer.depth_enabled, tr("Enabled"));
+                    ui.end_row();
+
+                    if layer.depth_enabled {
+                        ui.label(tr("Total depth (mm):")).on_hover_text(tr("How deep to cut in total"));
+                        ui.add(
+                            egui::DragValue::new(&mut layer.depth_total_mm)
+                                .speed(0.1)
+                                .range(0.1..=100.0)
+                                .suffix(" mm"),
+                        );
+                        ui.end_row();
+
+                        ui.label(tr("Step-down (mm):")).on_hover_text(tr("Z increment per pass"));
+                        ui.add(
+                            egui::DragValue::new(&mut layer.depth_step_down_mm)
+                                .speed(0.1)
+                                .range(0.1..=20.0)
+                                .suffix(" mm"),
+                        );
+                        ui.end_row();
+
+                        let num_passes = (layer.depth_total_mm / layer.depth_step_down_mm.max(0.01)).ceil() as u32;
+                        ui.label(tr("Depth passes:"));
+                        ui.label(format!("{num_passes}"));
+                        ui.end_row();
+                    }
+
+                    ui.label(RichText::new(format!("🏗 {}", tr("Tabs / Bridges:"))).strong());
+                    ui.checkbox(&mut layer.tab_enabled, tr("Enabled"));
                     ui.end_row();
 
                     if layer.tab_enabled {
-                        ui.label("Tab Spacing:");
+                        ui.label(tr("Tab Spacing:"));
                         ui.add(egui::DragValue::new(&mut layer.tab_spacing).speed(1.0).range(1.0..=500.0).suffix(" mm"));
                         ui.end_row();
 
-                        ui.label("Tab Size (Gap):");
+                        ui.label(tr("Tab Size (Gap):"));
                         ui.add(egui::DragValue::new(&mut layer.tab_size).speed(0.1).range(0.1..=10.0).suffix(" mm"));
                         ui.end_row();
                     }
@@ -258,7 +282,7 @@ pub fn show(
                 if layer.passes > 1 {
                     ui.add_space(4.0);
                     egui::Grid::new("pass_offset_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                        ui.label("Pass offset (mm):");
+                        ui.label(tr("Pass offset (mm):"));
                         ui.add(egui::DragValue::new(&mut layer.pass_offset_mm).speed(0.01).range(0.0..=2.0).suffix(" mm"));
                         ui.end_row();
                     });
@@ -266,13 +290,13 @@ pub fn show(
 
                 // Power Ramping (F12)
                 ui.add_space(4.0);
-                ui.checkbox(&mut layer.ramp_enabled, "⚡ Power Ramping");
+                ui.checkbox(&mut layer.ramp_enabled, format!("⚡ {}", tr("Power Ramping")));
                 if layer.ramp_enabled {
                     egui::Grid::new("ramp_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                        ui.label("Ramp length:");
+                        ui.label(tr("Ramp length:"));
                         ui.add(egui::DragValue::new(&mut layer.ramp_length_mm).speed(0.5).range(0.5..=50.0).suffix(" mm"));
                         ui.end_row();
-                        ui.label("Start/end power %:");
+                        ui.label(tr("Start/end power %:"));
                         ui.add(egui::DragValue::new(&mut layer.ramp_start_pct).speed(1.0).range(0.0..=99.0).suffix(" %"));
                         ui.end_row();
                     });
@@ -280,13 +304,13 @@ pub fn show(
 
                 // Perforation (F33)
                 ui.add_space(4.0);
-                ui.checkbox(&mut layer.perforation_enabled, "✂ Perforation / Dashed Mode");
+                ui.checkbox(&mut layer.perforation_enabled, format!("✂ {}", tr("Perforation / Dashed Mode")));
                 if layer.perforation_enabled {
                     egui::Grid::new("perf_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                        ui.label("Cut length:");
+                        ui.label(tr("Cut length:"));
                         ui.add(egui::DragValue::new(&mut layer.perforation_cut_mm).speed(0.5).range(0.1..=100.0).suffix(" mm"));
                         ui.end_row();
-                        ui.label("Gap length:");
+                        ui.label(tr("Gap length:"));
                         ui.add(egui::DragValue::new(&mut layer.perforation_gap_mm).speed(0.5).range(0.1..=100.0).suffix(" mm"));
                         ui.end_row();
                     });
@@ -294,36 +318,36 @@ pub fn show(
 
                 // Corner power (F40)
                 ui.add_space(4.0);
-                ui.checkbox(&mut layer.corner_power_enabled, "🔥 Corner Power Reduction");
+                ui.checkbox(&mut layer.corner_power_enabled, format!("🔥 {}", tr("Corner Power Reduction")));
                 if layer.corner_power_enabled {
                     egui::Grid::new("corner_grid").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                        ui.label("Corner power %:");
+                        ui.label(tr("Corner power %:"));
                         ui.add(egui::DragValue::new(&mut layer.corner_power_pct).speed(1.0).range(1.0..=100.0).suffix(" %"));
                         ui.end_row();
-                        ui.label("Angle threshold:");
+                        ui.label(tr("Angle threshold:"));
                         ui.add(egui::DragValue::new(&mut layer.corner_angle_threshold).speed(1.0).range(5.0..=175.0).suffix("°"));
                         ui.end_row();
                     });
                 }
 
                 ui.add_space(8.0);
-                ui.checkbox(&mut layer.air_assist, "Air Assist (M8)");
-                ui.checkbox(&mut layer.exhaust_enabled, "🌬 Exhaust Fan (M7)");
+                ui.checkbox(&mut layer.air_assist, tr("Air Assist (M8)"));
+                ui.checkbox(&mut layer.exhaust_enabled, format!("🌬 {}", tr("Exhaust Fan (M7)")));
                 if layer.exhaust_enabled {
                     ui.horizontal(|ui| {
-                        ui.label("Post-delay:");
+                        ui.label(tr("Post-delay:"));
                         ui.add(egui::DragValue::new(&mut layer.exhaust_post_delay_s).speed(0.5).range(0.0..=60.0).suffix(" s"));
                     });
                 }
-                ui.checkbox(&mut layer.visible, "Output Enabled");
-                ui.checkbox(&mut layer.is_construction, "🔧 Construction Layer (no output)").on_hover_text("Construction layers are visible on canvas but excluded from GCode output.");
+                ui.checkbox(&mut layer.visible, tr("Output Enabled"));
+                ui.checkbox(&mut layer.is_construction, format!("🔧 {}", tr("Construction Layer"))).on_hover_text(tr("Construction layers are excluded from GCode output"));
 
                 ui.add_space(8.0);
                 ui.group(|ui| {
-                    ui.label(RichText::new("📐 Kerf Calibration Assistant").strong());
+                    ui.label(RichText::new(format!("📐 {}", tr("Kerf Calibration Assistant"))).strong());
                     ui.label(
                         RichText::new(
-                            "Cut a square with known nominal size, then enter measured result.",
+                            tr("Cut a square with known nominal size, then enter measured result."),
                         )
                         .small()
                         .color(theme::SUBTEXT),
@@ -331,14 +355,14 @@ pub fn show(
                     ui.add_space(4.0);
 
                     ui.horizontal(|ui| {
-                        ui.label("Nominal (mm):");
+                        ui.label(tr("Nominal (mm):"));
                         ui.add(
                             egui::DragValue::new(&mut kerf_nominal)
                                 .speed(0.1)
                                 .range(1.0..=500.0)
                                 .suffix(" mm"),
                         );
-                        ui.label("Measured (mm):");
+                        ui.label(tr("Measured (mm):"));
                         ui.add(
                             egui::DragValue::new(&mut kerf_measured)
                                 .speed(0.1)
@@ -350,17 +374,17 @@ pub fn show(
                     let kerf_reco = kerf_from_test_measurement(kerf_nominal, kerf_measured);
                     ui.horizontal(|ui| {
                         ui.label(
-                            RichText::new(format!("Recommended kerf: {kerf_reco:.3} mm"))
+                            RichText::new(format!("{}: {kerf_reco:.3} mm", tr("Recommended kerf")))
                                 .color(theme::GREEN)
                                 .strong(),
                         );
-                        if ui.button("Apply to Kerf Offset").clicked() {
+                        if ui.button(tr("Apply to Kerf Offset")).clicked() {
                             layer.kerf_mm = kerf_reco;
                         }
                     });
                 });
 
-                if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
+                if layer.mode.is_fill_mode() {
                     if let Some(layer_idx) = state.editing_layer_idx {
                         let non_fillable = layer_non_fillable_path_count(shapes, layer_idx);
                         if non_fillable > 0 {
@@ -378,16 +402,16 @@ pub fn show(
                 // Parameter comparison snapshot (F91)
                 ui.add_space(8.0);
                 ui.group(|ui| {
-                    ui.label(RichText::new("📸 Parameter Snapshot").strong());
+                    ui.label(RichText::new(format!("📸 {}", tr("Parameter Snapshot"))).strong());
                     ui.horizontal(|ui| {
-                        if ui.button("Take Snapshot").on_hover_text("Save current parameters for comparison").clicked() {
+                        if ui.button(tr("Take Snapshot")).on_hover_text(tr("Save current parameters for comparison")).clicked() {
                             state.snapshot_layer = Some(layer.clone());
                         }
                         let has_snapshot = state.snapshot_layer.is_some();
-                        if ui.add_enabled(has_snapshot, egui::Button::new(if state.show_comparison { "Hide Compare" } else { "Show Compare" })).clicked() {
+                        if ui.add_enabled(has_snapshot, egui::Button::new(if state.show_comparison { tr("Hide Compare") } else { tr("Show Compare") })).clicked() {
                             state.show_comparison = !state.show_comparison;
                         }
-                        if ui.add_enabled(has_snapshot, egui::Button::new("Clear")).clicked() {
+                        if ui.add_enabled(has_snapshot, egui::Button::new(tr("Clear"))).clicked() {
                             state.snapshot_layer = None;
                             state.show_comparison = false;
                         }
@@ -395,7 +419,7 @@ pub fn show(
                     if state.show_comparison {
                         if let Some(snap) = &state.snapshot_layer {
                             ui.add_space(4.0);
-                            ui.label(RichText::new("Current → Snapshot").small().color(theme::SUBTEXT));
+                            ui.label(RichText::new(tr("Current → Snapshot")).small().color(theme::SUBTEXT));
                             egui::Grid::new("snapshot_compare_grid").num_columns(3).spacing([8.0, 2.0]).show(ui, |ui| {
                                 let comparisons: Vec<(&str, f32, f32)> = vec![
                                     ("Speed", layer.speed, snap.speed),
@@ -419,19 +443,19 @@ pub fn show(
 
                 ui.add_space(16.0);
                 ui.horizontal(|ui| {
-                    if ui.button(RichText::new("OK").color(theme::GREEN)).clicked() {
+                    if ui.button(RichText::new(tr("OK")).color(theme::GREEN)).clicked() {
                         if let Some(idx) = state.editing_layer_idx {
                             action.apply = Some((idx, layer.clone()));
                         }
                         action.close = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if ui.button(tr("Cancel")).clicked() {
                         action.close = true;
                     }
                 });
             } else {
-                ui.label("No layer selected.");
-                if ui.button("Close").clicked() {
+                ui.label(tr("No layer selected."));
+                if ui.button(tr("Close")).clicked() {
                     action.close = true;
                 }
             }

@@ -16,7 +16,8 @@ pub fn generate_fill_group(lines: &mut Vec<String>, shapes: &[&ShapeParams], lay
     }
 
     let interval_mm = layer.fill_interval_mm.max(0.01);
-    let overscan_mm = layer.fill_overscan_mm.max(0.0);
+    let speed_based_overscan = layer.speed * layer.fill_overscan_speed_factor / 60.0;
+    let overscan_mm = layer.fill_overscan_mm.max(speed_based_overscan).max(0.0);
     let min_power = layer.min_power.clamp(0.0, layer.power);
     let angle_rad = layer.fill_angle_deg.to_radians();
 
@@ -478,7 +479,7 @@ fn closed_world_path(points: &[(f32, f32)], shape: &ShapeParams) -> Option<Vec<(
     Some(out)
 }
 
-fn rotate_point(lx: f32, ly: f32, s: &ShapeParams) -> (f32, f32) {
+pub fn rotate_point(lx: f32, ly: f32, s: &ShapeParams) -> (f32, f32) {
     let angle = s.rotation.to_radians();
     let rx = lx * angle.cos() - ly * angle.sin();
     let ry = lx * angle.sin() + ly * angle.cos();

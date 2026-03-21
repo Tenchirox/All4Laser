@@ -54,16 +54,25 @@ pub fn show(
         let l_fill = tr("Fill");
         let l_risk = tr("Risk");
         let l_realistic = tr("Realistic");
-        ui.checkbox(&mut renderer.show_rapids, if compact { "R" } else { &l_rapids });
-        ui.checkbox(&mut renderer.show_fill_preview, if compact { "F" } else { &l_fill });
-        ui.checkbox(&mut renderer.show_thermal_risk, if compact { "!" } else { &l_risk });
-        ui.checkbox(&mut renderer.realistic_preview, if compact { "3D" } else { &l_realistic });
+        let l_energy = tr("Energy");
+        let r1 = ui.checkbox(&mut renderer.show_rapids, if compact { "R" } else { &l_rapids });
+        if compact { r1.on_hover_text(&l_rapids); }
+        let r2 = ui.checkbox(&mut renderer.show_fill_preview, if compact { "F" } else { &l_fill });
+        if compact { r2.on_hover_text(&l_fill); }
+        let r3 = ui.checkbox(&mut renderer.show_thermal_risk, if compact { "!" } else { &l_risk });
+        if compact { r3.on_hover_text(&l_risk); }
+        let r4 = ui.checkbox(&mut renderer.realistic_preview, if compact { "3D" } else { &l_realistic });
+        if compact { r4.on_hover_text(&l_realistic); }
+        let r5 = ui.checkbox(&mut renderer.power_speed_opacity, if compact { "E" } else { &l_energy });
+        if compact { r5.on_hover_text(&l_energy); }
 
         if !segments.is_empty() {
             ui.separator();
             let mut sim_on = renderer.simulation_progress.is_some();
             let l_sim = tr("Simulation");
-            if ui.checkbox(&mut sim_on, if compact { "Sim" } else { &l_sim }).changed() {
+            let sim_resp = ui.checkbox(&mut sim_on, if compact { "Sim" } else { &l_sim });
+            if compact { sim_resp.clone().on_hover_text(&l_sim); }
+            if sim_resp.changed() {
                 renderer.simulation_progress = if sim_on { Some(0.0) } else { None };
             }
             if let Some(progress) = renderer.simulation_progress.as_mut() {
@@ -76,7 +85,7 @@ pub fn show(
                 );
                 if ui
                     .button("↺")
-                    .on_hover_text("Reset simulation progress to start")
+                    .on_hover_text(tr("Reset simulation"))
                     .clicked()
                 {
                     *progress = 0.0;

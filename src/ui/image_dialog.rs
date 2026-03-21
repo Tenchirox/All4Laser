@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::imaging::raster::RasterParams;
 use crate::imaging::svg::SvgParams;
 use crate::theme;
@@ -26,435 +27,440 @@ pub struct ImageImportResult {
     pub cancel: bool,
 }
 
-pub fn show(ui: &mut Ui, state: &mut ImageImportState, speed_unit: crate::config::settings::SpeedUnit) -> ImageImportResult {
+pub fn show(
+    ui: &mut Ui,
+    state: &mut ImageImportState,
+    speed_unit: crate::config::settings::SpeedUnit,
+) -> ImageImportResult {
     let mut result = ImageImportResult::default();
 
-    ui.vertical_centered(|ui| {
-        ui.heading(format!("Import {}", state.filename));
-    });
+    render_header(ui, &state.filename);
 
     ui.add_space(8.0);
 
     ui.columns(2, |cols| {
-        // Left: Preview
-        cols[0].vertical_centered(|ui| {
-            // --- Material Presets ---
-            let mat_action = crate::ui::materials::show(ui, &mut state.materials);
-            if let Some(spd) = mat_action.apply_speed {
-                state.raster_params.max_speed = spd;
-                state
-                    .svg_params
-                    .layers
-                    .iter_mut()
-                    .for_each(|l| l.speed = spd);
-            }
-            if let Some(pwr) = mat_action.apply_power {
-                state.raster_params.max_power = pwr;
-                state
-                    .svg_params
-                    .layers
-                    .iter_mut()
-                    .for_each(|l| l.power = pwr);
-            }
-            if let Some(cs) = mat_action.apply_cut_speed {
-                state.raster_params.outline.speed = cs;
-                state.svg_params.outline.speed = cs;
-            }
-            if let Some(cp) = mat_action.apply_cut_power {
-                state.raster_params.outline.power = cp;
-                state.svg_params.outline.power = cp;
-            }
-            ui.add_space(8.0);
+        render_preview(&mut cols[0], state);
 
-            if let Some(texture) = &state.texture {
-                let _size = texture.size_vec2();
-                let max_size = Vec2::new(300.0, 300.0);
-                ui.add(egui::Image::new(texture).max_size(max_size).shrink_to_fit());
-            } else {
-                ui.add_space(100.0);
-                ui.label("No preview available");
-                ui.add_space(100.0);
-            }
-        });
-
-        // Right: Settings
-        cols[1].vertical(|ui| {
-            match &state.import_type {
-                ImportType::Raster(_) => {
-                    ui.group(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new("Bitmap Import Mode:").strong());
-                            if ui.selectable_value(&mut state.vectorize, false, "Raster").changed() {
-                                state.needs_texture_update = true;
-                            }
-                            if ui.selectable_value(&mut state.vectorize, true, "Vectorize (Stencil)").changed() {
-                                state.needs_texture_update = true;
-                            }
-                        });
-                        ui.add_space(8.0);
-
-                        ui.label(
-                            RichText::new(if state.vectorize {
-                                "Vectorize Settings"
-                            } else {
-                                "Raster / Photo Settings"
-                            })
-                            .color(theme::LAVENDER)
-                            .strong(),
-                        );
-                        ui.add_space(4.0);
-
-                        ui.label("Size:");
-                        ui.horizontal(|ui| {
-                            ui.add(
-                                egui::DragValue::new(&mut state.raster_params.width_mm)
-                                    .speed(1.0)
-                                    .suffix(" mm"),
-                            );
-                            ui.label("x");
-                            ui.add(
-                                egui::DragValue::new(&mut state.raster_params.height_mm)
-                                    .speed(1.0)
-                                    .suffix(" mm"),
-                            );
-                        });
-
-                        ui.add_space(4.0);
-                        ui.label("Resolution:");
-                        ui.add(
-                            egui::Slider::new(&mut state.raster_params.dpi, 25.4..=1270.0)
-                                .text("DPI"),
-                        );
-                        ui.label(format!("({:.2} lines/mm)", state.raster_params.dpi / 25.4));
-
-                        ui.add_space(8.0);
-                        ui.label("Image Adjustments:");
-                        if state.vectorize {
-                            if ui.add(
-                                egui::Slider::new(&mut state.raster_params.threshold, 0..=255)
-                                    .text("Threshold"),
-                            ).changed() {
-                                state.needs_texture_update = true;
-                            }
-                            if ui.add(
-                                egui::Slider::new(&mut state.raster_params.smoothing, 0.0..=1.0)
-                                    .text("Smoothing"),
-                            ).changed() {
-                                // Potentially update preview if we supported vector preview, but currently texture is raster.
-                            }
-                            if ui.add(
-                                egui::Slider::new(&mut state.raster_params.contrast, 0.0..=5.0)
-                                    .text("Contrast"),
-                            ).changed() {
-                                state.needs_texture_update = true;
-                            }
-                            if ui
-                                .checkbox(
-                                    &mut state.raster_params.use_skeleton,
-                                    "Centerline / Skeleton",
-                                )
-                                .on_hover_text("Use thinning algorithm for centerline tracing")
-                                .changed()
-                            {
-                                // Potentially update preview if we supported vector preview, but currently texture is raster.
-                            }
-                        } else {
-                            let b_res = ui.add(
-                                egui::Slider::new(&mut state.raster_params.brightness, -1.0..=1.0)
-                                    .text("Brightness"),
-                            );
-                            let c_res = ui.add(
-                                egui::Slider::new(&mut state.raster_params.contrast, 0.0..=5.0)
-                                    .text("Contrast"),
-                            );
-
-                            ui.horizontal(|ui| {
-                                ui.label("Dithering:");
-                                use crate::imaging::raster::DitherMode;
-                                if ui
-                                    .selectable_value(
-                                        &mut state.raster_params.dither,
-                                        DitherMode::FloydSteinberg,
-                                        "Floyd",
-                                    )
-                                    .changed()
-                                {
-                                    state.needs_texture_update = true;
-                                }
-                                if ui
-                                    .selectable_value(
-                                        &mut state.raster_params.dither,
-                                        DitherMode::Atkinson,
-                                        "Atkinson",
-                                    )
-                                    .changed()
-                                {
-                                    state.needs_texture_update = true;
-                                }
-                                if ui
-                                    .selectable_value(
-                                        &mut state.raster_params.dither,
-                                        DitherMode::None,
-                                        "Grayscale",
-                                    )
-                                    .changed()
-                                {
-                                    state.needs_texture_update = true;
-                                }
-                            });
-
-                            if b_res.changed() || c_res.changed() {
-                                state.needs_texture_update = true;
-                            }
-                        }
-
-                        let mut force_update = false;
-                        ui.horizontal(|ui| {
-                            if ui
-                                .checkbox(&mut state.raster_params.flip_h, "Flip H")
-                                .changed()
-                            {
-                                force_update = true;
-                            }
-                            if ui
-                                .checkbox(&mut state.raster_params.flip_v, "Flip V")
-                                .changed()
-                            {
-                                force_update = true;
-                            }
-                        });
-
-                        egui::ComboBox::from_label("Rotation")
-                            .selected_text(format!("{}°", state.raster_params.rotation))
-                            .show_ui(ui, |ui| {
-                                if ui
-                                    .selectable_value(&mut state.raster_params.rotation, 0, "0°")
-                                    .changed()
-                                {
-                                    force_update = true;
-                                }
-                                if ui
-                                    .selectable_value(&mut state.raster_params.rotation, 90, "90°")
-                                    .changed()
-                                {
-                                    force_update = true;
-                                }
-                                if ui
-                                    .selectable_value(
-                                        &mut state.raster_params.rotation,
-                                        180,
-                                        "180°",
-                                    )
-                                    .changed()
-                                {
-                                    force_update = true;
-                                }
-                                if ui
-                                    .selectable_value(
-                                        &mut state.raster_params.rotation,
-                                        270,
-                                        "270°",
-                                    )
-                                    .changed()
-                                {
-                                    force_update = true;
-                                }
-                            });
-
-                        if force_update {
-                            state.needs_texture_update = true;
-                        }
-
-                        ui.add_space(8.0);
-                        ui.label("Laser Settings:");
-                        {
-                            let mut display_spd = speed_unit.from_mmpm(state.raster_params.max_speed);
-                            let (lo, hi) = match speed_unit {
-                                crate::config::settings::SpeedUnit::MmPerMin => (100.0, 10000.0),
-                                crate::config::settings::SpeedUnit::MmPerSec => (1.7, 167.0),
-                            };
-                            if ui.add(
-                                egui::Slider::new(&mut display_spd, lo..=hi)
-                                    .text(format!("Speed ({})", speed_unit.label())),
-                            ).changed() {
-                                state.raster_params.max_speed = speed_unit.to_mmpm(display_spd);
-                            }
-                        }
-                        {
-                            let mut pct = state.raster_params.max_power / 10.0;
-                            if ui.add(
-                                egui::Slider::new(&mut pct, 0.0..=100.0)
-                                    .text("Max Power (%)"),
-                            ).changed() {
-                                state.raster_params.max_power = (pct * 10.0).clamp(0.0, 1000.0);
-                            }
-                        }
-
-                        // --- Cutting Frame ---
-                        ui.add_space(12.0);
-                        ui.group(|ui| {
-                            ui.horizontal(|ui| {
-                                ui.checkbox(&mut state.raster_params.outline.enabled, "");
-                                ui.label(
-                                    RichText::new("Cutting Frame (Outline)")
-                                        .color(theme::PEACH)
-                                        .strong(),
-                                );
-                            });
-
-                            if state.raster_params.outline.enabled {
-                                ui.add_space(4.0);
-                                ui.add(
-                                    egui::Slider::new(
-                                        &mut state.raster_params.outline.speed,
-                                        50.0..=5000.0,
-                                    )
-                                    .text("Cut Speed"),
-                                );
-                                {
-                                    let mut pct = state.raster_params.outline.power / 10.0;
-                                    if ui.add(
-                                        egui::Slider::new(&mut pct, 0.0..=100.0)
-                                            .text("Cut Power (%)"),
-                                    ).changed() {
-                                        state.raster_params.outline.power = (pct * 10.0).clamp(0.0, 1000.0);
-                                    }
-                                }
-                                ui.horizontal(|ui| {
-                                    ui.label("Passes:");
-                                    ui.add(
-                                        egui::DragValue::new(
-                                            &mut state.raster_params.outline.passes,
-                                        )
-                                        .range(1..=50),
-                                    );
-                                });
-                            }
-                        });
-                    });
-                }
-                ImportType::Svg(_) => {
-                    ui.group(|ui| {
-                        ui.label(
-                            RichText::new("Vector / SVG Settings")
-                                .color(theme::LAVENDER)
-                                .strong(),
-                        );
-                        ui.add_space(4.0);
-
-                        ui.label("Scaling:");
-                        ui.add(
-                            egui::Slider::new(&mut state.svg_params.scale, 0.01..=100.0)
-                                .text("Scale X"),
-                        );
-
-                        ui.add_space(8.0);
-                        ui.label("Layers / Color Mapping:");
-
-                        egui::ScrollArea::vertical()
-                            .max_height(150.0)
-                            .show(ui, |ui| {
-                                for layer in &mut state.svg_params.layers {
-                                    ui.group(|ui| {
-                                        ui.horizontal(|ui| {
-                                            ui.checkbox(&mut layer.enabled, "");
-
-                                            // Try to parse hex color for a little swatch
-                                            if layer.color_ha.starts_with('#')
-                                                && layer.color_ha.len() == 7
-                                            {
-                                                if let (Ok(r), Ok(g), Ok(b)) = (
-                                                    u8::from_str_radix(&layer.color_ha[1..3], 16),
-                                                    u8::from_str_radix(&layer.color_ha[3..5], 16),
-                                                    u8::from_str_radix(&layer.color_ha[5..7], 16),
-                                                ) {
-                                                    let color = Color32::from_rgb(r, g, b);
-                                                    let (rect, _response) = ui.allocate_exact_size(
-                                                        Vec2::new(12.0, 12.0),
-                                                        egui::Sense::hover(),
-                                                    );
-                                                    ui.painter().rect_filled(rect, 2.0, color);
-                                                }
-                                            }
-
-                                            ui.label(RichText::new(&layer.color_ha).strong());
-                                        });
-                                        if layer.enabled {
-                                            ui.horizontal(|ui| {
-                                                ui.label("Speed:");
-                                                ui.add(
-                                                    egui::DragValue::new(&mut layer.speed)
-                                                        .speed(10.0)
-                                                        .range(100.0..=10000.0),
-                                                );
-                                                ui.add_space(8.0);
-                                                ui.label("Power (%):");
-                                                {
-                                                    let mut pct = layer.power / 10.0;
-                                                    if ui.add(
-                                                        egui::DragValue::new(&mut pct)
-                                                            .speed(0.1)
-                                                            .range(0.0..=100.0)
-                                                            .suffix("%"),
-                                                    ).changed() {
-                                                        layer.power = (pct * 10.0).clamp(0.0, 1000.0);
-                                                    }
-                                                }
-                                            });
-                                        }
-                                    });
-                                }
-                            });
-
-                        // --- Cutting Frame ---
-                        ui.add_space(12.0);
-                        ui.group(|ui| {
-                            ui.horizontal(|ui| {
-                                ui.checkbox(&mut state.svg_params.outline.enabled, "");
-                                ui.label(
-                                    RichText::new("Cutting Frame (Outline)")
-                                        .color(theme::PEACH)
-                                        .strong(),
-                                );
-                            });
-
-                            if state.svg_params.outline.enabled {
-                                ui.add_space(4.0);
-                                ui.add(
-                                    egui::Slider::new(
-                                        &mut state.svg_params.outline.speed,
-                                        50.0..=5000.0,
-                                    )
-                                    .text("Cut Speed"),
-                                );
-                                {
-                                    let mut pct = state.svg_params.outline.power / 10.0;
-                                    if ui.add(
-                                        egui::Slider::new(&mut pct, 0.0..=100.0)
-                                            .text("Cut Power (%)"),
-                                    ).changed() {
-                                        state.svg_params.outline.power = (pct * 10.0).clamp(0.0, 1000.0);
-                                    }
-                                }
-                                ui.horizontal(|ui| {
-                                    ui.label("Passes:");
-                                    ui.add(
-                                        egui::DragValue::new(&mut state.svg_params.outline.passes)
-                                            .range(1..=50),
-                                    );
-                                });
-                            }
-                        });
-                    });
-                }
-            }
+        cols[1].vertical(|ui| match &state.import_type {
+            ImportType::Raster(_) => render_raster_settings(ui, state, speed_unit),
+            ImportType::Svg(_) => render_svg_settings(ui, state),
         });
     });
 
     ui.add_space(20.0);
 
+    render_footer(ui, &mut result);
+
+    result
+}
+
+fn render_header(ui: &mut Ui, filename: &str) {
+    ui.vertical_centered(|ui| {
+        ui.heading(format!("{} {}", tr("Import"), filename));
+    });
+}
+
+fn render_preview(ui: &mut Ui, state: &mut ImageImportState) {
+    ui.vertical_centered(|ui| {
+        // --- Material Presets ---
+        let mat_action = crate::ui::materials::show(ui, &mut state.materials);
+        if let Some(spd) = mat_action.apply_speed {
+            state.raster_params.max_speed = spd;
+            state
+                .svg_params
+                .layers
+                .iter_mut()
+                .for_each(|l| l.speed = spd);
+        }
+        if let Some(pwr) = mat_action.apply_power {
+            state.raster_params.max_power = pwr;
+            state
+                .svg_params
+                .layers
+                .iter_mut()
+                .for_each(|l| l.power = pwr);
+        }
+        if let Some(cs) = mat_action.apply_cut_speed {
+            state.raster_params.outline.speed = cs;
+            state.svg_params.outline.speed = cs;
+        }
+        if let Some(cp) = mat_action.apply_cut_power {
+            state.raster_params.outline.power = cp;
+            state.svg_params.outline.power = cp;
+        }
+        ui.add_space(8.0);
+
+        if let Some(texture) = &state.texture {
+            let _size = texture.size_vec2();
+            let max_size = Vec2::new(300.0, 300.0);
+            ui.add(egui::Image::new(texture).max_size(max_size).shrink_to_fit());
+        } else {
+            ui.add_space(100.0);
+            ui.label(tr("No preview available"));
+            ui.add_space(100.0);
+        }
+    });
+}
+
+fn render_raster_settings(
+    ui: &mut Ui,
+    state: &mut ImageImportState,
+    speed_unit: crate::config::settings::SpeedUnit,
+) {
+    ui.group(|ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(tr("Bitmap Import Mode:")).strong());
+            if ui
+                .selectable_value(&mut state.vectorize, false, tr("Raster"))
+                .changed()
+            {
+                state.needs_texture_update = true;
+            }
+            if ui
+                .selectable_value(&mut state.vectorize, true, tr("Vectorize (Stencil)"))
+                .changed()
+            {
+                state.needs_texture_update = true;
+            }
+        });
+        ui.add_space(8.0);
+
+        ui.label(
+            RichText::new(if state.vectorize {
+                tr("Vectorize Settings")
+            } else {
+                tr("Raster / Photo Settings")
+            })
+            .color(theme::LAVENDER)
+            .strong(),
+        );
+        ui.add_space(4.0);
+
+        ui.label(tr("Size:"));
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::DragValue::new(&mut state.raster_params.width_mm)
+                    .speed(1.0)
+                    .suffix(" mm"),
+            );
+            ui.label("x");
+            ui.add(
+                egui::DragValue::new(&mut state.raster_params.height_mm)
+                    .speed(1.0)
+                    .suffix(" mm"),
+            );
+        });
+
+        ui.add_space(4.0);
+        ui.label(tr("Resolution:"));
+        ui.add(egui::Slider::new(&mut state.raster_params.dpi, 25.4..=1270.0).text(tr("DPI")));
+        ui.label(format!("({:.2} lines/mm)", state.raster_params.dpi / 25.4));
+
+        ui.add_space(8.0);
+        ui.label(tr("Image Adjustments:"));
+        if state.vectorize {
+            if ui
+                .add(
+                    egui::Slider::new(&mut state.raster_params.threshold, 0..=255).text(tr("Threshold")),
+                )
+                .changed()
+            {
+                state.needs_texture_update = true;
+            }
+            if ui
+                .add(
+                    egui::Slider::new(&mut state.raster_params.smoothing, 0.0..=1.0)
+                        .text(tr("Smoothing")),
+                )
+                .changed()
+            {
+                // Potentially update preview if we supported vector preview, but currently texture is raster.
+            }
+            if ui
+                .add(egui::Slider::new(&mut state.raster_params.contrast, 0.0..=5.0).text(tr("Contrast")))
+                .changed()
+            {
+                state.needs_texture_update = true;
+            }
+            if ui
+                .checkbox(&mut state.raster_params.use_skeleton, tr("Centerline / Skeleton"))
+                .on_hover_text(tr("Use thinning algorithm for centerline tracing"))
+                .changed()
+            {
+                // Potentially update preview if we supported vector preview, but currently texture is raster.
+            }
+        } else {
+            let b_res = ui.add(
+                egui::Slider::new(&mut state.raster_params.brightness, -1.0..=1.0)
+                    .text(tr("Brightness")),
+            );
+            let c_res = ui.add(
+                egui::Slider::new(&mut state.raster_params.contrast, 0.0..=5.0).text(tr("Contrast")),
+            );
+
+            ui.horizontal(|ui| {
+                ui.label(tr("Dithering:"));
+                use crate::imaging::raster::DitherMode;
+                if ui
+                    .selectable_value(
+                        &mut state.raster_params.dither,
+                        DitherMode::FloydSteinberg,
+                        "Floyd",
+                    )
+                    .changed()
+                {
+                    state.needs_texture_update = true;
+                }
+                if ui
+                    .selectable_value(
+                        &mut state.raster_params.dither,
+                        DitherMode::Atkinson,
+                        "Atkinson",
+                    )
+                    .changed()
+                {
+                    state.needs_texture_update = true;
+                }
+                if ui
+                    .selectable_value(&mut state.raster_params.dither, DitherMode::None, tr("Grayscale"))
+                    .changed()
+                {
+                    state.needs_texture_update = true;
+                }
+            });
+
+            if b_res.changed() || c_res.changed() {
+                state.needs_texture_update = true;
+            }
+        }
+
+        let mut force_update = false;
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(&mut state.raster_params.flip_h, tr("Flip H"))
+                .changed()
+            {
+                force_update = true;
+            }
+            if ui
+                .checkbox(&mut state.raster_params.flip_v, tr("Flip V"))
+                .changed()
+            {
+                force_update = true;
+            }
+        });
+
+        egui::ComboBox::from_label(tr("Rotation"))
+            .selected_text(format!("{}°", state.raster_params.rotation))
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_value(&mut state.raster_params.rotation, 0, "0°")
+                    .changed()
+                {
+                    force_update = true;
+                }
+                if ui
+                    .selectable_value(&mut state.raster_params.rotation, 90, "90°")
+                    .changed()
+                {
+                    force_update = true;
+                }
+                if ui
+                    .selectable_value(&mut state.raster_params.rotation, 180, "180°")
+                    .changed()
+                {
+                    force_update = true;
+                }
+                if ui
+                    .selectable_value(&mut state.raster_params.rotation, 270, "270°")
+                    .changed()
+                {
+                    force_update = true;
+                }
+            });
+
+        if force_update {
+            state.needs_texture_update = true;
+        }
+
+        ui.add_space(8.0);
+        ui.label(tr("Laser Settings:"));
+        {
+            let mut display_spd = speed_unit.from_mmpm(state.raster_params.max_speed);
+            let (lo, hi) = match speed_unit {
+                crate::config::settings::SpeedUnit::MmPerMin => (100.0, 10000.0),
+                crate::config::settings::SpeedUnit::MmPerSec => (1.7, 167.0),
+            };
+            if ui
+                .add(
+                    egui::Slider::new(&mut display_spd, lo..=hi)
+                        .text(format!("{} ({})", tr("Speed"), speed_unit.label())),
+                )
+                .changed()
+            {
+                state.raster_params.max_speed = speed_unit.to_mmpm(display_spd);
+            }
+        }
+        {
+            let mut pct = state.raster_params.max_power / 10.0;
+            if ui
+                .add(egui::Slider::new(&mut pct, 0.0..=100.0).text(tr("Max Power (%)")))
+                .changed()
+            {
+                state.raster_params.max_power = (pct * 10.0).clamp(0.0, 1000.0);
+            }
+        }
+
+        // --- Cutting Frame ---
+        ui.add_space(12.0);
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut state.raster_params.outline.enabled, "");
+                ui.label(
+                    RichText::new(tr("Cutting Frame (Outline)"))
+                        .color(theme::PEACH)
+                        .strong(),
+                );
+            });
+
+            if state.raster_params.outline.enabled {
+                ui.add_space(4.0);
+                ui.add(
+                    egui::Slider::new(&mut state.raster_params.outline.speed, 50.0..=5000.0)
+                        .text(tr("Cut Speed")),
+                );
+                {
+                    let mut pct = state.raster_params.outline.power / 10.0;
+                    if ui
+                        .add(egui::Slider::new(&mut pct, 0.0..=100.0).text(tr("Cut Power (%)")))
+                        .changed()
+                    {
+                        state.raster_params.outline.power = (pct * 10.0).clamp(0.0, 1000.0);
+                    }
+                }
+                ui.horizontal(|ui| {
+                    ui.label(tr("Passes:"));
+                    ui.add(
+                        egui::DragValue::new(&mut state.raster_params.outline.passes).range(1..=50),
+                    );
+                });
+            }
+        });
+    });
+}
+
+fn render_svg_settings(ui: &mut Ui, state: &mut ImageImportState) {
+    ui.group(|ui| {
+        ui.label(
+            RichText::new(tr("Vector / SVG Settings"))
+                .color(theme::LAVENDER)
+                .strong(),
+        );
+        ui.add_space(4.0);
+
+        ui.label(tr("Scaling:"));
+        ui.add(egui::Slider::new(&mut state.svg_params.scale, 0.01..=100.0).text(tr("Scale X")));
+
+        ui.add_space(8.0);
+        ui.label(tr("Layers / Color Mapping:"));
+
+        egui::ScrollArea::vertical()
+            .max_height(150.0)
+            .show(ui, |ui| {
+                for layer in &mut state.svg_params.layers {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut layer.enabled, "");
+
+                            // Try to parse hex color for a little swatch
+                            if layer.color_ha.starts_with('#') && layer.color_ha.len() == 7 {
+                                if let (Ok(r), Ok(g), Ok(b)) = (
+                                    u8::from_str_radix(&layer.color_ha[1..3], 16),
+                                    u8::from_str_radix(&layer.color_ha[3..5], 16),
+                                    u8::from_str_radix(&layer.color_ha[5..7], 16),
+                                ) {
+                                    let color = Color32::from_rgb(r, g, b);
+                                    let (rect, _response) = ui.allocate_exact_size(
+                                        Vec2::new(12.0, 12.0),
+                                        egui::Sense::hover(),
+                                    );
+                                    ui.painter().rect_filled(rect, 2.0, color);
+                                }
+                            }
+
+                            ui.label(RichText::new(&layer.color_ha).strong());
+                        });
+                        if layer.enabled {
+                            ui.horizontal(|ui| {
+                                ui.label(tr("Speed:"));
+                                ui.add(
+                                    egui::DragValue::new(&mut layer.speed)
+                                        .speed(10.0)
+                                        .range(100.0..=10000.0),
+                                );
+                                ui.add_space(8.0);
+                                ui.label(tr("Power (%):"));
+                                {
+                                    let mut pct = layer.power / 10.0;
+                                    if ui
+                                        .add(
+                                            egui::DragValue::new(&mut pct)
+                                                .speed(0.1)
+                                                .range(0.0..=100.0)
+                                                .suffix("%"),
+                                        )
+                                        .changed()
+                                    {
+                                        layer.power = (pct * 10.0).clamp(0.0, 1000.0);
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+            });
+
+        // --- Cutting Frame ---
+        ui.add_space(12.0);
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut state.svg_params.outline.enabled, "");
+                ui.label(
+                    RichText::new(tr("Cutting Frame (Outline)"))
+                        .color(theme::PEACH)
+                        .strong(),
+                );
+            });
+
+            if state.svg_params.outline.enabled {
+                ui.add_space(4.0);
+                ui.add(
+                    egui::Slider::new(&mut state.svg_params.outline.speed, 50.0..=5000.0)
+                        .text(tr("Cut Speed")),
+                );
+                {
+                    let mut pct = state.svg_params.outline.power / 10.0;
+                    if ui
+                        .add(egui::Slider::new(&mut pct, 0.0..=100.0).text(tr("Cut Power (%)")))
+                        .changed()
+                    {
+                        state.svg_params.outline.power = (pct * 10.0).clamp(0.0, 1000.0);
+                    }
+                }
+                ui.horizontal(|ui| {
+                    ui.label(tr("Passes:"));
+                    ui.add(
+                        egui::DragValue::new(&mut state.svg_params.outline.passes).range(1..=50),
+                    );
+                });
+            }
+        });
+    });
+}
+
+fn render_footer(ui: &mut Ui, result: &mut ImageImportResult) {
     ui.horizontal(|ui| {
-        let btn_import = egui::Button::new(RichText::new("✔ Import").strong())
+        let btn_import = egui::Button::new(RichText::new(format!("✔ {}", tr("Import"))).strong())
             .fill(Color32::from_rgb(64, 160, 43)) // Catppuccin Green-ish
             .min_size(Vec2::new(100.0, 30.0));
 
@@ -462,12 +468,10 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState, speed_unit: crate::config
             result.imported = true;
         }
 
-        let btn_cancel = egui::Button::new("✘ Cancel").min_size(Vec2::new(100.0, 30.0));
+        let btn_cancel = egui::Button::new(format!("✘ {}", tr("Cancel"))).min_size(Vec2::new(100.0, 30.0));
 
         if ui.add(btn_cancel).clicked() {
             result.cancel = true;
         }
     });
-
-    result
 }

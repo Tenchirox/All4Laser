@@ -2,7 +2,7 @@ use egui::{RichText, Window};
 use crate::i18n::tr;
 use crate::theme;
 use crate::ui::drawing::{ShapeParams, ShapeKind};
-use crate::ui::layers_new::{CutLayer, CutMode};
+use crate::ui::layers_new::CutLayer;
 
 #[derive(Default, Clone, PartialEq)]
 pub enum Severity {
@@ -31,16 +31,6 @@ pub struct PreflightAction {
     pub cancel: bool,
 }
 
-fn path_is_closed(points: &[(f32, f32)]) -> bool {
-    if points.len() < 3 {
-        return false;
-    }
-    let first = points.first().unwrap();
-    let last = points.last().unwrap();
-    let dx = first.0 - last.0;
-    let dy = first.1 - last.1;
-    (dx * dx + dy * dy).sqrt() <= 0.05
-}
 
 pub fn run_checks(shapes: &[ShapeParams], layers: &[CutLayer]) -> Vec<PreflightIssue> {
     let mut issues = Vec::new();
@@ -57,17 +47,12 @@ pub fn run_checks(shapes: &[ShapeParams], layers: &[CutLayer]) -> Vec<PreflightI
             }
 
             // Check for valid paths in Fill mode
-            if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
+            if layer.mode.is_fill_mode() {
                 if let ShapeKind::Path(pts) = &shape.shape {
-                    if pts.len() < 3 {
+                    if !pts.is_closed() {
                         issues.push(PreflightIssue {
                             severity: Severity::Warning,
-                            message: format!("Shape {} on layer {} (Fill) has fewer than 3 points and will be ignored.", i + 1, layer.name),
-                        });
-                    } else if !path_is_closed(pts) {
-                        issues.push(PreflightIssue {
-                            severity: Severity::Warning,
-                            message: format!("Shape {} on layer {} (Fill) is an open path. Close contour to enable fill.", i + 1, layer.name),
+                            message: format!("Shape {} on layer {} (Fill) is an open path (or too short). Close contour to enable fill.", i + 1, layer.name),
                         });
                     }
                 }
@@ -275,7 +260,7 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
             }
 
             if let ShapeKind::Path(points) = &shape.shape {
-                if points.len() >= 2 && !path_is_closed(points) {
+                if !points.is_closed() {
                     open_paths += 1;
                 }
                 for seg in points.windows(2) {
@@ -339,14 +324,15 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
     let ws_x = ctx.machine_profile.workspace_x_mm;
     let ws_y = ctx.machine_profile.workspace_y_mm;
     for (idx, shape) in ctx.shapes.iter().enumerate() {
-        let (min_x, min_y, max_x, max_y) = crate::ui::drawing::shape_world_bounds_pub(shape);
-        if min_x < -0.1 || min_y < -0.1 || max_x > ws_x + 0.1 || max_y > ws_y + 0.1 {
-            report.add_warning(format!(
-                "Shape #{} extends outside workspace bounds ({:.0}x{:.0}mm).",
-                idx + 1,
-                ws_x,
-                ws_y
-            ));
+        if let Some((min_x, min_y, max_x, max_y)) = shape.world_bounds() {
+            if min_x < -0.1 || min_y < -0.1 || max_x > ws_x + 0.1 || max_y > ws_y + 0.1 {
+                report.add_warning(format!(
+                    "Shape #{} extends outside workspace bounds ({:.0}x{:.0}mm).",
+                    idx + 1,
+                    ws_x,
+                    ws_y
+                ));
+            }
         }
     }
 
@@ -380,9 +366,7 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
         if layer.passes == 0 {
             report.add_critical(format!("Layer {} has invalid passes (= 0).", layer.name));
         }
-        if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine)
-            && layer.fill_interval_mm <= 0.0
-        {
+        if layer.mode.is_fill_mode() && layer.fill_interval_mm <= 0.0 {
             report.add_critical(format!(
                 "Layer {} fill interval must be > 0 for fill modes.",
                 layer.name

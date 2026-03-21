@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::drawing::{DrawingState, PathData, ShapeKind, ShapeParams};
 use egui::RichText;
@@ -37,26 +38,26 @@ pub fn show(ctx: &egui::Context, state: &mut BooleanOpsState) -> BooleanAction {
         return action;
     }
 
-    egui::Window::new("🧩 Boolean Operations")
+    egui::Window::new(format!("🧩 {}", tr("Boolean Operations")))
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
             ui.vertical(|ui| {
-                ui.selectable_value(&mut state.op, BooleanOp::Union, "Union (Combine)");
-                ui.selectable_value(&mut state.op, BooleanOp::Subtract, "Subtract (A - B)");
-                ui.selectable_value(&mut state.op, BooleanOp::Intersect, "Intersection");
-                ui.selectable_value(&mut state.op, BooleanOp::Xor, "XOR (Symmetric Difference)");
+                ui.selectable_value(&mut state.op, BooleanOp::Union, tr("Union (Combine)"));
+                ui.selectable_value(&mut state.op, BooleanOp::Subtract, tr("Subtract (A - B)"));
+                ui.selectable_value(&mut state.op, BooleanOp::Intersect, tr("Intersection"));
+                ui.selectable_value(&mut state.op, BooleanOp::Xor, tr("XOR (Symmetric Difference)"));
             });
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui
-                    .button(RichText::new("🧩 Apply").color(theme::GREEN).strong())
+                    .button(RichText::new(format!("🧩 {}", tr("Apply"))).color(theme::GREEN).strong())
                     .clicked()
                 {
                     action.apply = true;
                 }
-                if ui.button("Close").clicked() {
+                if ui.button(tr("Close")).clicked() {
                     state.is_open = false;
                 }
             });

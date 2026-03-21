@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
+use crate::gcode::fill::rotate_point;
 use crate::gcode::generator::GCodeBuilder;
+use crate::gcode::output_protocol::ProtocolKind;
 use crate::imaging::raster::RasterParams;
 use crate::theme;
 use crate::ui::layers_new::{CutLayer, CutMode};
@@ -57,6 +59,18 @@ impl PathData {
             segments: vec![],
             start: (0.0, 0.0),
         }
+    }
+
+    /// Returns true if the path is closed (start and end points are near each other).
+    pub fn is_closed(&self) -> bool {
+        if self.points.len() < 3 {
+            return false;
+        }
+        let first = self.points.first().unwrap();
+        let last = self.points.last().unwrap();
+        let dx = first.0 - last.0;
+        let dy = first.1 - last.1;
+        (dx * dx + dy * dy).sqrt() <= 0.05
     }
 
     /// Create a path from Bézier segments, auto-flattening to points.
@@ -181,6 +195,63 @@ impl ShapeParams {
         (self.x + rx, self.y + ry)
     }
 
+    /// Returns the bounding box of the shape in world coordinates (min_x, min_y, max_x, max_y).
+    pub fn world_bounds(&self) -> Option<(f32, f32, f32, f32)> {
+        let points: Vec<(f32, f32)> = match &self.shape {
+            ShapeKind::Rectangle => vec![
+                self.world_pos(0.0, 0.0),
+                self.world_pos(self.width, 0.0),
+                self.world_pos(self.width, self.height),
+                self.world_pos(0.0, self.height),
+            ],
+            ShapeKind::Circle => vec![
+                (self.x - self.radius, self.y - self.radius),
+                (self.x + self.radius, self.y + self.radius),
+            ],
+            ShapeKind::TextLine => {
+                let char_w = self.font_size_mm * 0.6;
+                let w = self.text.len() as f32 * char_w;
+                vec![
+                    self.world_pos(0.0, 0.0),
+                    self.world_pos(w, 0.0),
+                    self.world_pos(w, self.font_size_mm),
+                    self.world_pos(0.0, self.font_size_mm),
+                ]
+            }
+            ShapeKind::Path(pts) => {
+                if pts.is_empty() {
+                    return None;
+                }
+                pts.iter()
+                    .map(|(lx, ly)| self.world_pos(*lx, *ly))
+                    .collect()
+            }
+            ShapeKind::RasterImage { params, .. } => vec![
+                self.world_pos(0.0, 0.0),
+                self.world_pos(params.width_mm, 0.0),
+                self.world_pos(params.width_mm, params.height_mm),
+                self.world_pos(0.0, params.height_mm),
+            ],
+        };
+
+        if points.is_empty() {
+            return None;
+        }
+
+        let mut min_x = f32::MAX;
+        let mut min_y = f32::MAX;
+        let mut max_x = f32::MIN;
+        let mut max_y = f32::MIN;
+        for (x, y) in points {
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+
+        Some((min_x, min_y, max_x, max_y))
+    }
+
     pub fn local_center(&self) -> (f32, f32) {
         match &self.shape {
             ShapeKind::Rectangle => (self.width / 2.0, self.height / 2.0),
@@ -232,73 +303,6 @@ impl Default for ShapeParams {
     }
 }
 
-/// Bounding box of a shape in world coordinates (F39 helper)
-fn shape_world_bounds(s: &ShapeParams) -> (f32, f32, f32, f32) {
-    match &s.shape {
-        ShapeKind::Rectangle => {
-            let corners = [
-                (0.0, 0.0),
-                (s.width, 0.0),
-                (s.width, s.height),
-                (0.0, s.height),
-            ];
-            let world: Vec<(f32, f32)> = corners
-                .iter()
-                .map(|&(lx, ly)| s.world_pos(lx, ly))
-                .collect();
-            let min_x = world.iter().map(|p| p.0).fold(f32::MAX, f32::min);
-            let max_x = world.iter().map(|p| p.0).fold(f32::MIN, f32::max);
-            let min_y = world.iter().map(|p| p.1).fold(f32::MAX, f32::min);
-            let max_y = world.iter().map(|p| p.1).fold(f32::MIN, f32::max);
-            (min_x, min_y, max_x, max_y)
-        }
-        ShapeKind::Circle => (
-            s.x - s.radius,
-            s.y - s.radius,
-            s.x + s.radius,
-            s.y + s.radius,
-        ),
-        ShapeKind::Path(data) => {
-            let mut min_x = f32::MAX;
-            let mut max_x = f32::MIN;
-            let mut min_y = f32::MAX;
-            let mut max_y = f32::MIN;
-            for p in &data.points {
-                let (wx, wy) = s.world_pos(p.0, p.1);
-                min_x = min_x.min(wx);
-                max_x = max_x.max(wx);
-                min_y = min_y.min(wy);
-                max_y = max_y.max(wy);
-            }
-            if min_x > max_x {
-                return (s.x, s.y, s.x, s.y);
-            }
-            (min_x, min_y, max_x, max_y)
-        }
-        ShapeKind::RasterImage { params, .. } => {
-            let corners = [
-                (0.0, 0.0),
-                (params.width_mm, 0.0),
-                (params.width_mm, params.height_mm),
-                (0.0, params.height_mm),
-            ];
-            let world: Vec<(f32, f32)> = corners
-                .iter()
-                .map(|&(lx, ly)| s.world_pos(lx, ly))
-                .collect();
-            let min_x = world.iter().map(|p| p.0).fold(f32::MAX, f32::min);
-            let max_x = world.iter().map(|p| p.0).fold(f32::MIN, f32::max);
-            let min_y = world.iter().map(|p| p.1).fold(f32::MAX, f32::min);
-            let max_y = world.iter().map(|p| p.1).fold(f32::MIN, f32::max);
-            (min_x, min_y, max_x, max_y)
-        }
-        _ => {
-            let (cx, cy) = s.local_center();
-            let (wx, wy) = s.world_pos(cx, cy);
-            (wx - 5.0, wy - 5.0, wx + 5.0, wy + 5.0)
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AlignOp {
@@ -334,9 +338,8 @@ pub fn align_shapes(shapes: &mut [ShapeParams], selection: &[usize], op: AlignOp
     let bounds: Vec<(usize, f32, f32, f32, f32)> = selection
         .iter()
         .filter_map(|&i| {
-            shapes.get(i).map(|s| {
-                let b = shape_world_bounds(s);
-                (i, b.0, b.1, b.2, b.3)
+            shapes.get(i).and_then(|s| {
+                s.world_bounds().map(|b| (i, b.0, b.1, b.2, b.3))
             })
         })
         .collect();
@@ -425,11 +428,6 @@ pub fn align_shapes(shapes: &mut [ShapeParams], selection: &[usize], op: AlignOp
             }
         }
     }
-}
-
-/// Public wrapper for shape_world_bounds (F59)
-pub fn shape_world_bounds_pub(s: &ShapeParams) -> (f32, f32, f32, f32) {
-    shape_world_bounds(s)
 }
 
 /// Group selected shapes under a new group ID (F51)
@@ -712,11 +710,12 @@ pub fn export_shapes_to_svg(shapes: &[ShapeParams], layers: &[CutLayer]) -> Stri
     let mut gmax_x = f32::MIN;
     let mut gmax_y = f32::MIN;
     for s in shapes {
-        let (a, b, c, d) = shape_world_bounds(s);
-        gmin_x = gmin_x.min(a);
-        gmin_y = gmin_y.min(b);
-        gmax_x = gmax_x.max(c);
-        gmax_y = gmax_y.max(d);
+        if let Some((a, b, c, d)) = s.world_bounds() {
+            gmin_x = gmin_x.min(a);
+            gmin_y = gmin_y.min(b);
+            gmax_x = gmax_x.max(c);
+            gmax_y = gmax_y.max(d);
+        }
     }
     let w = (gmax_x - gmin_x).max(1.0);
     let h = (gmax_y - gmin_y).max(1.0);
@@ -841,6 +840,20 @@ impl Default for DrawingState {
             current: ShapeParams::default(),
             shapes: Vec::new(),
         }
+    }
+}
+
+impl DrawingState {
+    /// Returns shape indices to operate on, based on selection and a "selection only" toggle.
+    /// If selection_only is true but nothing is selected, it falls back to all shapes.
+    pub fn get_target_indices(&self, selection: &[usize], selection_only: bool) -> Vec<usize> {
+        let mut target: Vec<usize> = if selection_only && !selection.is_empty() {
+            selection.to_vec()
+        } else {
+            (0..self.shapes.len()).collect()
+        };
+        target.retain(|&idx| idx < self.shapes.len());
+        target
     }
 }
 
@@ -1007,11 +1020,20 @@ pub fn show(
 }
 
 pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<String> {
-    let mut builder = GCodeBuilder::new();
+    generate_all_gcode_with_protocol(state, layers, ProtocolKind::Grbl)
+}
+
+pub fn generate_all_gcode_with_protocol(
+    state: &DrawingState,
+    layers: &[CutLayer],
+    protocol: ProtocolKind,
+) -> Vec<String> {
+    let mut builder = GCodeBuilder::with_protocol(protocol);
 
     builder.comment("Compiled Drawing — All4Laser");
-    builder.raw("G90");
-    builder.raw("G21");
+    for line in crate::gcode::output_protocol::create_protocol(protocol).preamble() {
+        builder.raw(&line);
+    }
     builder.comment("");
 
     // Create a default layer fallback once, outside the loop
@@ -1071,84 +1093,110 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
             }
         ));
 
-        // Apply Z-offset if needed (simple implementation: move Z before layer start)
+        // Apply Z-offset if needed
         if layer.z_offset != 0.0 {
-            builder.raw(&format!("G0 Z{:.2}", layer.z_offset));
+            let z_cmd = builder.protocol_kind();
+            builder.raw(&crate::gcode::output_protocol::create_protocol(z_cmd).z_move(layer.z_offset));
         }
 
         if layer.air_assist {
-            builder.raw("M8");
+            let cmd = crate::gcode::output_protocol::create_protocol(builder.protocol_kind()).air_assist_on();
+            if !cmd.is_empty() { builder.raw(&cmd); }
         }
         if layer.exhaust_enabled {
-            builder.raw("M7"); // Exhaust fan on (F77)
+            let cmd = crate::gcode::output_protocol::create_protocol(builder.protocol_kind()).exhaust_on();
+            if !cmd.is_empty() { builder.raw(&cmd); }
         }
 
-        for pass in 0..layer.passes {
-            if layer.passes > 1 {
-                builder.comment(&format!("Pass {}", pass + 1));
+        let depth_passes = if layer.depth_enabled && layer.depth_step_down_mm > 0.0 {
+            (layer.depth_total_mm / layer.depth_step_down_mm).ceil() as u32
+        } else {
+            1
+        };
+
+        for depth_pass in 0..depth_passes {
+            if layer.depth_enabled {
+                let z_depth = -((depth_pass + 1) as f32 * layer.depth_step_down_mm)
+                    .min(layer.depth_total_mm);
+                builder.comment(&format!("Depth pass {} / {} (Z={:.2} mm)", depth_pass + 1, depth_passes, z_depth));
+                let proto = crate::gcode::output_protocol::create_protocol(builder.protocol_kind());
+                builder.raw(&proto.z_move(z_depth));
             }
 
-            if matches!(
-                layer.mode,
-                CutMode::Fill | CutMode::FillAndLine | CutMode::Offset
-            ) {
-                let layer_shapes: Vec<&ShapeParams> = layer_shape_indices
-                    .iter()
-                    .map(|&idx| &state.shapes[idx])
-                    .collect();
+            for pass in 0..layer.passes {
+                if layer.passes > 1 {
+                    builder.comment(&format!("Pass {}", pass + 1));
+                }
 
-                let mut temp_lines = Vec::new();
-                crate::gcode::fill::generate_fill_group(&mut temp_lines, &layer_shapes, layer);
-                builder.lines.extend(temp_lines);
-                // `generate_fill_group` uses its own builder; reset our tracking state after merging lines.
-                builder.reset_state();
-            }
+                if matches!(
+                    layer.mode,
+                    CutMode::Fill | CutMode::FillAndLine | CutMode::Offset
+                ) {
+                    let layer_shapes: Vec<&ShapeParams> = layer_shape_indices
+                        .iter()
+                        .map(|&idx| &state.shapes[idx])
+                        .collect();
 
-            if matches!(layer.mode, CutMode::Line | CutMode::FillAndLine) {
-                for &shape_idx in &layer_shape_indices {
-                    let shape = &state.shapes[shape_idx];
-                    let shape_label = match &shape.shape {
-                        ShapeKind::Rectangle => "Rect",
-                        ShapeKind::Circle => "Circle",
-                        ShapeKind::TextLine => "Text",
-                        ShapeKind::Path(_) => "Path",
-                        ShapeKind::RasterImage { .. } => "Bitmap",
-                    };
-                    builder.comment(&format!(
-                        "Shape {}: {} [Layer C{:02}]",
-                        shape_idx + 1,
-                        shape_label,
-                        layer.id
-                    ));
+                    let mut temp_lines = Vec::new();
+                    crate::gcode::fill::generate_fill_group(&mut temp_lines, &layer_shapes, layer);
+                    builder.lines.extend(temp_lines);
+                    builder.reset_state();
+                }
 
-                    match &shape.shape {
-                        ShapeKind::Rectangle => gen_rect(&mut builder, shape, layer),
-                        ShapeKind::Circle => gen_circle(&mut builder, shape, layer),
-                        ShapeKind::TextLine => gen_text(&mut builder, shape, layer),
-                        ShapeKind::Path(pts) => gen_path(&mut builder, pts, shape, layer),
-                        ShapeKind::RasterImage { .. } => {
-                            // Skip expensive pixel-by-pixel raster GCode during
-                            // interactive edits. Raster GCode is generated on-demand
-                            // when sending to the laser via generate_job_gcode.
-                            builder.comment("Bitmap (raster GCode deferred)");
+                if matches!(layer.mode, CutMode::Line | CutMode::FillAndLine) {
+                    for &shape_idx in &layer_shape_indices {
+                        let shape = &state.shapes[shape_idx];
+                        let shape_label = match &shape.shape {
+                            ShapeKind::Rectangle => "Rect",
+                            ShapeKind::Circle => "Circle",
+                            ShapeKind::TextLine => "Text",
+                            ShapeKind::Path(_) => "Path",
+                            ShapeKind::RasterImage { .. } => "Bitmap",
+                        };
+                        builder.comment(&format!(
+                            "Shape {}: {} [Layer C{:02}]",
+                            shape_idx + 1,
+                            shape_label,
+                            layer.id
+                        ));
+
+                        match &shape.shape {
+                            ShapeKind::Rectangle => gen_rect(&mut builder, shape, layer),
+                            ShapeKind::Circle => gen_circle(&mut builder, shape, layer),
+                            ShapeKind::TextLine => gen_text(&mut builder, shape, layer),
+                            ShapeKind::Path(pts) => gen_path(&mut builder, pts, shape, layer),
+                            ShapeKind::RasterImage { .. } => {
+                                builder.comment("Bitmap (raster GCode deferred)");
+                            }
                         }
                     }
                 }
             }
         }
 
+        // Return Z to surface after depth engraving
+        if layer.depth_enabled {
+            let proto = crate::gcode::output_protocol::create_protocol(builder.protocol_kind());
+            builder.raw(&proto.z_move(0.0));
+        }
+
         if layer.air_assist {
-            builder.raw("M9");
+            let cmd = crate::gcode::output_protocol::create_protocol(builder.protocol_kind()).air_assist_off();
+            if !cmd.is_empty() { builder.raw(&cmd); }
         }
         if layer.exhaust_enabled && layer.exhaust_post_delay_s > 0.0 {
             builder.comment(&format!(
                 "Exhaust post-delay {:.1}s",
                 layer.exhaust_post_delay_s
             ));
-            builder.raw(&format!("G4 P{:.1}", layer.exhaust_post_delay_s));
-            builder.raw("M9"); // Exhaust off after delay (F77)
+            let proto = crate::gcode::output_protocol::create_protocol(builder.protocol_kind());
+            let dwell = proto.dwell(layer.exhaust_post_delay_s);
+            if !dwell.is_empty() { builder.raw(&dwell); }
+            let off = proto.exhaust_off();
+            if !off.is_empty() { builder.raw(&off); }
         } else if layer.exhaust_enabled {
-            builder.raw("M9");
+            let cmd = crate::gcode::output_protocol::create_protocol(builder.protocol_kind()).exhaust_off();
+            if !cmd.is_empty() { builder.raw(&cmd); }
         }
     }
 
@@ -1162,7 +1210,7 @@ fn gen_rect(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
     let (x0, y0) = (0.0, 0.0);
     let (x1, y1) = (s.width, s.height);
     let pts = vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)];
-    let path: Vec<(f32, f32)> = pts.into_iter().map(|p| rotate_point(p.0, p.1, s)).collect();
+    let path: Vec<(f32, f32)> = pts.into_iter().map(|p| s.world_pos(p.0, p.1)).collect();
     gen_layer_path(builder, &path, layer);
 }
 
@@ -1178,7 +1226,7 @@ fn gen_circle(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
         let py = r * angle.sin();
         pts.push((px, py));
     }
-    let path: Vec<(f32, f32)> = pts.into_iter().map(|p| rotate_point(p.0, p.1, s)).collect();
+    let path: Vec<(f32, f32)> = pts.into_iter().map(|p| s.world_pos(p.0, p.1)).collect();
     gen_layer_path(builder, &path, layer);
 }
 
@@ -1187,7 +1235,7 @@ fn gen_path(builder: &mut GCodeBuilder, points: &[(f32, f32)], s: &ShapeParams, 
         return;
     }
 
-    let abs_path: Vec<(f32, f32)> = points.iter().map(|p| rotate_point(p.0, p.1, s)).collect();
+    let abs_path: Vec<(f32, f32)> = points.iter().map(|p| s.world_pos(p.0, p.1)).collect();
 
     gen_layer_path(builder, &abs_path, layer);
 }
@@ -1386,7 +1434,7 @@ fn gen_raster(
         for col in cols {
             let pixel = resized.get_pixel(col, row)[0];
             let lx = col as f32 * x_scale;
-            let (wx, wy) = rotate_point(lx, ly, s);
+            let (wx, wy) = s.world_pos(lx, ly);
 
             if pixel == 255 {
                 // Fully white (transparent after alpha composite) — skip with rapid
@@ -1412,12 +1460,6 @@ fn gen_raster(
     builder.laser_off();
 }
 
-fn rotate_point(lx: f32, ly: f32, s: &ShapeParams) -> (f32, f32) {
-    let angle = s.rotation.to_radians();
-    let rx = lx * angle.cos() - ly * angle.sin();
-    let ry = lx * angle.sin() + ly * angle.cos();
-    (s.x + rx, s.y + ry)
-}
 
 #[cfg(test)]
 mod tests {

@@ -23,32 +23,32 @@ pub fn show(
     workspace_size: egui::Vec2,
 ) {
     if selection.is_empty() {
-        ui.add_enabled(false, egui::Button::new("Align: (Select objects)"));
+        ui.add_enabled(false, egui::Button::new(tr("Align: (Select objects)")));
         return;
     }
 
     ui.horizontal(|ui| {
         ui.label(RichText::new(tr("Align:")).small().color(theme::SUBTEXT));
 
-        if ui.button("⇤").on_hover_text("Align Left").clicked() {
+        if ui.button("⇤").on_hover_text(tr("Align Left")).clicked() {
             apply_align(state, selection, AlignCmd::Left, workspace_size);
         }
-        if ui.button("⇹").on_hover_text("Align Center (H)").clicked() {
+        if ui.button("⇹").on_hover_text(tr("Align Center (H)")).clicked() {
             apply_align(state, selection, AlignCmd::CenterHorizontal, workspace_size);
         }
-        if ui.button("⇥").on_hover_text("Align Right").clicked() {
+        if ui.button("⇥").on_hover_text(tr("Align Right")).clicked() {
             apply_align(state, selection, AlignCmd::Right, workspace_size);
         }
 
         ui.separator();
 
-        if ui.button("⤒").on_hover_text("Align Top").clicked() {
+        if ui.button("⤒").on_hover_text(tr("Align Top")).clicked() {
             apply_align(state, selection, AlignCmd::Top, workspace_size);
         }
-        if ui.button("⇕").on_hover_text("Align Center (V)").clicked() {
+        if ui.button("⇕").on_hover_text(tr("Align Center (V)")).clicked() {
             apply_align(state, selection, AlignCmd::CenterVertical, workspace_size);
         }
-        if ui.button("⤓").on_hover_text("Align Bottom").clicked() {
+        if ui.button("⤓").on_hover_text(tr("Align Bottom")).clicked() {
             apply_align(state, selection, AlignCmd::Bottom, workspace_size);
         }
     });

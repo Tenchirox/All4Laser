@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::app::RightPanelTab;
+use crate::gcode::output_protocol::ProtocolKind;
 use crate::i18n::Language;
 use crate::theme::{UiLayout, UiTheme};
 use crate::ui::camera::CameraCalibration;
@@ -196,6 +197,9 @@ pub struct AppSettings {
     pub colorblind_mode: ColorblindMode,
     #[serde(default)]
     pub high_contrast: bool,
+    // Output protocol (GRBL/Marlin/EGV)
+    #[serde(default)]
+    pub output_protocol: ProtocolKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -346,6 +350,7 @@ impl Default for AppSettings {
             network_port: default_network_port(),
             colorblind_mode: ColorblindMode::None,
             high_contrast: false,
+            output_protocol: ProtocolKind::Grbl,
         }
     }
 }

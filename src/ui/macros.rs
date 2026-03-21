@@ -93,17 +93,17 @@ pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosActi
             if state.editing_idx == Some(i) {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Name:");
+                        ui.label(tr("Name:"));
                         ui.text_edit_singleline(&mut state.edit_label);
                     });
-                    ui.label("GCode (multiline):");
+                    ui.label(tr("GCode (multiline):"));
                     ui.text_edit_multiline(&mut state.edit_gcode);
                     let has_executable = state.edit_gcode.lines().map(str::trim).any(|line| {
                         !line.is_empty() && !line.starts_with(';') && !line.starts_with('#')
                     });
                     if !has_executable {
                         ui.label(
-                            RichText::new("Add at least one executable G-code line.")
+                            RichText::new(tr("Add at least one executable G-code line."))
                                 .small()
                                 .color(theme::SUBTEXT),
                         );

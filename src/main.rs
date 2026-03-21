@@ -13,6 +13,7 @@ mod preview;
 mod serial;
 mod theme;
 mod ui;
+mod updater;
 
 fn main() -> eframe::Result {
     env_logger::init();
