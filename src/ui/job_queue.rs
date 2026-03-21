@@ -218,7 +218,7 @@ pub fn show(
 
     let mut close_clicked = false;
 
-    egui::Window::new("📚 Job Queue")
+    egui::Window::new(format!("📚 {}", tr("Job Queue")))
         .resizable(true)
         .collapsible(false)
         .default_width(520.0)
@@ -227,7 +227,7 @@ pub fn show(
                 if ui
                     .add_enabled(
                         has_loaded_program,
-                        egui::Button::new("➕ Queue Current Job"),
+                        egui::Button::new(format!("➕ {}", tr("Queue Current Job"))),
                     )
                     .clicked()
                 {
@@ -236,25 +236,25 @@ pub fn show(
                 if ui
                     .add_enabled(
                         !running && !state.queue.is_empty(),
-                        egui::Button::new("▶ Start Next"),
+                        egui::Button::new(format!("▶ {}", tr("Start Next"))),
                     )
                     .clicked()
                 {
                     action.start_next = true;
                 }
                 if ui
-                    .add_enabled(!running, egui::Button::new("🔁 Retry Last Failed"))
+                    .add_enabled(!running, egui::Button::new(format!("🔁 {}", tr("Retry Last Failed"))))
                     .clicked()
                 {
                     action.retry_last_failed = true;
                 }
-                if ui.button("Close").clicked() {
+                if ui.button(tr("Close")).clicked() {
                     close_clicked = true;
                 }
             });
 
             ui.horizontal(|ui| {
-                ui.checkbox(&mut state.auto_run_next, "Auto-run next queued job");
+                ui.checkbox(&mut state.auto_run_next, tr("Auto-run next queued job"));
                 let (total, completed, failed) = state.stats_summary();
                 ui.label(
                     RichText::new(format!(
@@ -270,7 +270,7 @@ pub fn show(
             });
 
             ui.horizontal(|ui| {
-                if ui.button("📂 Batch Import").on_hover_text("Load multiple GCode files into the queue").clicked() {
+                if ui.button(format!("📂 {}", tr("Batch Import"))).on_hover_text(tr("Load multiple GCode files into the queue")).clicked() {
                     if let Some(paths) = rfd::FileDialog::new()
                         .add_filter("GCode", &["gcode", "nc", "gc", "ngc", "txt"])
                         .pick_files()
@@ -281,10 +281,10 @@ pub fn show(
                         }
                     }
                 }
-                if ui.button("💾 Save History").on_hover_text("Save job history to disk").clicked() {
+                if ui.button(format!("💾 {}", tr("Save History"))).on_hover_text(tr("Save job history to disk")).clicked() {
                     state.save_history();
                 }
-                if ui.button("📂 Load History").on_hover_text("Restore saved job history").clicked() {
+                if ui.button(format!("📂 {}", tr("Load History"))).on_hover_text(tr("Restore saved job history")).clicked() {
                     state.load_history();
                 }
             });

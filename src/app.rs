@@ -47,12 +47,15 @@ pub struct All4LaserApp {
     // GRBL state
     grbl_state: GrblState,
 
-    // Serial
+    // Serial / TCP
     connection: Option<SerialConnection>,
     ports: Vec<String>,
     selected_port: usize,
     baud_rates: Vec<u32>,
     selected_baud: usize,
+    use_tcp: bool,
+    tcp_host: String,
+    tcp_port_str: String,
 
     // GCode
     loaded_file: Option<GCodeFile>,
@@ -207,10 +210,17 @@ pub struct All4LaserApp {
     // Update checker
     update_available: Option<String>,
     update_receiver: Option<crossbeam_channel::Receiver<String>>,
+    update_progress_rx: Option<crossbeam_channel::Receiver<crate::updater::UpdateProgress>>,
+    update_progress_state: Option<crate::updater::UpdateProgress>,
 
     // Background LightBurn import
     lbrn_import_receiver: Option<crossbeam_channel::Receiver<Result<(Vec<ShapeParams>, Vec<crate::gcode::lbrn_import::LbrnLayerOverride>, String), String>>>,
     lbrn_loading_msg: Option<String>,
+
+    // Batch operations (multi-select)
+    batch_move_x: f32,
+    batch_move_y: f32,
+    batch_target_layer: usize,
 }
 
 impl All4LaserApp {
@@ -432,36 +442,6 @@ impl All4LaserApp {
             self.run_program_with_preflight();
         }
 
-        // === Handle Settings Modal ===
-        let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
-        let mut settings_write_blocked = false;
-        if let Some(state) = &mut self.settings_state {
-            ui::settings_dialog::show(ctx, state);
-            if !state.is_open {
-                self.settings_state = None;
-            } else {
-                // If there are pending writes, send them
-                if !state.pending_writes.is_empty() {
-                    if !supports_grbl_settings {
-                        settings_write_blocked = true;
-                        state.pending_writes.clear();
-                    } else {
-                        let writes = std::mem::take(&mut state.pending_writes);
-                        for (id, val) in writes {
-                            if id == -1 && val == "$$" {
-                                self.send_command("$$"); // Refresh
-                            } else {
-                                self.send_command(&format!("${}={}", id, val));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if settings_write_blocked {
-            self.log("GRBL settings write not supported by this controller.".into());
-        }
-
         // Tool windows dispatch
         self.update_tool_windows(ctx);
 
@@ -497,73 +477,223 @@ impl All4LaserApp {
 
         // === Job Done Notification ===
         if self.notify_job_done {
-            egui::Window::new("✅ Job Complete")
+            let mut dismiss = false;
+            egui::Window::new(format!("✅ {}", crate::i18n::tr("Job Complete")))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
                 .show(ctx, |ui| {
-                    ui.label(egui::RichText::new("Program finished successfully!").size(16.0));
+                    ui.label(egui::RichText::new(crate::i18n::tr("Program finished successfully!")).size(16.0));
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.notify_sound_enabled, "🔔 Sound");
+                        ui.checkbox(&mut self.notify_sound_enabled, format!("🔔 {}", crate::i18n::tr("Sound")));
                     });
                     ui.add_space(4.0);
                     if ui.button("OK").clicked() {
-                        self.notify_job_done = false;
+                        dismiss = true;
                     }
                 });
-            if self.notify_sound_enabled {
-                crate::ui::sound::play_notification_sound();
+            if dismiss {
+                if self.notify_sound_enabled {
+                    crate::ui::sound::play_notification_sound();
+                }
+                self.notify_job_done = false;
             }
-            self.notify_job_done = false;
         }
 
         if self.about_open {
             let mut open = true;
             let mut close_clicked = false;
-            egui::Window::new("About All4Laser")
+            egui::Window::new(crate::i18n::tr("About All4Laser"))
                 .open(&mut open)
                 .collapsible(false)
-                .resizable(false)
+                .resizable(true)
+                .default_width(420.0)
                 .show(ctx, |ui| {
-                    ui.label(egui::RichText::new("All4Laser").strong().size(20.0));
-                    ui.label("Advanced Laser Control Software");
+                    ui.label(egui::RichText::new("All4Laser").strong().size(22.0));
+                    ui.label(format!("v{}", env!("CARGO_PKG_VERSION")));
+                    ui.label(crate::i18n::tr("Advanced Laser Control Software"));
+                    ui.add_space(6.0);
+                    ui.label("Copyright (c) 2024-2026 Tenchirox — GPL-3.0");
+                    ui.add_space(10.0);
+
+                    ui.label(egui::RichText::new(crate::i18n::tr("Acknowledgments")).strong().size(15.0));
+                    ui.add_space(4.0);
+
+                    ui.label(egui::RichText::new(crate::i18n::tr("Inspiration")).strong());
+                    ui.label("- LaserMagic (MadSquirrels) — Multi-protocol laser library (GPL-v3)");
+                    ui.label("- LightBurn — UI/UX patterns, layer system");
+                    ui.label("- LaserGRBL — Open-source GRBL laser control");
+                    ui.add_space(6.0);
+
+                    ui.label(egui::RichText::new(crate::i18n::tr("Libraries")).strong());
+                    egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                        let libs = [
+                            ("egui / eframe", "Immediate-mode GUI framework"),
+                            ("image", "Image decoding & manipulation"),
+                            ("usvg / tiny-skia", "SVG parsing & 2D rendering"),
+                            ("serde / serde_json", "Serialization & persistence"),
+                            ("serialport", "Serial port communication"),
+                            ("geo", "Computational geometry"),
+                            ("rusttype", "Font rasterization"),
+                            ("font-kit", "Font discovery"),
+                            ("crossbeam-channel", "Lock-free channels"),
+                            ("ureq", "HTTP client (updates & API)"),
+                            ("rfd", "Native file dialogs"),
+                            ("lopdf", "PDF import"),
+                            ("qrcode", "QR code generation"),
+                            ("indexmap", "Ordered maps"),
+                            ("webbrowser", "System browser integration"),
+                            ("base64", "Binary encoding"),
+                            ("log / env_logger", "Structured logging"),
+                        ];
+                        for (name, role) in libs {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(name).strong().monospace());
+                                ui.label(format!("— {role}"));
+                            });
+                        }
+                        #[cfg(target_os = "linux")]
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("v4l").strong().monospace());
+                            ui.label("— Camera capture (Linux)");
+                        });
+                        #[cfg(target_os = "windows")]
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("nokhwa").strong().monospace());
+                            ui.label("— Camera capture (Windows)");
+                        });
+                    });
+
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new(crate::i18n::tr("Thank you to all open-source contributors!"))
+                            .italics()
+                            .color(crate::theme::SUBTEXT),
+                    );
                     ui.add_space(8.0);
-                    if ui.button("OK").clicked() {
-                        close_clicked = true;
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.link("GitHub").clicked() {
+                            let _ = webbrowser::open("https://github.com/Tenchirox/All4Laser");
+                        }
+                        ui.label("·");
+                        if ui.link("LaserMagic").clicked() {
+                            let _ = webbrowser::open("https://gitlab.com/MadSquirrels/lasermagic/lasermagic");
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button(crate::i18n::tr("OK")).clicked() {
+                                close_clicked = true;
+                            }
+                        });
+                    });
                 });
             if !open || close_clicked {
                 self.about_open = false;
             }
         }
 
+        // === Update Progress Receiver ===
+        if let Some(rx) = &self.update_progress_rx {
+            while let Ok(progress) = rx.try_recv() {
+                self.update_progress_state = Some(progress);
+            }
+        }
+
         // === Update Notification ===
         let mut close_update = false;
+        let mut start_auto_update = false;
         let mut log_message = None;
         if let Some(new_version) = &self.update_available {
             let new_version_str = new_version.clone();
-            egui::Window::new("🎉 Update Available!")
+            let is_downloading = matches!(
+                &self.update_progress_state,
+                Some(crate::updater::UpdateProgress::Downloading { .. })
+                    | Some(crate::updater::UpdateProgress::Installing)
+            );
+            egui::Window::new(format!("🎉 {}", crate::i18n::tr("Update Available!")))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-10.0, -10.0))
                 .show(ctx, |ui| {
-                    ui.label(format!("A new version ({}) is available.", new_version_str));
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("Download").clicked() {
-                            if let Err(e) = webbrowser::open(
-                                "https://github.com/arkypita/All4Laser/releases/latest",
-                            ) {
-                                log_message = Some(format!("Failed to open browser: {}", e));
+                    ui.label(format!("{} ({}).", crate::i18n::tr("A new version is available"), new_version_str));
+                    ui.add_space(4.0);
+
+                    // Show progress if update is in progress
+                    if let Some(state) = &self.update_progress_state {
+                        match state {
+                            crate::updater::UpdateProgress::Downloading { percent, bytes_done, bytes_total } => {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label(format!(
+                                        "{}: {:.0}% ({:.1} / {:.1} MB)",
+                                        crate::i18n::tr("Downloading"),
+                                        percent,
+                                        *bytes_done as f64 / 1_048_576.0,
+                                        *bytes_total as f64 / 1_048_576.0,
+                                    ));
+                                });
+                                let bar = egui::ProgressBar::new(percent / 100.0).animate(true);
+                                ui.add(bar);
                             }
-                            close_update = true;
+                            crate::updater::UpdateProgress::Installing => {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label(crate::i18n::tr("Installing..."));
+                                });
+                            }
+                            crate::updater::UpdateProgress::Done(path) => {
+                                ui.colored_label(
+                                    crate::theme::GREEN,
+                                    format!("✅ {} {}", crate::i18n::tr("Installed to"), path.display()),
+                                );
+                                ui.label(crate::i18n::tr("Restart the application to use the new version."));
+                                if ui.button(crate::i18n::tr("OK")).clicked() {
+                                    close_update = true;
+                                }
+                            }
+                            crate::updater::UpdateProgress::Error(e) => {
+                                ui.colored_label(
+                                    crate::theme::RED,
+                                    format!("❌ {}: {}", crate::i18n::tr("Update failed"), e),
+                                );
+                                if ui.button(crate::i18n::tr("Dismiss")).clicked() {
+                                    close_update = true;
+                                }
+                            }
+                            _ => {}
                         }
-                        if ui.button("Dismiss").clicked() {
-                            close_update = true;
-                        }
-                    });
+                    }
+
+                    if !is_downloading && !matches!(&self.update_progress_state, Some(crate::updater::UpdateProgress::Done(_))) {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            if ui.button(format!("⬇ {}", crate::i18n::tr("Auto-Update"))).clicked() {
+                                start_auto_update = true;
+                            }
+                            if ui.button(crate::i18n::tr("Download")).clicked() {
+                                if let Err(e) = webbrowser::open(
+                                    "https://github.com/arkypita/All4Laser/releases/latest",
+                                ) {
+                                    log_message = Some(format!("Failed to open browser: {}", e));
+                                }
+                                close_update = true;
+                            }
+                            if ui.button(crate::i18n::tr("Dismiss")).clicked() {
+                                close_update = true;
+                            }
+                        });
+                    }
                 });
+        }
+
+        if start_auto_update {
+            let (tx, rx) = crossbeam_channel::unbounded();
+            self.update_progress_rx = Some(rx);
+            let api_url = "https://api.github.com/repos/arkypita/All4Laser/releases/latest".to_string();
+            let current_version = env!("CARGO_PKG_VERSION").to_string();
+            std::thread::spawn(move || {
+                crate::updater::run_update_flow(&api_url, &current_version, tx);
+            });
         }
 
         if let Some(msg) = log_message {
@@ -572,6 +702,8 @@ impl All4LaserApp {
 
         if close_update {
             self.update_available = None;
+            self.update_progress_state = None;
+            self.update_progress_rx = None;
         }
     }
 
@@ -710,6 +842,7 @@ impl All4LaserApp {
                                 fill_interval_mm: 0.1,
                                 fill_bidirectional: true,
                                 fill_overscan_mm: 0.0,
+                                fill_overscan_speed_factor: 0.0,
                                 fill_angle_deg: 0.0,
                                 output_order: ovr.index as i32,
                                 lead_in_mm: 0.0,
@@ -739,6 +872,9 @@ impl All4LaserApp {
                                 corner_power_enabled: false,
                                 corner_power_pct: 60.0,
                                 corner_angle_threshold: 90.0,
+                                depth_enabled: false,
+                                depth_total_mm: 3.0,
+                                depth_step_down_mm: 1.0,
                                 name: format!("Layer {}", ovr.index),
                                 color: egui::Color32::RED,
                             });
@@ -788,6 +924,9 @@ impl All4LaserApp {
             selected_port: 0,
             baud_rates: ui::connection::default_baud_rates(),
             selected_baud: 4, // 115200
+            use_tcp: false,
+            tcp_host: String::new(),
+            tcp_port_str: "23".to_string(),
             loaded_file: None,
             program_lines: std::sync::Arc::new(Vec::new()),
             program_index: 0,
@@ -868,8 +1007,13 @@ impl All4LaserApp {
             about_open: false,
             update_available: None,
             update_receiver: None,
+            update_progress_rx: None,
+            update_progress_state: None,
             lbrn_import_receiver: None,
             lbrn_loading_msg: None,
+            batch_move_x: 0.0,
+            batch_move_y: 0.0,
+            batch_target_layer: 0,
         };
 
         let update_url = "https://api.github.com/repos/arkypita/All4Laser/releases/latest";
@@ -1221,6 +1365,20 @@ impl All4LaserApp {
                                 }
                             }
                             GrblResponse::Setting(id, val) => {
+                                // Auto-sync workspace size from $130/$131
+                                if let Ok(v) = val.parse::<f32>() {
+                                    match id {
+                                        130 => {
+                                            self.renderer.workspace_size.x = v;
+                                            self.machine_profile.workspace_x_mm = v;
+                                        }
+                                        131 => {
+                                            self.renderer.workspace_size.y = v;
+                                            self.machine_profile.workspace_y_mm = v;
+                                        }
+                                        _ => {}
+                                    }
+                                }
                                 if let Some(state) = &mut self.settings_state {
                                     if state.is_open {
                                         state.settings.insert(id, val);
@@ -1331,6 +1489,27 @@ impl All4LaserApp {
             Err(e) => {
                 self.grbl_state.status = MacStatus::Disconnected;
                 self.show_error(format!("Connection failed: {e}"));
+            }
+        }
+    }
+
+    fn connect_tcp(&mut self) {
+        let host = self.tcp_host.trim().to_string();
+        if host.is_empty() {
+            self.show_error("TCP host is empty".to_string());
+            return;
+        }
+        let port: u16 = self.tcp_port_str.trim().parse().unwrap_or(23);
+        self.log(format!("Connecting via TCP to {host}:{port}…"));
+        self.grbl_state.status = MacStatus::Connecting;
+
+        match SerialConnection::connect_tcp(&host, port, self.controller_backend.clone()) {
+            Ok(conn) => {
+                self.connection = Some(conn);
+            }
+            Err(e) => {
+                self.grbl_state.status = MacStatus::Disconnected;
+                self.show_error(format!("TCP connection failed: {e}"));
             }
         }
     }
@@ -1572,7 +1751,11 @@ impl All4LaserApp {
     }
 
     fn regenerate_drawing_gcode(&mut self) {
-        let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+        let lines = crate::ui::drawing::generate_all_gcode_with_protocol(
+            &self.drawing_state,
+            &self.layers,
+            self.settings.output_protocol,
+        );
         let file = GCodeFile::from_lines("drawing", &lines);
         self.set_loaded_file(file, lines);
     }
@@ -3554,9 +3737,16 @@ impl All4LaserApp {
                 &self.baud_rates,
                 &mut self.selected_baud,
                 connected,
+                &mut self.settings.output_protocol,
+                &mut self.use_tcp,
+                &mut self.tcp_host,
+                &mut self.tcp_port_str,
             );
             if conn_action.connect {
                 self.connect();
+            }
+            if conn_action.connect_tcp {
+                self.connect_tcp();
             }
             if conn_action.disconnect {
                 self.disconnect();
@@ -3643,13 +3833,13 @@ impl All4LaserApp {
                 );
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    ui.label("Offset X:");
+                    ui.label(crate::i18n::tr("Offset X:"));
                     ui.add(
                         egui::DragValue::new(&mut self.job_transform.offset_x)
                             .speed(1.0)
                             .suffix(" mm"),
                     );
-                    ui.label("Y:");
+                    ui.label(crate::i18n::tr("Y:"));
                     ui.add(
                         egui::DragValue::new(&mut self.job_transform.offset_y)
                             .speed(1.0)
@@ -3657,26 +3847,25 @@ impl All4LaserApp {
                     );
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Rotation:");
+                    ui.label(crate::i18n::tr("Rotation:"));
                     ui.add(
                         egui::Slider::new(&mut self.job_transform.rotation, -180.0..=180.0)
                             .suffix("°"),
                     );
                     if ui
-                        .button("Reset")
-                        .on_hover_text("Reset job rotation to 0°")
+                        .button(crate::i18n::tr("Reset"))
                         .clicked()
                     {
                         self.job_transform.rotation = 0.0;
                     }
 
                     ui.add_space(4.0);
-                    if ui.button("🔍 Preflight Check").clicked() {
+                    if ui.button(format!("🔍 {}", crate::i18n::tr("Preflight Check"))).clicked() {
                         self.preflight_state.issues = ui::preflight::run_checks(&self.drawing_state.shapes, &self.layers);
                         self.preflight_state.is_open = true;
                     }
                 });
-                if ui.button("Center Job").clicked() {
+                if ui.button(crate::i18n::tr("Center Job")).clicked() {
                     if let Some(file) = &self.loaded_file {
                         if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
                             let mid_x = (min_x + max_x) / 2.0;
@@ -4382,14 +4571,14 @@ impl All4LaserApp {
                         }
                     }
                     _ => {
-                        ui.label("W:");
+                        ui.label(crate::i18n::tr("W:"));
                         if ui
                             .add(egui::DragValue::new(&mut shape.width).speed(1.0))
                             .changed()
                         {
                             changed = true;
                         }
-                        ui.label("H:");
+                        ui.label(crate::i18n::tr("H:"));
                         if ui
                             .add(egui::DragValue::new(&mut shape.height).speed(1.0))
                             .changed()
@@ -4399,7 +4588,7 @@ impl All4LaserApp {
                     }
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Layer:");
+                    ui.label(crate::i18n::tr("Layer:"));
                     egui::ComboBox::from_id_salt("sel_layer")
                         .selected_text(format!("Layer {}", shape.layer_idx))
                         .show_ui(ui, |ui| {
@@ -4412,7 +4601,7 @@ impl All4LaserApp {
                         });
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Rotation:");
+                    ui.label(crate::i18n::tr("Rotation:"));
                     if ui
                         .add(
                             egui::DragValue::new(&mut shape.rotation)
@@ -4431,9 +4620,9 @@ impl All4LaserApp {
                 }
 
                 ui.separator();
-                ui.label(RichText::new("Outline Settings").strong());
+                ui.label(RichText::new(crate::i18n::tr("Outline Settings")).strong());
                 ui.horizontal(|ui| {
-                    ui.label("Dist:");
+                    ui.label(crate::i18n::tr("Dist:"));
                     ui.add(
                         egui::DragValue::new(&mut self.offset_state.distance)
                             .speed(0.1)
@@ -4441,7 +4630,7 @@ impl All4LaserApp {
                     );
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Join:");
+                    ui.label(crate::i18n::tr("Join:"));
                     egui::ComboBox::from_id_salt("sel_join")
                         .selected_text(format!("{:?}", self.offset_state.join_style))
                         .show_ui(ui, |ui| {
@@ -4479,7 +4668,66 @@ impl All4LaserApp {
                 }
             }
         } else if selection.len() > 1 {
-            ui.label(format!("{} items selected", selection.len()));
+            ui.label(format!("{} {}", selection.len(), crate::i18n::tr("items selected")));
+            ui.add_space(4.0);
+
+            // Batch move
+            ui.horizontal(|ui| {
+                ui.label(crate::i18n::tr("Move X:"));
+                ui.add(egui::DragValue::new(&mut self.batch_move_x).speed(1.0).suffix(" mm"));
+                ui.label(crate::i18n::tr("Move Y:"));
+                ui.add(egui::DragValue::new(&mut self.batch_move_y).speed(1.0).suffix(" mm"));
+                if ui.button(crate::i18n::tr("Apply")).clicked() {
+                    let dx = self.batch_move_x;
+                    let dy = self.batch_move_y;
+                    for &idx in selection {
+                        if let Some(s) = self.drawing_state.shapes.get_mut(idx) {
+                            s.x += dx;
+                            s.y += dy;
+                        }
+                    }
+                    self.batch_move_x = 0.0;
+                    self.batch_move_y = 0.0;
+                    self.regenerate_drawing_gcode();
+                }
+            });
+
+            // Batch set layer
+            ui.horizontal(|ui| {
+                ui.label(crate::i18n::tr("Set Layer:"));
+                egui::ComboBox::from_id_salt("batch_layer")
+                    .selected_text(format!("Layer {}", self.batch_target_layer))
+                    .show_ui(ui, |ui| {
+                        for i in 0..self.layers.len() {
+                            let name = self.layers[i].name.clone();
+                            ui.selectable_value(&mut self.batch_target_layer, i, name);
+                        }
+                    });
+                if ui.button(crate::i18n::tr("Apply")).clicked() {
+                    let tgt = self.batch_target_layer;
+                    for &idx in selection {
+                        if let Some(s) = self.drawing_state.shapes.get_mut(idx) {
+                            s.layer_idx = tgt;
+                        }
+                    }
+                    self.regenerate_drawing_gcode();
+                }
+            });
+
+            // Batch delete
+            ui.add_space(4.0);
+            if ui.button(RichText::new(format!("🗑 {}", crate::i18n::tr("Delete Selected"))).color(theme::RED)).clicked() {
+                let mut sel_sorted: Vec<usize> = selection.to_vec();
+                sel_sorted.sort_unstable();
+                sel_sorted.dedup();
+                for &idx in sel_sorted.iter().rev() {
+                    if idx < self.drawing_state.shapes.len() {
+                        self.drawing_state.shapes.remove(idx);
+                    }
+                }
+                self.renderer.selected_shape_idx.clear();
+                self.regenerate_drawing_gcode();
+            }
         } else {
             ui.label(crate::i18n::tr("Select a shape to edit properties."));
         }
@@ -4688,13 +4936,13 @@ impl All4LaserApp {
                             );
                             ui.add_space(4.0);
                             ui.horizontal(|ui| {
-                                ui.label("Offset X:");
+                                ui.label(tr("Offset X:"));
                                 ui.add(
                                     egui::DragValue::new(&mut self.job_transform.offset_x)
                                         .speed(1.0)
                                         .suffix(" mm"),
                                 );
-                                ui.label("Y:");
+                                ui.label(tr("Y:"));
                                 ui.add(
                                     egui::DragValue::new(&mut self.job_transform.offset_y)
                                         .speed(1.0)
@@ -4702,7 +4950,7 @@ impl All4LaserApp {
                                 );
                             });
                             ui.horizontal(|ui| {
-                                ui.label("Rotation:");
+                                ui.label(tr("Rotation:"));
                                 ui.add(
                                     egui::Slider::new(
                                         &mut self.job_transform.rotation,
@@ -4710,11 +4958,11 @@ impl All4LaserApp {
                                     )
                                     .suffix("°"),
                                 );
-                                if ui.button("Reset").clicked() {
+                                if ui.button(tr("Reset")).clicked() {
                                     self.job_transform.rotation = 0.0;
                                 }
                             });
-                            if ui.button("Center Job").clicked() {
+                            if ui.button(tr("Center Job")).clicked() {
                                 if let Some(file) = &self.loaded_file {
                                     if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
                                         let mid_x = (min_x + max_x) / 2.0;
@@ -4729,7 +4977,7 @@ impl All4LaserApp {
                         });
 
                         ui.add_space(8.0);
-                        if ui.button("🔍 Preflight Check").clicked() {
+                        if ui.button(format!("🔍 {}", tr("Preflight Check"))).clicked() {
                             self.preflight_state.issues =
                                 ui::preflight::run_checks(&self.drawing_state.shapes, &self.layers);
                             self.preflight_state.is_open = true;
@@ -4742,7 +4990,7 @@ impl All4LaserApp {
                             egui::TextEdit::multiline(&mut self.project_notes)
                                 .desired_width(f32::INFINITY)
                                 .desired_rows(12)
-                                .hint_text("Add notes about this project..."),
+                                .hint_text(tr("Add notes about this project...")),
                         );
                     }
                     RightPanelTab::Laser => {
@@ -4754,9 +5002,16 @@ impl All4LaserApp {
                             &self.baud_rates,
                             &mut self.selected_baud,
                             connected,
+                            &mut self.settings.output_protocol,
+                            &mut self.use_tcp,
+                            &mut self.tcp_host,
+                            &mut self.tcp_port_str,
                         );
                         if conn_action.connect {
                             self.connect();
+                        }
+                        if conn_action.connect_tcp {
+                            self.connect_tcp();
                         }
                         if conn_action.disconnect {
                             self.disconnect();
@@ -4782,17 +5037,17 @@ impl All4LaserApp {
                         ui.group(|ui| {
                             ui.horizontal(|ui| {
                                 ui.label(
-                                    RichText::new("Preflight QA")
+                                    RichText::new(tr("Preflight QA"))
                                         .color(theme::LAVENDER)
                                         .strong(),
                                 );
-                                if ui.button("🧪 Run Preflight").clicked() {
+                                if ui.button(format!("🧪 {}", tr("Run Preflight"))).clicked() {
                                     self.run_preflight("manual", false);
                                 }
                             });
                             ui.checkbox(
                                 &mut self.preflight_block_critical,
-                                "Block launch when critical issues are present",
+                                tr("Block critical issues"),
                             );
 
                             if let Some(report) = &self.preflight_report {
@@ -4827,7 +5082,7 @@ impl All4LaserApp {
                                         }
                                         if report.issues.is_empty() {
                                             ui.label(
-                                                RichText::new("✅ No preflight issues detected.")
+                                                RichText::new(format!("✅ {}", tr("No preflight issues detected.")))
                                                     .small()
                                                     .color(theme::GREEN),
                                             );
@@ -4835,7 +5090,7 @@ impl All4LaserApp {
                                     });
                             } else {
                                 ui.label(
-                                    RichText::new("No preflight report yet.")
+                                    RichText::new(tr("No preflight report yet."))
                                         .small()
                                         .color(theme::SUBTEXT),
                                 );

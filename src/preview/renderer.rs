@@ -36,6 +36,7 @@ pub struct PreviewRenderer {
     pub risk_cell_mm: f32,                // Grid cell size in mm used by thermal risk map
     pub last_risk_alert_cells: usize,     // Number of currently highlighted risk cells
     pub realistic_preview: bool,          // Toggle for realistic material texture
+    pub power_speed_opacity: bool,         // Modulate opacity by power/speed energy ratio
     _drag_start: Option<Pos2>,
     pub selected_shape_idx: IndexSet<usize>, // Selected indices in DrawingState (Multi-select). Ordered so last selected is last.
     pub node_edit_mode: bool,
@@ -76,6 +77,7 @@ impl Default for PreviewRenderer {
             risk_cell_mm: 2.0,
             last_risk_alert_cells: 0,
             realistic_preview: false,
+            power_speed_opacity: false,
             _drag_start: None,
             selected_shape_idx: IndexSet::new(),
             node_edit_mode: false,
@@ -481,15 +483,23 @@ impl PreviewRenderer {
             Stroke::new(0.5, Color32::from_rgba_premultiplied(69, 71, 90, 180))
         };
 
-        let mut current_accumulated_line: Option<(Pos2, Pos2, f32, usize)> = None;
+        let mut current_accumulated_line: Option<(Pos2, Pos2, f32, f32, usize)> = None;
 
         let realistic = self.realistic_preview;
 
+        let ps_opacity = self.power_speed_opacity;
+
         let flush_accumulated =
-            |painter: &egui::Painter, accum: &mut Option<(Pos2, Pos2, f32, usize)>| {
-                if let Some((p1, p2, total_power, count)) = accum.take() {
+            |painter: &egui::Painter, accum: &mut Option<(Pos2, Pos2, f32, f32, usize)>| {
+                if let Some((p1, p2, total_power, total_speed, count)) = accum.take() {
                     let avg_power = total_power / (count as f32);
-                    let base_alpha = 40.0 + 215.0 * avg_power;
+                    let avg_speed = total_speed / (count as f32);
+                    let energy = if ps_opacity && avg_speed > 0.0 {
+                        (avg_power / (avg_speed / 6000.0).max(0.05)).clamp(0.0, 1.0)
+                    } else {
+                        avg_power
+                    };
+                    let base_alpha = 40.0 + 215.0 * energy;
                     let mut stroke_width = 0.1 * self.zoom;
                     let mut final_alpha = base_alpha;
 
@@ -502,7 +512,7 @@ impl PreviewRenderer {
 
                     let color = if realistic {
                         // Burn effect (Dark Brown)
-                        Color32::from_rgba_premultiplied(60, 30, 10, (avg_power * 255.0) as u8)
+                        Color32::from_rgba_premultiplied(60, 30, 10, (energy * 255.0) as u8)
                     } else if is_light {
                         Color32::from_rgba_premultiplied(0, 0, 0, final_alpha as u8)
                     } else {
@@ -528,24 +538,30 @@ impl PreviewRenderer {
                 let length_sq = (p1.x - p2.x).powi(2) + (p1.y - p2.y).powi(2);
 
                 if is_horizontal && length_sq < 4.0 {
-                    if let Some((acc_p1, acc_p2, total_power, count)) =
+                    if let Some((acc_p1, acc_p2, total_power, total_speed, count)) =
                         current_accumulated_line.as_mut()
                     {
                         if (acc_p1.y - p1.y).abs() < 1.0 && (acc_p2.x - p1.x).abs() < 2.0 {
                             acc_p2.x = p2.x;
                             *total_power += seg.power;
+                            *total_speed += seg.speed;
                             *count += 1;
                         } else {
                             flush_accumulated(&painter, &mut current_accumulated_line);
-                            current_accumulated_line = Some((p1, p2, seg.power, 1));
+                            current_accumulated_line = Some((p1, p2, seg.power, seg.speed, 1));
                         }
                     } else {
-                        current_accumulated_line = Some((p1, p2, seg.power, 1));
+                        current_accumulated_line = Some((p1, p2, seg.power, seg.speed, 1));
                     }
                 } else {
                     flush_accumulated(&painter, &mut current_accumulated_line);
 
-                    let base_alpha = 40.0 + 215.0 * seg.power;
+                    let energy = if ps_opacity && seg.speed > 0.0 {
+                        (seg.power / (seg.speed / 6000.0).max(0.05)).clamp(0.0, 1.0)
+                    } else {
+                        seg.power
+                    };
+                    let base_alpha = 40.0 + 215.0 * energy;
                     let mut stroke_width = 0.1 * self.zoom;
                     let mut final_alpha = base_alpha;
 
@@ -556,7 +572,9 @@ impl PreviewRenderer {
 
                     stroke_width = stroke_width.min(2.5);
 
-                    let color = if is_light {
+                    let color = if realistic {
+                        Color32::from_rgba_premultiplied(60, 30, 10, (energy * 255.0) as u8)
+                    } else if is_light {
                         Color32::from_rgba_premultiplied(0, 0, 0, final_alpha as u8)
                     } else {
                         Color32::from_rgba_premultiplied(255, 255, 255, final_alpha as u8)
@@ -1991,6 +2009,7 @@ mod tests {
             x2,
             y2,
             power,
+            speed: 1000.0,
             layer_id: 0,
             laser_on: true,
         }

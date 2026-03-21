@@ -34,6 +34,9 @@ fn default_fill_bidirectional() -> bool {
 fn default_fill_overscan_mm() -> f32 {
     0.0
 }
+fn default_fill_overscan_speed_factor() -> f32 {
+    0.0
+}
 fn default_fill_angle_deg() -> f32 {
     0.0
 }
@@ -60,6 +63,12 @@ fn default_corner_power_pct() -> f32 {
 }
 fn default_corner_angle_threshold() -> f32 {
     90.0
+}
+fn default_depth_total_mm() -> f32 {
+    3.0
+}
+fn default_depth_step_down_mm() -> f32 {
+    1.0
 }
 fn default_ramp_length_mm() -> f32 {
     5.0
@@ -125,6 +134,8 @@ pub struct CutLayer {
     pub fill_bidirectional: bool,
     #[serde(default = "default_fill_overscan_mm")]
     pub fill_overscan_mm: f32,
+    #[serde(default = "default_fill_overscan_speed_factor")]
+    pub fill_overscan_speed_factor: f32,
     #[serde(default = "default_fill_angle_deg")]
     pub fill_angle_deg: f32,
 
@@ -208,6 +219,14 @@ pub struct CutLayer {
     pub corner_power_pct: f32, // % of normal power at corners (e.g. 60 = 60%)
     #[serde(default = "default_corner_angle_threshold")]
     pub corner_angle_threshold: f32, // Angle below which power is reduced (degrees)
+
+    // 2.5D depth engraving — repeat passes at increasing Z depth
+    #[serde(default)]
+    pub depth_enabled: bool,
+    #[serde(default = "default_depth_total_mm")]
+    pub depth_total_mm: f32,
+    #[serde(default = "default_depth_step_down_mm")]
+    pub depth_step_down_mm: f32,
 }
 
 fn serialize_color<S>(color: &Color32, serializer: S) -> Result<S::Ok, S::Error>
@@ -280,6 +299,7 @@ impl CutLayer {
                 fill_interval_mm: 0.1,
                 fill_bidirectional: true,
                 fill_overscan_mm: 0.0,
+                fill_overscan_speed_factor: 0.0,
                 fill_angle_deg: 0.0,
                 output_order: i as i32,
                 lead_in_mm: 0.0,
@@ -309,6 +329,9 @@ impl CutLayer {
                 corner_power_enabled: false,
                 corner_power_pct: 60.0,
                 corner_angle_threshold: 90.0,
+                depth_enabled: false,
+                depth_total_mm: 3.0,
+                depth_step_down_mm: 1.0,
             });
         }
         layers

@@ -1,6 +1,7 @@
 use crate::config::settings::{DisplayUnit, SpeedUnit};
 use crate::controller::ControllerCapabilities;
 use crate::grbl::types::{GrblState, MacStatus};
+use crate::i18n::tr;
 use crate::theme;
 use egui::{RichText, Ui};
 use std::time::Duration;
@@ -60,24 +61,28 @@ pub fn show(
             .background_color(badge_color)
             .strong()
             .size(sz);
-        ui.label(badge);
+        let badge_resp = ui.label(badge);
+        if compact {
+            badge_resp.on_hover_text(badge_text);
+        }
 
         ui.separator();
 
         // Override controls
         let sep = if compact { "" } else { ":" };
 
-        ui.label(RichText::new(format!("F{sep}{}%", state.override_feed)).color(theme::TEXT).monospace().size(sz));
+        ui.label(RichText::new(format!("F{sep}{}%", state.override_feed)).color(theme::TEXT).monospace().size(sz))
+            .on_hover_text(tr("Feed override"));
         if ui
             .add_enabled(caps.supports_feed_override, egui::Button::new("▲").small())
-            .on_hover_text("Increase feed override (+10%)")
+            .on_hover_text(tr("Increase feed override"))
             .clicked()
         {
             action.feed_up = true;
         }
         if ui
             .add_enabled(caps.supports_feed_override, egui::Button::new("▼").small())
-            .on_hover_text("Decrease feed override (-10%)")
+            .on_hover_text(tr("Decrease feed override"))
             .clicked()
         {
             action.feed_down = true;
@@ -85,17 +90,18 @@ pub fn show(
 
         ui.separator();
 
-        ui.label(RichText::new(format!("R{sep}{}%", state.override_rapid)).color(theme::TEXT).monospace().size(sz));
+        ui.label(RichText::new(format!("R{sep}{}%", state.override_rapid)).color(theme::TEXT).monospace().size(sz))
+            .on_hover_text(tr("Rapid override 100%"));
         if ui
             .add_enabled(caps.supports_rapid_override, egui::Button::new("▲").small())
-            .on_hover_text("Set rapid override to 100%")
+            .on_hover_text(tr("Rapid override 100%"))
             .clicked()
         {
             action.rapid_up = true;
         }
         if ui
             .add_enabled(caps.supports_rapid_override, egui::Button::new("▼").small())
-            .on_hover_text("Set rapid override to 25%")
+            .on_hover_text(tr("Rapid override 25%"))
             .clicked()
         {
             action.rapid_down = true;
@@ -103,13 +109,14 @@ pub fn show(
 
         ui.separator();
 
-        ui.label(RichText::new(format!("S{sep}{}%", state.override_spindle)).color(theme::TEXT).monospace().size(sz));
+        ui.label(RichText::new(format!("S{sep}{}%", state.override_spindle)).color(theme::TEXT).monospace().size(sz))
+            .on_hover_text(tr("Spindle:"));
         if ui
             .add_enabled(
                 caps.supports_spindle_override,
                 egui::Button::new("▲").small(),
             )
-            .on_hover_text("Increase laser power override (+10%)")
+            .on_hover_text(tr("Increase laser power override"))
             .clicked()
         {
             action.spindle_up = true;
@@ -119,7 +126,7 @@ pub fn show(
                 caps.supports_spindle_override,
                 egui::Button::new("▼").small(),
             )
-            .on_hover_text("Decrease laser power override (-10%)")
+            .on_hover_text(tr("Decrease laser power override"))
             .clicked()
         {
             action.spindle_down = true;
@@ -131,7 +138,7 @@ pub fn show(
         let unit_label = display_unit.label();
         if ui
             .small_button(unit_label)
-            .on_hover_text("Toggle mm / inches")
+            .on_hover_text(tr("Toggle mm / inches"))
             .clicked()
         {
             action.toggle_unit = true;
@@ -140,7 +147,7 @@ pub fn show(
         // Speed unit toggle
         if ui
             .small_button(speed_unit.label())
-            .on_hover_text("Toggle mm/min / mm/s")
+            .on_hover_text(tr("Toggle mm/min / mm/s"))
             .clicked()
         {
             action.toggle_speed_unit = true;

@@ -2,6 +2,7 @@
 
 use crate::gcode::fill::rotate_point;
 use crate::gcode::generator::GCodeBuilder;
+use crate::gcode::output_protocol::ProtocolKind;
 use crate::imaging::raster::RasterParams;
 use crate::theme;
 use crate::ui::layers_new::{CutLayer, CutMode};
@@ -1019,11 +1020,20 @@ pub fn show(
 }
 
 pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<String> {
-    let mut builder = GCodeBuilder::new();
+    generate_all_gcode_with_protocol(state, layers, ProtocolKind::Grbl)
+}
+
+pub fn generate_all_gcode_with_protocol(
+    state: &DrawingState,
+    layers: &[CutLayer],
+    protocol: ProtocolKind,
+) -> Vec<String> {
+    let mut builder = GCodeBuilder::with_protocol(protocol);
 
     builder.comment("Compiled Drawing — All4Laser");
-    builder.raw("G90");
-    builder.raw("G21");
+    for line in crate::gcode::output_protocol::create_protocol(protocol).preamble() {
+        builder.raw(&line);
+    }
     builder.comment("");
 
     // Create a default layer fallback once, outside the loop
@@ -1083,84 +1093,110 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
             }
         ));
 
-        // Apply Z-offset if needed (simple implementation: move Z before layer start)
+        // Apply Z-offset if needed
         if layer.z_offset != 0.0 {
-            builder.raw(&format!("G0 Z{:.2}", layer.z_offset));
+            let z_cmd = builder.protocol_kind();
+            builder.raw(&crate::gcode::output_protocol::create_protocol(z_cmd).z_move(layer.z_offset));
         }
 
         if layer.air_assist {
-            builder.raw("M8");
+            let cmd = crate::gcode::output_protocol::create_protocol(builder.protocol_kind()).air_assist_on();
+            if !cmd.is_empty() { builder.raw(&cmd); }
         }
         if layer.exhaust_enabled {
-            builder.raw("M7"); // Exhaust fan on (F77)
+            let cmd = crate::gcode::output_protocol::create_protocol(builder.protocol_kind()).exhaust_on();
+            if !cmd.is_empty() { builder.raw(&cmd); }
         }
 
-        for pass in 0..layer.passes {
-            if layer.passes > 1 {
-                builder.comment(&format!("Pass {}", pass + 1));
+        let depth_passes = if layer.depth_enabled && layer.depth_step_down_mm > 0.0 {
+            (layer.depth_total_mm / layer.depth_step_down_mm).ceil() as u32
+        } else {
+            1
+        };
+
+        for depth_pass in 0..depth_passes {
+            if layer.depth_enabled {
+                let z_depth = -((depth_pass + 1) as f32 * layer.depth_step_down_mm)
+                    .min(layer.depth_total_mm);
+                builder.comment(&format!("Depth pass {} / {} (Z={:.2} mm)", depth_pass + 1, depth_passes, z_depth));
+                let proto = crate::gcode::output_protocol::create_protocol(builder.protocol_kind());
+                builder.raw(&proto.z_move(z_depth));
             }
 
-            if matches!(
-                layer.mode,
-                CutMode::Fill | CutMode::FillAndLine | CutMode::Offset
-            ) {
-                let layer_shapes: Vec<&ShapeParams> = layer_shape_indices
-                    .iter()
-                    .map(|&idx| &state.shapes[idx])
-                    .collect();
+            for pass in 0..layer.passes {
+                if layer.passes > 1 {
+                    builder.comment(&format!("Pass {}", pass + 1));
+                }
 
-                let mut temp_lines = Vec::new();
-                crate::gcode::fill::generate_fill_group(&mut temp_lines, &layer_shapes, layer);
-                builder.lines.extend(temp_lines);
-                // `generate_fill_group` uses its own builder; reset our tracking state after merging lines.
-                builder.reset_state();
-            }
+                if matches!(
+                    layer.mode,
+                    CutMode::Fill | CutMode::FillAndLine | CutMode::Offset
+                ) {
+                    let layer_shapes: Vec<&ShapeParams> = layer_shape_indices
+                        .iter()
+                        .map(|&idx| &state.shapes[idx])
+                        .collect();
 
-            if matches!(layer.mode, CutMode::Line | CutMode::FillAndLine) {
-                for &shape_idx in &layer_shape_indices {
-                    let shape = &state.shapes[shape_idx];
-                    let shape_label = match &shape.shape {
-                        ShapeKind::Rectangle => "Rect",
-                        ShapeKind::Circle => "Circle",
-                        ShapeKind::TextLine => "Text",
-                        ShapeKind::Path(_) => "Path",
-                        ShapeKind::RasterImage { .. } => "Bitmap",
-                    };
-                    builder.comment(&format!(
-                        "Shape {}: {} [Layer C{:02}]",
-                        shape_idx + 1,
-                        shape_label,
-                        layer.id
-                    ));
+                    let mut temp_lines = Vec::new();
+                    crate::gcode::fill::generate_fill_group(&mut temp_lines, &layer_shapes, layer);
+                    builder.lines.extend(temp_lines);
+                    builder.reset_state();
+                }
 
-                    match &shape.shape {
-                        ShapeKind::Rectangle => gen_rect(&mut builder, shape, layer),
-                        ShapeKind::Circle => gen_circle(&mut builder, shape, layer),
-                        ShapeKind::TextLine => gen_text(&mut builder, shape, layer),
-                        ShapeKind::Path(pts) => gen_path(&mut builder, pts, shape, layer),
-                        ShapeKind::RasterImage { .. } => {
-                            // Skip expensive pixel-by-pixel raster GCode during
-                            // interactive edits. Raster GCode is generated on-demand
-                            // when sending to the laser via generate_job_gcode.
-                            builder.comment("Bitmap (raster GCode deferred)");
+                if matches!(layer.mode, CutMode::Line | CutMode::FillAndLine) {
+                    for &shape_idx in &layer_shape_indices {
+                        let shape = &state.shapes[shape_idx];
+                        let shape_label = match &shape.shape {
+                            ShapeKind::Rectangle => "Rect",
+                            ShapeKind::Circle => "Circle",
+                            ShapeKind::TextLine => "Text",
+                            ShapeKind::Path(_) => "Path",
+                            ShapeKind::RasterImage { .. } => "Bitmap",
+                        };
+                        builder.comment(&format!(
+                            "Shape {}: {} [Layer C{:02}]",
+                            shape_idx + 1,
+                            shape_label,
+                            layer.id
+                        ));
+
+                        match &shape.shape {
+                            ShapeKind::Rectangle => gen_rect(&mut builder, shape, layer),
+                            ShapeKind::Circle => gen_circle(&mut builder, shape, layer),
+                            ShapeKind::TextLine => gen_text(&mut builder, shape, layer),
+                            ShapeKind::Path(pts) => gen_path(&mut builder, pts, shape, layer),
+                            ShapeKind::RasterImage { .. } => {
+                                builder.comment("Bitmap (raster GCode deferred)");
+                            }
                         }
                     }
                 }
             }
         }
 
+        // Return Z to surface after depth engraving
+        if layer.depth_enabled {
+            let proto = crate::gcode::output_protocol::create_protocol(builder.protocol_kind());
+            builder.raw(&proto.z_move(0.0));
+        }
+
         if layer.air_assist {
-            builder.raw("M9");
+            let cmd = crate::gcode::output_protocol::create_protocol(builder.protocol_kind()).air_assist_off();
+            if !cmd.is_empty() { builder.raw(&cmd); }
         }
         if layer.exhaust_enabled && layer.exhaust_post_delay_s > 0.0 {
             builder.comment(&format!(
                 "Exhaust post-delay {:.1}s",
                 layer.exhaust_post_delay_s
             ));
-            builder.raw(&format!("G4 P{:.1}", layer.exhaust_post_delay_s));
-            builder.raw("M9"); // Exhaust off after delay (F77)
+            let proto = crate::gcode::output_protocol::create_protocol(builder.protocol_kind());
+            let dwell = proto.dwell(layer.exhaust_post_delay_s);
+            if !dwell.is_empty() { builder.raw(&dwell); }
+            let off = proto.exhaust_off();
+            if !off.is_empty() { builder.raw(&off); }
         } else if layer.exhaust_enabled {
-            builder.raw("M9");
+            let cmd = crate::gcode::output_protocol::create_protocol(builder.protocol_kind()).exhaust_off();
+            if !cmd.is_empty() { builder.raw(&cmd); }
         }
     }
 

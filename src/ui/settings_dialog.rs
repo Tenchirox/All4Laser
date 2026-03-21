@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 use egui::{Context, Grid, RichText, ScrollArea, Window};
 use std::collections::BTreeMap;
@@ -15,14 +16,14 @@ pub fn show(ctx: &Context, state: &mut SettingsDialogState) {
     }
 
     let mut open = state.is_open;
-    Window::new("GRBL Settings")
+    Window::new(tr("GRBL Settings"))
         .open(&mut open)
         .resizable(true)
         .default_width(500.0)
         .default_height(400.0)
         .show(ctx, |ui| {
             ui.label(
-                RichText::new("Machine Firmware Settings")
+                RichText::new(tr("Machine Firmware Settings"))
                     .color(theme::LAVENDER)
                     .strong(),
             );
@@ -34,9 +35,9 @@ pub fn show(ctx: &Context, state: &mut SettingsDialogState) {
                     .spacing([16.0, 8.0])
                     .striped(true)
                     .show(ui, |ui| {
-                        ui.label(RichText::new("ID").strong());
-                        ui.label(RichText::new("Value").strong());
-                        ui.label(RichText::new("Description").strong());
+                        ui.label(RichText::new(tr("ID")).strong());
+                        ui.label(RichText::new(tr("Value")).strong());
+                        ui.label(RichText::new(tr("Description")).strong());
                         ui.end_row();
 
                         let mut updates = Vec::new();
@@ -57,7 +58,7 @@ pub fn show(ctx: &Context, state: &mut SettingsDialogState) {
                         }
 
                         if state.settings.is_empty() {
-                            ui.label("Waiting for settings...");
+                            ui.label(tr("Waiting for settings..."));
                             ui.end_row();
                         }
                     });
@@ -67,7 +68,7 @@ pub fn show(ctx: &Context, state: &mut SettingsDialogState) {
 
             ui.horizontal(|ui| {
                 if ui
-                    .button(RichText::new("Save to Board").color(theme::GREEN))
+                    .button(RichText::new(tr("Save to Board")).color(theme::GREEN))
                     .clicked()
                 {
                     state.pending_writes.clear();
@@ -75,7 +76,7 @@ pub fn show(ctx: &Context, state: &mut SettingsDialogState) {
                         state.pending_writes.push((id, val.clone()));
                     }
                 }
-                if ui.button("Refresh").clicked() {
+                if ui.button(tr("Refresh")).clicked() {
                     state.settings.clear();
                     state.pending_writes.push((-1, "$$".to_string())); // Special marker
                 }

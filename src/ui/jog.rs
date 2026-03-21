@@ -116,18 +116,25 @@ pub fn show(
         // Step size selector
         ui.horizontal(|ui| {
             ui.label(RichText::new(tr("Step:")).color(theme::SUBTEXT));
-            for &s in &[0.1_f32, 1.0, 5.0, 10.0] {
-                let label = if s < 1.0 {
+            for &s in &[0.01_f32, 0.1, 0.5, 1.0, 5.0, 10.0, 50.0] {
+                let label = if s < 0.1 {
+                    format!("{s}")
+                } else if s < 1.0 {
                     format!("{s}")
                 } else {
                     format!("{}", s as i32)
                 };
-                let selected = (*step - s).abs() < 0.01;
+                let selected = (*step - s).abs() < 0.001;
                 if ui.selectable_label(selected, &label).clicked() {
                     *step = s;
                 }
             }
-            ui.label("mm");
+            ui.add(
+                egui::DragValue::new(step)
+                    .speed(0.1)
+                    .range(0.001..=200.0)
+                    .suffix(" mm"),
+            );
         });
 
         // Feed rate

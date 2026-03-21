@@ -230,6 +230,7 @@ fn build_preview(lines: &[GCodeLine]) -> (Vec<PreviewSegment>, Vec<LayerSettings
                     y2: new_y,
                     laser_on: is_laser,
                     power,
+                    speed: state.f,
                     layer_id: current_layer_idx,
                 });
 

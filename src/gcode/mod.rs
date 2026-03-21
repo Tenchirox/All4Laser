@@ -4,6 +4,7 @@ pub mod fill;
 pub mod generator;
 pub mod lbrn_import;
 pub mod optimizer;
+pub mod output_protocol;
 pub mod parser;
 pub mod path_utils;
 pub mod transform;

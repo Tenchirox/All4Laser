@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use super::output_protocol::{self, OutputProtocol, ProtocolKind};
+
 fn chrono_lite_date() -> String {
     let elapsed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -54,6 +56,7 @@ pub struct GCodeBuilder {
     current_power: Option<f32>,
     laser_on: bool,
     pub comments_enabled: bool,
+    protocol: Box<dyn OutputProtocol>,
 }
 
 impl Default for GCodeBuilder {
@@ -66,6 +69,7 @@ impl Default for GCodeBuilder {
             current_power: None,
             laser_on: false,
             comments_enabled: true,
+            protocol: output_protocol::create_protocol(ProtocolKind::Grbl),
         }
     }
 }
@@ -75,9 +79,23 @@ impl GCodeBuilder {
         Self::default()
     }
 
+    pub fn with_protocol(kind: ProtocolKind) -> Self {
+        Self {
+            protocol: output_protocol::create_protocol(kind),
+            ..Self::default()
+        }
+    }
+
+    pub fn protocol_kind(&self) -> ProtocolKind {
+        self.protocol.kind()
+    }
+
     pub fn comment(&mut self, text: &str) {
         if self.comments_enabled {
-            self.lines.push(format!("; {}", text));
+            let c = self.protocol.comment(text);
+            if !c.is_empty() {
+                self.lines.push(c);
+            }
         }
     }
 
@@ -121,7 +139,7 @@ impl GCodeBuilder {
             return;
         }
 
-        self.lines.push(format!("G0 X{:.3} Y{:.3}", x, y));
+        self.lines.extend(self.protocol.rapid(x, y));
         self.current_x = Some(x);
         self.current_y = Some(y);
     }
@@ -141,28 +159,27 @@ impl GCodeBuilder {
         // Optimize speed parameter: only send F if changed
         let speed_cmd = if self.current_speed != Some(speed) {
             self.current_speed = Some(speed);
-            format!(" F{:.0}", speed)
+            self.protocol.set_speed(speed)
         } else {
             String::new()
         };
 
-        self.lines
-            .push(format!("G1 X{:.3} Y{:.3}{}", x, y, speed_cmd));
+        self.lines.extend(self.protocol.linear(x, y, &speed_cmd));
         self.current_x = Some(x);
         self.current_y = Some(y);
     }
 
     pub fn laser_off(&mut self) {
         if self.laser_on {
-            self.lines.push("M5".to_string());
+            self.lines.extend(self.protocol.laser_off());
             self.laser_on = false;
         }
     }
 
     fn laser_on(&mut self, power: f32) {
-        // Always send M3 if we were off, or if power changed (M3 Sxxx updates power dynamically in GRBL laser mode)
+        // Always send laser-on if we were off, or if power changed
         if !self.laser_on || self.current_power != Some(power) {
-            self.lines.push(format!("M3 S{:.0}", power));
+            self.lines.extend(self.protocol.laser_on(power));
             self.current_power = Some(power);
             self.laser_on = true;
         }
