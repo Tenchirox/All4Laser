@@ -478,7 +478,7 @@ fn closed_world_path(points: &[(f32, f32)], shape: &ShapeParams) -> Option<Vec<(
     Some(out)
 }
 
-fn rotate_point(lx: f32, ly: f32, s: &ShapeParams) -> (f32, f32) {
+pub fn rotate_point(lx: f32, ly: f32, s: &ShapeParams) -> (f32, f32) {
     let angle = s.rotation.to_radians();
     let rx = lx * angle.cos() - ly * angle.sin();
     let ry = lx * angle.sin() + ly * angle.cos();

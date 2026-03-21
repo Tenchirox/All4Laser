@@ -1252,7 +1252,7 @@ impl PreviewRenderer {
 
     fn handle_click_selection(
         &mut self,
-        ui: &egui::Ui,
+        _ui: &egui::Ui,
         response: &egui::Response,
         wx: f32,
         wy: f32,
@@ -1423,7 +1423,7 @@ impl PreviewRenderer {
 
     fn handle_drag_logic(
         &mut self,
-        ui: &egui::Ui,
+        _ui: &egui::Ui,
         response: &egui::Response,
         shapes: &[ShapeParams],
     ) -> InteractiveAction {

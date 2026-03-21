@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::gcode::fill::rotate_point;
 use crate::gcode::generator::GCodeBuilder;
 use crate::imaging::raster::RasterParams;
 use crate::theme;

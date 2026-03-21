@@ -2,7 +2,7 @@ use egui::{RichText, Window};
 use crate::i18n::tr;
 use crate::theme;
 use crate::ui::drawing::{ShapeParams, ShapeKind};
-use crate::ui::layers_new::{CutLayer, CutMode};
+use crate::ui::layers_new::CutLayer;
 
 #[derive(Default, Clone, PartialEq)]
 pub enum Severity {
