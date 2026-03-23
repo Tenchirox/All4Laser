@@ -11,6 +11,22 @@ pub struct OutlineParams {
     pub passes: u32,
 }
 
+fn compensated_power(base_power: f32, params: &RasterParams) -> f32 {
+    let mut power = base_power.clamp(0.0, params.max_power);
+    if !params.spot_interp_enabled || params.max_power <= 0.0 {
+        return power;
+    }
+
+    let min_spot = params.spot_size_min_mm.max(0.001);
+    let max_spot = params.spot_size_max_mm.max(min_spot);
+    let ratio = (power / params.max_power).clamp(0.0, 1.0);
+    let spot = min_spot + (max_spot - min_spot) * ratio;
+
+    let density_comp = (min_spot / spot).clamp(0.1, 1.0);
+    power = (power * density_comp).clamp(0.0, params.max_power);
+    power
+}
+
 impl Default for OutlineParams {
     fn default() -> Self {
         Self {
@@ -37,6 +53,9 @@ pub struct RasterParams {
     pub dpi: f32,
     pub max_speed: f32,
     pub max_power: f32,
+    pub spot_interp_enabled: bool,
+    pub spot_size_min_mm: f32,
+    pub spot_size_max_mm: f32,
     pub brightness: f32, // -1.0 to 1.0
     pub contrast: f32,   // 0.0 to 5.0 (1.0 is neutral)
     pub threshold: u8,   // 0-255 for vectorization
@@ -58,6 +77,9 @@ impl Default for RasterParams {
             dpi: 254.0, // 10 lines/mm
             max_speed: 1000.0,
             max_power: 1000.0,
+            spot_interp_enabled: false,
+            spot_size_min_mm: 0.08,
+            spot_size_max_mm: 0.2,
             brightness: 0.0,
             contrast: 1.0,
             threshold: 128,
@@ -115,18 +137,20 @@ pub fn vectorize_image(img: &image::DynamicImage, params: &RasterParams) -> Vec<
                 in_run = false;
                 let end_x = (x_idx - 1) as f32 * x_scale;
                 gcode.push(format!("G0X{:.3}Y{:.3}S0", start_x, py));
+                let power = compensated_power(params.max_power, params);
                 gcode.push(format!(
                     "G1X{:.3}Y{:.3}S{:.0}F{:.0}",
-                    end_x, py, params.max_power, params.max_speed
+                    end_x, py, power, params.max_speed
                 ));
             }
         }
         if in_run {
             let end_x = (rw - 1) as f32 * x_scale;
             gcode.push(format!("G0X{:.3}Y{:.3}S0", start_x, py));
+            let power = compensated_power(params.max_power, params);
             gcode.push(format!(
                 "G1X{:.3}Y{:.3}S{:.0}F{:.0}",
-                end_x, py, params.max_power, params.max_speed
+                end_x, py, power, params.max_speed
             ));
         }
     }
@@ -194,7 +218,8 @@ pub fn image_to_gcode(img: &image::DynamicImage, params: &RasterParams) -> Vec<S
         for col in cols {
             let pixel = dithered.get_pixel(col, rh - 1 - row); // rh-1-row because row 0 is at Y=0
             let brightness = pixel[0];
-            let power = ((255 - brightness) as f32 / 255.0 * params.max_power) as u32;
+            let base_power = (255 - brightness) as f32 / 255.0 * params.max_power;
+            let power = compensated_power(base_power, params) as u32;
             let x = col as f32 * x_scale;
 
             if first_col {

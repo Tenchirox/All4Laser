@@ -231,7 +231,7 @@ impl All4LaserApp {
         let caps = self.controller_capabilities();
 
         let mut menu_actions = ui::toolbar::ToolbarAction::default();
-        if self.ui_theme == theme::UiTheme::Industrial || self.ui_theme == theme::UiTheme::Pro {
+        if self.ui_theme == theme::UiTheme::Industrial || self.ui_theme == theme::UiTheme::Pro || self.ui_theme == theme::UiTheme::Rayforge {
             TopBottomPanel::top("menu_bar_panel").show(ctx, |ui| {
                 menu_actions = ui::toolbar::show_menu_bar(
                     ui,
@@ -851,6 +851,8 @@ impl All4LaserApp {
                                 tab_enabled: false,
                                 tab_spacing: 50.0,
                                 tab_size: 0.5,
+                                tab_auto: false,
+                                tab_count: 4,
                                 perforation_enabled: false,
                                 perforation_cut_mm: 5.0,
                                 perforation_gap_mm: 2.0,
@@ -1051,6 +1053,12 @@ impl All4LaserApp {
         if let Some(preset_name) = app.settings.material_selected_preset.as_deref() {
             app.materials_state.select_preset_by_name(preset_name);
         }
+        // Restore AI / LLM generator settings
+        app.generator_state.ai_config = app.settings.ai_config.clone();
+        app.generator_state.ai_use_llm = app.settings.ai_use_llm;
+        app.generator_state.ai_layer_cut = app.settings.ai_layer_cut;
+        app.generator_state.ai_layer_engrave = app.settings.ai_layer_engrave;
+        app.generator_state.ai_layer_fine = app.settings.ai_layer_fine;
         if app.camera_state.live_streaming {
             app.start_live_camera();
         } else if let Some(path) = app.camera_state.snapshot_path.clone() {
@@ -1157,6 +1165,12 @@ impl All4LaserApp {
             .materials_state
             .selected_preset_name()
             .map(str::to_string);
+        // Persist AI / LLM generator settings
+        self.settings.ai_config = self.generator_state.ai_config.clone();
+        self.settings.ai_use_llm = self.generator_state.ai_use_llm;
+        self.settings.ai_layer_cut = self.generator_state.ai_layer_cut;
+        self.settings.ai_layer_engrave = self.generator_state.ai_layer_engrave;
+        self.settings.ai_layer_fine = self.generator_state.ai_layer_fine;
         self.settings.save();
         self.event_log.save();
     }
@@ -1479,6 +1493,21 @@ impl All4LaserApp {
             }
         };
         let baud = ui::connection::get_baud(&self.baud_rates, self.selected_baud);
+        self.machine_profile.preferred_use_tcp = false;
+        self.machine_profile.preferred_port = port.clone();
+        self.machine_profile.preferred_baud = baud;
+        self.machine_profile.preferred_output_protocol = self.settings.output_protocol;
+        if let Some(active) = self
+            .profile_store
+            .profiles
+            .get_mut(self.profile_store.active_index)
+        {
+            active.preferred_use_tcp = self.machine_profile.preferred_use_tcp;
+            active.preferred_port = self.machine_profile.preferred_port.clone();
+            active.preferred_baud = self.machine_profile.preferred_baud;
+            active.preferred_output_protocol = self.machine_profile.preferred_output_protocol;
+        }
+        self.profile_store.save();
         self.log(format!("Connecting to {port} @ {baud}…"));
         self.grbl_state.status = MacStatus::Connecting;
 
@@ -1500,6 +1529,21 @@ impl All4LaserApp {
             return;
         }
         let port: u16 = self.tcp_port_str.trim().parse().unwrap_or(23);
+        self.machine_profile.preferred_use_tcp = true;
+        self.machine_profile.preferred_tcp_host = host.clone();
+        self.machine_profile.preferred_tcp_port = port;
+        self.machine_profile.preferred_output_protocol = self.settings.output_protocol;
+        if let Some(active) = self
+            .profile_store
+            .profiles
+            .get_mut(self.profile_store.active_index)
+        {
+            active.preferred_use_tcp = self.machine_profile.preferred_use_tcp;
+            active.preferred_tcp_host = self.machine_profile.preferred_tcp_host.clone();
+            active.preferred_tcp_port = self.machine_profile.preferred_tcp_port;
+            active.preferred_output_protocol = self.machine_profile.preferred_output_protocol;
+        }
+        self.profile_store.save();
         self.log(format!("Connecting via TCP to {host}:{port}…"));
         self.grbl_state.status = MacStatus::Connecting;
 
@@ -1532,6 +1576,7 @@ impl All4LaserApp {
             .add_filter("Images", &["png", "jpg", "jpeg", "bmp"])
             .add_filter("LightBurn Project", &["lbrn", "lbrn2"])
             .add_filter("DXF", &["dxf"])
+            .add_filter("Ruida RD", &["rd"])
             .add_filter("HPGL / PLT", &["plt", "hpgl"])
             .add_filter("PDF", &["pdf"])
             .add_filter("Adobe Illustrator", &["ai"])
@@ -1572,10 +1617,14 @@ impl All4LaserApp {
                 let layers = imaging::svg::extract_layers(&data);
                 let mut svg_params = imaging::svg::SvgParams::default();
                 svg_params.layers = layers;
+                let mut raster_params = imaging::raster::RasterParams::default();
+                raster_params.spot_interp_enabled = true;
+                raster_params.spot_size_min_mm = self.machine_profile.spot_size_min_mm;
+                raster_params.spot_size_max_mm = self.machine_profile.spot_size_max_mm;
                 self.import_state = Some(ui::image_dialog::ImageImportState {
                     import_type: ui::image_dialog::ImportType::Svg(data),
                     filename,
-                    raster_params: imaging::raster::RasterParams::default(),
+                    raster_params,
                     svg_params,
                     materials: ui::materials::MaterialsState::default(),
                     texture: None,
@@ -1592,12 +1641,16 @@ impl All4LaserApp {
                     }
                 };
 
+                let mut raster_params = imaging::raster::RasterParams::default();
+                raster_params.spot_interp_enabled = true;
+                raster_params.spot_size_min_mm = self.machine_profile.spot_size_min_mm;
+                raster_params.spot_size_max_mm = self.machine_profile.spot_size_max_mm;
                 self.import_state = Some(ui::image_dialog::ImageImportState {
                     import_type: ui::image_dialog::ImportType::Raster(
                         image::DynamicImage::ImageRgba8(img),
                     ),
                     filename,
-                    raster_params: imaging::raster::RasterParams::default(),
+                    raster_params,
                     svg_params: imaging::svg::SvgParams::default(),
                     materials: ui::materials::MaterialsState::default(),
                     texture: None, // Will be loaded in update()
@@ -1666,6 +1719,20 @@ impl All4LaserApp {
                 self.import_text_shapes(path, &filename, "XCS", |data| {
                     crate::gcode::xcs_import::import_xcs(data)
                 });
+            }
+            "rd" => {
+                let data = match std::fs::read(path) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        self.show_error(format!("Error reading RD file: {e}"));
+                        return;
+                    }
+                };
+                self.import_shapes_or_error(
+                    crate::imaging::ruida_rd::import_rd(&data),
+                    "Ruida RD",
+                    &filename,
+                );
             }
             "plt" | "hpgl" => {
                 self.import_text_shapes(path, &filename, "HPGL", |data| {
@@ -2574,6 +2641,11 @@ impl All4LaserApp {
         self.notify_job_done = false;
         self.framing_active = false;
 
+        if !self.machine_profile.pre_job_hook.trim().is_empty() {
+            let hook = self.machine_profile.pre_job_hook.clone();
+            self.send_hook_script("pre-job", &hook);
+        }
+
         // Air assist ON
         if self.machine_profile.air_assist {
             self.send_command("M8");
@@ -2728,6 +2800,11 @@ impl All4LaserApp {
         self.log("Program complete.".to_string());
         self.notify_job_done = true;
 
+        if !self.machine_profile.post_job_hook.trim().is_empty() {
+            let hook = self.machine_profile.post_job_hook.clone();
+            self.send_hook_script("post-job", &hook);
+        }
+
         if let Some(job) = self.active_queue_job.take() {
             self.job_queue_state.record_completion(job);
             if self.job_queue_state.auto_run_next {
@@ -2747,6 +2824,10 @@ impl All4LaserApp {
         if let Some(job) = self.active_queue_job.take() {
             self.job_queue_state.record_failure(job, reason);
         }
+        if !self.machine_profile.post_job_hook.trim().is_empty() {
+            let hook = self.machine_profile.post_job_hook.clone();
+            self.send_hook_script("post-job", &hook);
+        }
     }
 
     fn handle_program_aborted(&mut self) {
@@ -2759,6 +2840,10 @@ impl All4LaserApp {
 
         if let Some(job) = self.active_queue_job.take() {
             self.job_queue_state.record_aborted(job);
+        }
+        if !self.machine_profile.post_job_hook.trim().is_empty() {
+            let hook = self.machine_profile.post_job_hook.clone();
+            self.send_hook_script("post-job", &hook);
         }
     }
 
@@ -2779,6 +2864,21 @@ impl All4LaserApp {
             conn.send(cmd);
         } else {
             self.log("Not connected".to_string());
+        }
+    }
+
+    fn send_hook_script(&mut self, hook_name: &str, gcode: &str) {
+        let mut sent = 0usize;
+        for raw_line in gcode.lines() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+                continue;
+            }
+            self.send_command(line);
+            sent += 1;
+        }
+        if sent > 0 {
+            self.log(format!("Executed {hook_name} hook ({sent} line(s))."));
         }
     }
 
@@ -3135,6 +3235,24 @@ impl All4LaserApp {
         self.profile_store.set_active(index);
         let prev_kind = self.machine_profile.controller_kind;
         self.machine_profile = self.profile_store.active().clone();
+        self.use_tcp = self.machine_profile.preferred_use_tcp;
+        self.tcp_host = self.machine_profile.preferred_tcp_host.clone();
+        self.tcp_port_str = self.machine_profile.preferred_tcp_port.to_string();
+        self.settings.output_protocol = self.machine_profile.preferred_output_protocol;
+        if let Some(port_idx) = self
+            .ports
+            .iter()
+            .position(|p| p == &self.machine_profile.preferred_port)
+        {
+            self.selected_port = port_idx;
+        }
+        if let Some(baud_idx) = self
+            .baud_rates
+            .iter()
+            .position(|b| *b == self.machine_profile.preferred_baud)
+        {
+            self.selected_baud = baud_idx;
+        }
         self.profile_store.save();
         if self.machine_profile.controller_kind != prev_kind {
             self.apply_controller_kind_change(prev_kind);
@@ -3283,6 +3401,87 @@ impl All4LaserApp {
                 }
                 ui.end_row();
 
+                ui.label("Output Protocol:");
+                egui::ComboBox::from_id_salt("profile_protocol_combo")
+                    .selected_text(self.machine_profile.preferred_output_protocol.label())
+                    .show_ui(ui, |ui| {
+                        for kind in crate::gcode::output_protocol::ProtocolKind::ALL {
+                            ui.selectable_value(
+                                &mut self.machine_profile.preferred_output_protocol,
+                                kind,
+                                kind.label(),
+                            );
+                        }
+                    });
+                if self.settings.output_protocol != self.machine_profile.preferred_output_protocol {
+                    self.settings.output_protocol = self.machine_profile.preferred_output_protocol;
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Preferred serial port:");
+                if ui
+                    .text_edit_singleline(&mut self.machine_profile.preferred_port)
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Preferred baud:");
+                if ui
+                    .add(egui::DragValue::new(&mut self.machine_profile.preferred_baud).range(1200..=2_000_000))
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Use TCP by default:");
+                if ui
+                    .checkbox(&mut self.machine_profile.preferred_use_tcp, "")
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Preferred TCP host:");
+                if ui
+                    .text_edit_singleline(&mut self.machine_profile.preferred_tcp_host)
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Preferred TCP port:");
+                if ui
+                    .add(egui::DragValue::new(&mut self.machine_profile.preferred_tcp_port).range(1..=65535))
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Spot size min (mm):");
+                if ui
+                    .add(egui::DragValue::new(&mut self.machine_profile.spot_size_min_mm).speed(0.01).range(0.01..=2.0))
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
+                ui.label("Spot size max (mm):");
+                if ui
+                    .add(egui::DragValue::new(&mut self.machine_profile.spot_size_max_mm).speed(0.01).range(0.01..=5.0))
+                    .changed()
+                {
+                    profile_changed = true;
+                }
+                ui.end_row();
+
                 ui.label("Width (mm):");
                 if ui
                     .add(egui::DragValue::new(&mut self.machine_profile.workspace_x_mm).speed(5.0))
@@ -3412,6 +3611,30 @@ impl All4LaserApp {
                     profile_changed = true;
                 }
             });
+        }
+
+        ui.separator();
+        ui.label("Pre-job G-code hook:");
+        if ui
+            .add(
+                egui::TextEdit::multiline(&mut self.machine_profile.pre_job_hook)
+                    .desired_rows(3)
+                    .hint_text("Executed before sending job lines"),
+            )
+            .changed()
+        {
+            profile_changed = true;
+        }
+        ui.label("Post-job G-code hook:");
+        if ui
+            .add(
+                egui::TextEdit::multiline(&mut self.machine_profile.post_job_hook)
+                    .desired_rows(3)
+                    .hint_text("Executed after completion/fail/abort"),
+            )
+            .changed()
+        {
+            profile_changed = true;
         }
         profile_changed
     }

@@ -211,8 +211,21 @@ pub fn apply_tabs(builder: &mut GCodeBuilder, path: &[(f32, f32)], layer: &CutLa
         return;
     }
 
-    let tab_spacing = layer.tab_spacing;
-    let tab_size = layer.tab_size;
+    let tab_size = layer.tab_size.max(0.1);
+    let tab_spacing = if layer.tab_auto {
+        let perimeter: f32 = path
+            .windows(2)
+            .map(|w| {
+                let dx = w[1].0 - w[0].0;
+                let dy = w[1].1 - w[0].1;
+                (dx * dx + dy * dy).sqrt()
+            })
+            .sum();
+        let count = layer.tab_count.max(1) as f32;
+        ((perimeter / count) - tab_size).max(tab_size * 0.5).max(1.0)
+    } else {
+        layer.tab_spacing.max(0.1)
+    };
     let lead_in = layer.lead_in_mm.max(0.0);
     let lead_out = layer.lead_out_mm.max(0.0);
     let mut dist_since_last_tab = 0.0;

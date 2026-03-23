@@ -8,6 +8,7 @@ pub enum UiTheme {
     Modern,     // Catppuccin
     Industrial, // LightBurn-style
     Pro,        // Clean, High-contrast, Modern Professional
+    Rayforge,   // Vibrant orange/purple/cyan (Rayforge-inspired)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -113,6 +114,30 @@ pub const BLUE: Color32 = Color32::from_rgb(82, 134, 214);
 pub const LAVENDER: Color32 = Color32::from_rgb(180, 190, 254); // #B4BEFE
 pub const MAUVE: Color32 = Color32::from_rgb(203, 166, 247); // #CBA6F7
 pub const TEAL: Color32 = Color32::from_rgb(148, 226, 213); // #94E2D5
+
+// Rayforge palette (vibrant dark)
+pub const RF_DARK_BASE: Color32 = Color32::from_rgb(18, 18, 18);       // #121212
+pub const RF_DARK_MANTLE: Color32 = Color32::from_rgb(30, 30, 32);     // #1e1e20
+pub const RF_DARK_CRUST: Color32 = Color32::from_rgb(10, 10, 10);      // #0a0a0a
+pub const RF_DARK_SURFACE0: Color32 = Color32::from_rgb(38, 38, 42);   // #26262a
+pub const RF_DARK_SURFACE1: Color32 = Color32::from_rgb(50, 50, 56);   // #323238
+pub const RF_DARK_SURFACE2: Color32 = Color32::from_rgb(65, 65, 72);   // #414148
+pub const RF_DARK_TEXT: Color32 = Color32::from_rgb(224, 224, 224);    // #e0e0e0
+pub const RF_DARK_SUBTEXT: Color32 = Color32::from_rgb(170, 170, 180); // #aaaab4
+pub const RF_ORANGE: Color32 = Color32::from_rgb(255, 159, 67);       // #ff9f43
+pub const RF_PURPLE: Color32 = Color32::from_rgb(95, 39, 205);        // #5f27cd
+pub const RF_PURPLE_LIGHT: Color32 = Color32::from_rgb(162, 155, 254); // #a29bfe
+pub const RF_CYAN: Color32 = Color32::from_rgb(0, 210, 211);          // #00d2d3
+pub const RF_RED: Color32 = Color32::from_rgb(238, 82, 83);           // #ee5253
+
+// Rayforge palette (light)
+pub const RF_LIGHT_BASE: Color32 = Color32::from_rgb(248, 249, 250);   // #f8f9fa
+pub const RF_LIGHT_MANTLE: Color32 = Color32::from_rgb(240, 241, 243); // #f0f1f3
+pub const RF_LIGHT_CRUST: Color32 = Color32::from_rgb(232, 233, 236);  // #e8e9ec
+pub const RF_LIGHT_SURFACE0: Color32 = Color32::from_rgb(255, 255, 255);
+pub const RF_LIGHT_SURFACE1: Color32 = Color32::from_rgb(238, 240, 244);
+pub const RF_LIGHT_SURFACE2: Color32 = Color32::from_rgb(218, 222, 228);
+pub const RF_LIGHT_TEXT: Color32 = Color32::from_rgb(45, 52, 54);      // #2d3436
 
 // Generic exports for backwards compatibility (used by other modules directly)
 // We will alias these to the currently active theme in `apply_theme` using context,
@@ -222,6 +247,31 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
                 )
             }
         }
+        UiTheme::Rayforge => {
+            if state.is_light {
+                (
+                    RF_LIGHT_BASE,
+                    RF_LIGHT_MANTLE,
+                    RF_LIGHT_CRUST,
+                    RF_LIGHT_SURFACE0,
+                    RF_LIGHT_SURFACE1,
+                    RF_LIGHT_SURFACE2,
+                    RF_LIGHT_TEXT,
+                    RF_PURPLE, // Purple accent in light mode
+                )
+            } else {
+                (
+                    RF_DARK_BASE,
+                    RF_DARK_MANTLE,
+                    RF_DARK_CRUST,
+                    RF_DARK_SURFACE0,
+                    RF_DARK_SURFACE1,
+                    RF_DARK_SURFACE2,
+                    RF_DARK_TEXT,
+                    RF_ORANGE, // Vibrant orange accent in dark mode
+                )
+            }
+        }
     };
 
     let border_color = match state.ui_theme {
@@ -246,6 +296,13 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
                 Color32::from_rgb(51, 65, 85) // Slate 700
             }
         }
+        UiTheme::Rayforge => {
+            if state.is_light {
+                Color32::from_rgb(200, 204, 212)
+            } else {
+                Color32::from_rgb(55, 55, 62)
+            }
+        }
     };
 
     style.visuals.dark_mode = !state.is_light;
@@ -261,6 +318,7 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
         UiTheme::Industrial => egui::CornerRadius::same(1), // Quasi plat
         UiTheme::Pro => egui::CornerRadius::same(4),        // Slightly rounded, crisp
         UiTheme::Modern => egui::CornerRadius::same(6),     // Modern/Round
+        UiTheme::Rayforge => egui::CornerRadius::same(8),   // Vibrant/Rounded
     };
 
     // Noninteractive
@@ -362,6 +420,15 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
         UiTheme::Modern => {
             style.spacing.button_padding = egui::vec2(12.0, 6.0);
             style.spacing.item_spacing = egui::vec2(8.0, 7.0);
+        }
+        UiTheme::Rayforge => {
+            style.spacing.button_padding = egui::vec2(12.0, 6.0);
+            style.spacing.item_spacing = egui::vec2(7.0, 6.0);
+            style.spacing.indent = 14.0;
+            // Rayforge uses a subtle purple glow on windows in dark mode
+            if !state.is_light {
+                style.visuals.window_stroke = egui::Stroke::new(1.0, Color32::from_rgb(80, 60, 120));
+            }
         }
     }
 

@@ -229,6 +229,13 @@ fn build_view_menu_contents(
         action.set_theme = Some(theme::UiTheme::Industrial);
         ui.close_menu();
     }
+    if ui
+        .selectable_label(false, tr("Rayforge (vibrant)"))
+        .clicked()
+    {
+        action.set_theme = Some(theme::UiTheme::Rayforge);
+        ui.close_menu();
+    }
 
     ui.separator();
     ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());

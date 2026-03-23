@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::app::RightPanelTab;
+use crate::ai::{AiBackend, AiConfig};
 use crate::gcode::output_protocol::ProtocolKind;
 use crate::i18n::Language;
 use crate::theme::{UiLayout, UiTheme};
@@ -200,6 +201,17 @@ pub struct AppSettings {
     // Output protocol (GRBL/Marlin/EGV)
     #[serde(default)]
     pub output_protocol: ProtocolKind,
+    // AI / LLM generator settings
+    #[serde(default)]
+    pub ai_config: AiConfig,
+    #[serde(default)]
+    pub ai_use_llm: bool,
+    #[serde(default)]
+    pub ai_layer_cut: usize,
+    #[serde(default = "default_ai_layer_engrave")]
+    pub ai_layer_engrave: usize,
+    #[serde(default = "default_ai_layer_fine")]
+    pub ai_layer_fine: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -266,6 +278,12 @@ fn default_timelapse_interval() -> f32 {
 }
 fn default_api_port() -> u16 {
     8081
+}
+fn default_ai_layer_engrave() -> usize {
+    1
+}
+fn default_ai_layer_fine() -> usize {
+    2
 }
 pub fn lightburn_shortcuts() -> std::collections::HashMap<String, String> {
     let mut m = std::collections::HashMap::new();
@@ -351,6 +369,11 @@ impl Default for AppSettings {
             colorblind_mode: ColorblindMode::None,
             high_contrast: false,
             output_protocol: ProtocolKind::Grbl,
+            ai_config: AiConfig::default(),
+            ai_use_llm: false,
+            ai_layer_cut: 0,
+            ai_layer_engrave: 1,
+            ai_layer_fine: 2,
         }
     }
 }

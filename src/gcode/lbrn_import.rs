@@ -1295,6 +1295,8 @@ mod tests {
             tab_enabled: false,
             tab_spacing: 50.0,
             tab_size: 0.5,
+            tab_auto: false,
+            tab_count: 4,
             perforation_enabled: false,
             perforation_cut_mm: 5.0,
             perforation_gap_mm: 2.0,
