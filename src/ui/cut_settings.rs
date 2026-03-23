@@ -268,8 +268,24 @@ pub fn show(
                     ui.end_row();
 
                     if layer.tab_enabled {
+                        ui.label(tr("Automatic tabs:"));
+                        ui.checkbox(&mut layer.tab_auto, tr("Auto spacing"));
+                        ui.end_row();
+
+                        if layer.tab_auto {
+                            ui.label(tr("Tab count:"));
+                            ui.add(egui::DragValue::new(&mut layer.tab_count).speed(1.0).range(1..=32));
+                            ui.end_row();
+                        }
+
                         ui.label(tr("Tab Spacing:"));
-                        ui.add(egui::DragValue::new(&mut layer.tab_spacing).speed(1.0).range(1.0..=500.0).suffix(" mm"));
+                        ui.add_enabled(
+                            !layer.tab_auto,
+                            egui::DragValue::new(&mut layer.tab_spacing)
+                                .speed(1.0)
+                                .range(1.0..=500.0)
+                                .suffix(" mm"),
+                        );
                         ui.end_row();
 
                         ui.label(tr("Tab Size (Gap):"));

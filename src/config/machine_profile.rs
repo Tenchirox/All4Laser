@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::controller::ControllerKind;
+use crate::gcode::output_protocol::ProtocolKind;
 
 /// Machine profile saved to disk (port, baud, workspace, kinematics)
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -22,6 +23,26 @@ pub struct MachineProfile {
     pub rotary_steps_per_deg: f32,
     #[serde(default = "default_controller_kind")]
     pub controller_kind: ControllerKind,
+    #[serde(default)]
+    pub preferred_port: String,
+    #[serde(default = "default_preferred_baud")]
+    pub preferred_baud: u32,
+    #[serde(default)]
+    pub preferred_use_tcp: bool,
+    #[serde(default)]
+    pub preferred_tcp_host: String,
+    #[serde(default = "default_preferred_tcp_port")]
+    pub preferred_tcp_port: u16,
+    #[serde(default = "default_preferred_output_protocol")]
+    pub preferred_output_protocol: ProtocolKind,
+    #[serde(default)]
+    pub pre_job_hook: String,
+    #[serde(default)]
+    pub post_job_hook: String,
+    #[serde(default = "default_spot_size_min_mm")]
+    pub spot_size_min_mm: f32,
+    #[serde(default = "default_spot_size_max_mm")]
+    pub spot_size_max_mm: f32,
 
     // Tube wear tracking (F97)
     #[serde(default)]
@@ -77,6 +98,21 @@ pub struct MachineProfile {
 fn default_controller_kind() -> ControllerKind {
     ControllerKind::Grbl
 }
+fn default_preferred_baud() -> u32 {
+    115_200
+}
+fn default_preferred_tcp_port() -> u16 {
+    23
+}
+fn default_preferred_output_protocol() -> ProtocolKind {
+    ProtocolKind::Grbl
+}
+fn default_spot_size_min_mm() -> f32 {
+    0.08
+}
+fn default_spot_size_max_mm() -> f32 {
+    0.2
+}
 fn default_tube_life() -> f64 {
     2000.0
 }
@@ -116,6 +152,16 @@ impl Default for MachineProfile {
             rotary_axis: 'Y',
             rotary_steps_per_deg: 1.0,
             controller_kind: default_controller_kind(),
+            preferred_port: String::new(),
+            preferred_baud: default_preferred_baud(),
+            preferred_use_tcp: false,
+            preferred_tcp_host: String::new(),
+            preferred_tcp_port: default_preferred_tcp_port(),
+            preferred_output_protocol: default_preferred_output_protocol(),
+            pre_job_hook: String::new(),
+            post_job_hook: String::new(),
+            spot_size_min_mm: default_spot_size_min_mm(),
+            spot_size_max_mm: default_spot_size_max_mm(),
             tube_hours_total: 0.0,
             tube_life_hours: default_tube_life(),
             maintenance_jobs_since_lens_clean: 0,

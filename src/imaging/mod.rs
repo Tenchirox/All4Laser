@@ -6,3 +6,4 @@ pub mod svg;
 pub mod svg_filters;
 pub mod tracing;
 pub mod camera_vision;
+pub mod ruida_rd;

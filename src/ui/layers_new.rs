@@ -58,6 +58,9 @@ fn default_perf_cut_mm() -> f32 {
 fn default_perf_gap_mm() -> f32 {
     2.0
 }
+fn default_tab_count() -> u32 {
+    4
+}
 fn default_corner_power_pct() -> f32 {
     100.0
 }
@@ -155,6 +158,10 @@ pub struct CutLayer {
     pub tab_enabled: bool,
     pub tab_spacing: f32, // Distance between tabs in mm
     pub tab_size: f32,    // Size of the gap in mm
+    #[serde(default)]
+    pub tab_auto: bool,
+    #[serde(default = "default_tab_count")]
+    pub tab_count: u32,
 
     // Perforation / dashed mode (F33)
     #[serde(default)]
@@ -308,6 +315,8 @@ impl CutLayer {
                 tab_enabled: false,
                 tab_spacing: 50.0,
                 tab_size: 0.5,
+                tab_auto: false,
+                tab_count: default_tab_count(),
                 perforation_enabled: false,
                 perforation_cut_mm: 5.0,
                 perforation_gap_mm: 2.0,
