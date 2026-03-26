@@ -83,7 +83,7 @@ pub struct All4LaserApp {
 
     // Console
     console_log: VecDeque<String>,
-    console_input: String,
+    console_state: ui::console::ConsoleState,
 
     // Jog
     jog_step: f32,
@@ -193,6 +193,11 @@ pub struct All4LaserApp {
     language: crate::i18n::Language,
     active_tab: RightPanelTab,
 
+    // Panel visibility toggles
+    show_left_panel: bool,
+    show_right_panel: bool,
+    show_bottom_panel: bool,
+
     // Display units (F96)
     display_unit: crate::config::settings::DisplayUnit,
 
@@ -246,7 +251,7 @@ impl All4LaserApp {
             renderer: PreviewRenderer::default(),
             needs_auto_fit: false,
             console_log: VecDeque::from(vec!["All4Laser ready.".to_string()]),
-            console_input: String::new(),
+            console_state: ui::console::ConsoleState::default(),
             jog_step: 1.0,
             jog_feed: 1000.0,
             import_state: None,
@@ -306,6 +311,9 @@ impl All4LaserApp {
             cut_settings_state: ui::cut_settings::CutSettingsState::default(),
             language: crate::i18n::Language::English, // Will be overridden
             active_tab: RightPanelTab::Cuts,          // Will be overridden
+            show_left_panel: true,
+            show_right_panel: true,
+            show_bottom_panel: true,
             display_unit: crate::config::settings::DisplayUnit::Millimeters, // Will be overridden
             settings: AppSettings::load(),
             preflight_report: None,
@@ -1861,12 +1869,11 @@ impl All4LaserApp {
             self.show_error("No file loaded".to_string());
             return;
         }
-        let issues = ui::preflight::run_checks(&self.drawing_state.shapes, &self.layers);
-        if issues.is_empty() || self.preflight_state.bypass {
-            self.preflight_state.bypass = false; // Ensure it doesn't stay permanently bypassed
+        let report = self.build_preflight_report();
+        if report.issues.is_empty() {
             self.run_program_internal();
         } else {
-            self.preflight_state.issues = issues;
+            self.preflight_state.report = Some(report);
             self.preflight_state.is_open = true;
         }
     }
@@ -2853,8 +2860,9 @@ impl All4LaserApp {
     fn ui_left_content(&mut self, ui: &mut egui::Ui, connected: bool) {
         let caps = self.controller_capabilities();
         let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
+        // ── Connection ──
         egui::CollapsingHeader::new(
-            RichText::new(format!("🔌 {}", crate::i18n::tr("Connection & Control")))
+            RichText::new(format!("🔌 {}", crate::i18n::tr("Connection")))
                 .color(theme::LAVENDER)
                 .strong(),
         )
@@ -2879,11 +2887,20 @@ impl All4LaserApp {
                 self.log("Ports refreshed.".to_string());
             }
 
-            ui.add_space(6.0);
+            ui.add_space(4.0);
             self.ui_machine_profile_editor(ui);
+        });
 
-            ui.add_space(6.0);
+        ui.add_space(4.0);
 
+        // ── Machine State ──
+        egui::CollapsingHeader::new(
+            RichText::new(format!("📊 {}", crate::i18n::tr("Machine State")))
+                .color(theme::LAVENDER)
+                .strong(),
+        )
+        .default_open(true)
+        .show(ui, |ui| {
             let ms_action =
                 ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected);
             if ms_action.toggle_focus && connected {
@@ -2897,9 +2914,18 @@ impl All4LaserApp {
             if let Some(pos) = ms_action.quick_pos {
                 self.quick_move_to(pos);
             }
+        });
 
-            ui.add_space(6.0);
+        ui.add_space(4.0);
 
+        // ── Jog Control ──
+        egui::CollapsingHeader::new(
+            RichText::new(format!("🎮 {}", crate::i18n::tr("Jog Control")))
+                .color(theme::LAVENDER)
+                .strong(),
+        )
+        .default_open(true)
+        .show(ui, |ui| {
             let jog_action = ui::jog::show(
                 ui,
                 &mut self.jog_step,
@@ -2912,8 +2938,9 @@ impl All4LaserApp {
             }
         });
 
-        ui.add_space(6.0);
+        ui.add_space(4.0);
 
+        // ── Job Preparation ──
         egui::CollapsingHeader::new(
             RichText::new(format!("📐 {}", crate::i18n::tr("Job Preparation")))
                 .color(theme::LAVENDER)
@@ -2933,20 +2960,27 @@ impl All4LaserApp {
                 );
 
                 ui.add_space(4.0);
-                if ui
-                    .button("⚡ Optimize Path")
-                    .on_hover_text("Reorder segments to minimize travel distance")
-                    .clicked()
-                {
-                    if let Some(mut file) = self.loaded_file.clone() {
-                        let optimized_lines = crate::gcode::optimizer::optimize(&file.lines);
-                        let raw_lines: Vec<String> =
-                            optimized_lines.iter().map(|l| l.to_gcode()).collect();
-                        file.lines = optimized_lines;
-                        self.set_loaded_file(file, raw_lines);
-                        self.log("Path optimized.".to_string());
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("⚡ Optimize Path")
+                        .on_hover_text("Reorder segments to minimize travel distance")
+                        .clicked()
+                    {
+                        if let Some(mut file) = self.loaded_file.clone() {
+                            let optimized_lines = crate::gcode::optimizer::optimize(&file.lines);
+                            let raw_lines: Vec<String> =
+                                optimized_lines.iter().map(|l| l.to_gcode()).collect();
+                            file.lines = optimized_lines;
+                            self.set_loaded_file(file, raw_lines);
+                            self.log("Path optimized.".to_string());
+                        }
                     }
-                }
+                    if ui.button("🔍 Preflight Check").clicked() {
+                        self.preflight_state.report = Some(self.build_preflight_report());
+                        self.preflight_state.is_open = true;
+                    }
+                });
+
                 ui.add_space(4.0);
                 ui.label(
                     RichText::new(format!("📐 {}", crate::i18n::tr("Job Transformation")))
@@ -2980,12 +3014,6 @@ impl All4LaserApp {
                         .clicked()
                     {
                         self.job_transform.rotation = 0.0;
-                    }
-
-                    ui.add_space(4.0);
-                    if ui.button("🔍 Preflight Check").clicked() {
-                        self.preflight_state.issues = ui::preflight::run_checks(&self.drawing_state.shapes, &self.layers);
-                        self.preflight_state.is_open = true;
                     }
                 });
                 if ui.button("Center Job").clicked() {
@@ -3486,10 +3514,13 @@ impl All4LaserApp {
             let console_action = ui::console::show(
                 ui,
                 self.console_log.make_contiguous(),
-                &mut self.console_input,
+                &mut self.console_state,
             );
             if let Some(cmd) = console_action.send_command {
                 self.send_command(&cmd);
+            }
+            if console_action.clear_log {
+                self.console_log.clear();
             }
 
             ui.add_space(6.0);
@@ -3941,10 +3972,13 @@ impl All4LaserApp {
                             let console_action = ui::console::show(
                                 ui,
                                 self.console_log.make_contiguous(),
-                                &mut self.console_input,
+                                &mut self.console_state,
                             );
                             if let Some(cmd) = console_action.send_command {
                                 self.send_command(&cmd);
+                            }
+                            if console_action.clear_log {
+                                self.console_log.clear();
                             }
                         });
 
@@ -4080,6 +4114,14 @@ impl All4LaserApp {
                     }
                 }
             }
+            if let Some((idx, new_layer)) = action.apply_without_close {
+                if idx < self.layers.len() {
+                    self.layers[idx] = new_layer;
+                    if !self.drawing_state.shapes.is_empty() {
+                        self.regenerate_drawing_gcode();
+                    }
+                }
+            }
         }
 
         // === Handle Settings Modal ===
@@ -4135,20 +4177,14 @@ impl All4LaserApp {
         }
         if actions.run_program {
             self.is_dry_run = false;
-            if self.run_preflight("run", true) {
-                self.run_program_internal();
-            }
+            self.run_program_with_preflight();
         }
         if actions.frame_bbox {
             self.frame_bbox();
         }
         if actions.dry_run {
             self.is_dry_run = true;
-            if self.run_preflight("dry-run", true) {
-                self.run_program_internal();
-            } else {
-                self.is_dry_run = false;
-            }
+            self.run_program_with_preflight();
         }
         if actions.abort_program {
             self.abort_program();
@@ -4498,6 +4534,29 @@ impl All4LaserApp {
                     let rect = ui.max_rect();
                     self.renderer
                         .auto_fit(&segments, rect, offset, self.job_transform.rotation);
+                }
+            }
+            if preview_action.fit_selection {
+                let selected: Vec<usize> = self.renderer.selected_shape_idx.iter().copied().collect();
+                if !selected.is_empty() {
+                    let mut min_x = f32::MAX;
+                    let mut min_y = f32::MAX;
+                    let mut max_x = f32::MIN;
+                    let mut max_y = f32::MIN;
+
+                    for idx in selected {
+                        if let Some(shape) = self.drawing_state.shapes.get(idx) {
+                            let (sx0, sy0, sx1, sy1) = crate::ui::drawing::shape_world_bounds_pub(shape);
+                            min_x = min_x.min(sx0);
+                            min_y = min_y.min(sy0);
+                            max_x = max_x.max(sx1);
+                            max_y = max_y.max(sy1);
+                        }
+                    }
+
+                    if min_x <= max_x && min_y <= max_y {
+                        self.renderer.fit_world_bounds(ui.max_rect(), min_x, min_y, max_x, max_y);
+                    }
                 }
             }
 
@@ -5295,10 +5354,9 @@ impl eframe::App for All4LaserApp {
         }
 
         // === Preflight Modal ===
-        let preflight_action = ui::preflight::show(ctx, &mut self.preflight_state);
+        let preflight_action = ui::preflight::show(ctx, &mut self.preflight_state, self.preflight_block_critical);
         if preflight_action.proceed {
-            self.preflight_state.bypass = true;
-            self.run_program_with_preflight();
+            self.run_program_internal();
         }
 
         // === Handle Settings Modal ===
@@ -5414,21 +5472,31 @@ impl eframe::App for All4LaserApp {
             actions.merge(menu_actions);
             ui.add_space(4.0);
 
+            ui.separator();
+            ui.toggle_value(&mut self.show_left_panel, crate::i18n::tr("Left"));
+            ui.toggle_value(&mut self.show_right_panel, crate::i18n::tr("Right"));
+            if self.ui_layout == theme::UiLayout::Pro {
+                ui.toggle_value(&mut self.show_bottom_panel, crate::i18n::tr("Bottom"));
+            }
+
             self.handle_toolbar_actions(ctx, actions);
         });
 
-        // === BOTTOM: Progress bar + Status bar ===
+        // === BOTTOM: Status bar ===
         TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
-            if self.running && !self.program_lines.is_empty() {
-                let progress = self.program_index as f32 / self.program_lines.len() as f32;
-                let bar = egui::ProgressBar::new(progress).text(format!(
-                    "{}/{}",
-                    self.program_index,
-                    self.program_lines.len()
-                ));
-                ui.add(bar);
-                ui.add_space(4.0);
+            // Palette (above status info for visibility)
+            ui.add_space(2.0);
+            let pal_action = ui::cut_palette::show(ui, &self.layers, self.active_layer_idx);
+            if let Some(idx) = pal_action.select_layer {
+                self.assign_selected_shapes_to_layer(idx);
+                self.active_layer_idx = idx;
+                self.drawing_state.current.layer_idx = idx;
             }
+            if let Some(idx) = pal_action.open_settings {
+                self.cut_settings_state.editing_layer_idx = Some(idx);
+                self.cut_settings_state.is_open = true;
+            }
+            ui.separator();
 
             let file_info = self
                 .loaded_file
@@ -5439,8 +5507,6 @@ impl eframe::App for All4LaserApp {
             } else {
                 None
             };
-
-            ui.add_space(4.0);
             let cost = if self.estimation.total_burn_mm > 0.0 {
                 let time_hours = self
                     .loaded_file
@@ -5454,31 +5520,17 @@ impl eframe::App for All4LaserApp {
             } else {
                 None
             };
+
             let sb_actions = ui::status_bar::show(
                 ui,
                 &self.grbl_state,
                 file_info,
                 progress,
+                self.renderer.zoom,
                 caps,
                 self.display_unit,
                 cost,
             );
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(4.0);
-
-            // Palette
-            let pal_action = ui::cut_palette::show(ui, &self.layers, self.active_layer_idx);
-            if let Some(idx) = pal_action.select_layer {
-                self.assign_selected_shapes_to_layer(idx);
-                self.active_layer_idx = idx;
-                // Automatically set drawing tool to this layer
-                self.drawing_state.current.layer_idx = idx;
-            }
-            if let Some(idx) = pal_action.open_settings {
-                self.cut_settings_state.editing_layer_idx = Some(idx);
-                self.cut_settings_state.is_open = true;
-            }
 
             if sb_actions.feed_up {
                 self.send_realtime_or_warn(RealtimeCommand::FeedOverridePlus10, "Feed override");
@@ -5522,18 +5574,20 @@ impl eframe::App for All4LaserApp {
             theme::UiLayout::Pro => 300.0,
             theme::UiLayout::Classic => 360.0,
         };
-        SidePanel::left("left_panel")
-            .resizable(true)
-            .default_width(left_panel_width)
-            .width_range(120.0..=600.0)
-            .show(ctx, |ui| {
-                egui::ScrollArea::both()
-                    .id_salt("left_scroll")
-                    .auto_shrink([true, false])
-                    .show(ui, |ui| {
-                        self.ui_left_content(ui, connected);
-                    });
-            });
+        if self.show_left_panel {
+            SidePanel::left("left_panel")
+                .resizable(true)
+                .default_width(left_panel_width)
+                .width_range(120.0..=600.0)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::both()
+                        .id_salt("left_scroll")
+                        .auto_shrink([true, false])
+                        .show(ui, |ui| {
+                            self.ui_left_content(ui, connected);
+                        });
+                });
+        }
 
         // === RIGHT SIDEBAR ===
         let right_panel_width = match self.ui_layout {
@@ -5541,21 +5595,23 @@ impl eframe::App for All4LaserApp {
             theme::UiLayout::Pro => 280.0,
             theme::UiLayout::Classic => 340.0,
         };
-        SidePanel::right("right_panel")
-            .resizable(true)
-            .default_width(right_panel_width)
-            .width_range(120.0..=600.0)
-            .show(ctx, |ui| {
-                if self.ui_layout == theme::UiLayout::Modern {
-                    self.ui_right_content(ui);
-                } else {
-                    // Pro and Classic use the Tabbed interface on the right
-                    self.ui_right_tabs(ui, connected);
-                }
-            });
+        if self.show_right_panel {
+            SidePanel::right("right_panel")
+                .resizable(true)
+                .default_width(right_panel_width)
+                .width_range(120.0..=600.0)
+                .show(ctx, |ui| {
+                    if self.ui_layout == theme::UiLayout::Modern {
+                        self.ui_right_content(ui);
+                    } else {
+                        // Pro and Classic use the Tabbed interface on the right
+                        self.ui_right_tabs(ui, connected);
+                    }
+                });
+        }
 
         // === BOTTOM PANEL (Pro Layout Only) ===
-        if self.ui_layout == theme::UiLayout::Pro {
+        if self.ui_layout == theme::UiLayout::Pro && self.show_bottom_panel {
             egui::TopBottomPanel::bottom("bottom_console_panel")
                 .resizable(true)
                 .default_height(150.0)

@@ -43,7 +43,7 @@ pub fn show(ui: &mut Ui, layers: &[CutLayer], active_idx: usize) -> PaletteActio
                         ui.painter().rect_filled(inner, 1.0, layer.color);
 
                         // Text ID
-                        let text_color = if is_light(layer.color) {
+                        let text_color = if theme::is_light(layer.color) {
                             Color32::BLACK
                         } else {
                             Color32::WHITE
@@ -83,17 +83,14 @@ pub fn show(ui: &mut Ui, layers: &[CutLayer], active_idx: usize) -> PaletteActio
                     }
 
                     response.on_hover_text(format!(
-                        "Layer C{:02}\nSpeed: {}\nPower: {}",
-                        i, layer.speed, layer.power
+                        "{} C{:02}\n{}: {}\n{}: {}",
+                        tr("Layer"), i,
+                        tr("Speed"), layer.speed,
+                        tr("Power"), layer.power
                     ));
                 }
             });
     });
 
     action
-}
-
-fn is_light(c: Color32) -> bool {
-    let brightness = (c.r() as f32 * 299.0 + c.g() as f32 * 587.0 + c.b() as f32 * 114.0) / 1000.0;
-    brightness > 128.0
 }

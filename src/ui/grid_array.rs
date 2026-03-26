@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::drawing::DrawingState;
 use egui::RichText;
@@ -36,7 +37,7 @@ pub fn show(ctx: &egui::Context, state: &mut GridArrayState) -> GridArrayAction 
         return action;
     }
 
-    egui::Window::new("🔲 Grid Array")
+    egui::Window::new(format!("🔲 {}", tr("Grid Array")))
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
@@ -44,19 +45,19 @@ pub fn show(ctx: &egui::Context, state: &mut GridArrayState) -> GridArrayAction 
                 .num_columns(2)
                 .spacing([12.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label("X Columns:");
+                    ui.label(format!("X {}:", tr("Columns")));
                     ui.add(egui::DragValue::new(&mut state.columns).range(1..=100));
                     ui.end_row();
 
-                    ui.label("Y Rows:");
+                    ui.label(format!("Y {}:", tr("Rows")));
                     ui.add(egui::DragValue::new(&mut state.rows).range(1..=100));
                     ui.end_row();
 
-                    ui.label("X Spacing (mm):");
+                    ui.label(format!("X {} (mm):", tr("Spacing")));
                     ui.add(egui::DragValue::new(&mut state.dx).speed(1.0).suffix(" mm"));
                     ui.end_row();
 
-                    ui.label("Y Spacing (mm):");
+                    ui.label(format!("Y {} (mm):", tr("Spacing")));
                     ui.add(egui::DragValue::new(&mut state.dy).speed(1.0).suffix(" mm"));
                     ui.end_row();
                 });
@@ -65,7 +66,7 @@ pub fn show(ctx: &egui::Context, state: &mut GridArrayState) -> GridArrayAction 
             ui.horizontal(|ui| {
                 if ui
                     .button(
-                        RichText::new("🔲 Create Array")
+                        RichText::new(format!("🔲 {}", tr("Create Array")))
                             .color(theme::GREEN)
                             .strong(),
                     )
@@ -73,7 +74,7 @@ pub fn show(ctx: &egui::Context, state: &mut GridArrayState) -> GridArrayAction 
                 {
                     action.apply = true;
                 }
-                if ui.button("Close").clicked() {
+                if ui.button(tr("Close")).clicked() {
                     state.is_open = false;
                 }
             });

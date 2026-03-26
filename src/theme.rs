@@ -131,6 +131,12 @@ pub const OVERLAY2: Color32 = DARK_OVERLAY2;
 pub const TEXT: Color32 = DARK_TEXT;
 pub const SUBTEXT: Color32 = DARK_SUBTEXT;
 
+/// Determine if a color is light (for choosing contrasting text color)
+pub fn is_light(c: Color32) -> bool {
+    let brightness = (c.r() as f32 * 299.0 + c.g() as f32 * 587.0 + c.b() as f32 * 114.0) / 1000.0;
+    brightness > 128.0
+}
+
 pub fn apply_theme(ctx: &Context, state: &AppTheme) {
     let mut style = (*ctx.style()).clone();
 

@@ -62,7 +62,7 @@ pub fn show_wizard(ctx: &egui::Context, wctx: &mut WizardContext) -> WizardResul
                         }
                     }
                     ui.add_space(8.0);
-                    if ui.button("Next →").clicked() {
+                    if ui.button(format!("{} →", tr("Next"))).clicked() {
                         wctx.wizard.step = 1;
                     }
                 }
@@ -74,18 +74,18 @@ pub fn show_wizard(ctx: &egui::Context, wctx: &mut WizardContext) -> WizardResul
                     );
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        ui.label("Name:");
+                        ui.label(format!("{}:", tr("Name")));
                         ui.text_edit_singleline(&mut wctx.machine_profile.name);
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Width (mm):");
+                        ui.label(format!("{} (mm):", tr("Width")));
                         ui.add(
                             egui::DragValue::new(&mut wctx.machine_profile.workspace_x_mm)
                                 .speed(10.0),
                         );
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Height (mm):");
+                        ui.label(format!("{} (mm):", tr("Height")));
                         ui.add(
                             egui::DragValue::new(&mut wctx.machine_profile.workspace_y_mm)
                                 .speed(10.0),
@@ -93,17 +93,17 @@ pub fn show_wizard(ctx: &egui::Context, wctx: &mut WizardContext) -> WizardResul
                     });
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.button("← Back").clicked() {
+                        if ui.button(format!("← {}", tr("Back"))).clicked() {
                             wctx.wizard.step = 0;
                         }
-                        if ui.button("Next →").clicked() {
+                        if ui.button(format!("{} →", tr("Next"))).clicked() {
                             wctx.wizard.step = 2;
                         }
                     });
                 }
                 _ => {
                     ui.label(
-                        egui::RichText::new("Step 3/3 — Controller")
+                        egui::RichText::new(format!("Step 3/3 — {}", tr("Controller")))
                             .size(16.0)
                             .strong(),
                     );
@@ -134,17 +134,17 @@ pub fn show_wizard(ctx: &egui::Context, wctx: &mut WizardContext) -> WizardResul
                     }
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.button("← Back").clicked() {
+                        if ui.button(format!("← {}", tr("Back"))).clicked() {
                             wctx.wizard.step = 1;
                         }
-                        if ui.button("✅ Finish").clicked() {
+                        if ui.button(format!("✅ {}", tr("Finish"))).clicked() {
                             result.finished = true;
                         }
                     });
                 }
             }
             ui.add_space(4.0);
-            if ui.small_button("Skip wizard").clicked() {
+            if ui.small_button(tr("Skip wizard")).clicked() {
                 result.finished = true;
             }
         });

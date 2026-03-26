@@ -10,6 +10,7 @@ pub struct PreviewAction {
     pub zoom_in: bool,
     pub zoom_out: bool,
     pub auto_fit: bool,
+    pub fit_selection: bool,
     pub interactive_action: InteractiveAction,
 }
 
@@ -19,6 +20,7 @@ impl Default for PreviewAction {
             zoom_in: false,
             zoom_out: false,
             auto_fit: false,
+            fit_selection: false,
             interactive_action: InteractiveAction::None,
         }
     }
@@ -54,10 +56,14 @@ pub fn show(
         let l_fill = tr("Fill");
         let l_risk = tr("Risk");
         let l_realistic = tr("Realistic");
-        ui.checkbox(&mut renderer.show_rapids, if compact { "R" } else { &l_rapids });
-        ui.checkbox(&mut renderer.show_fill_preview, if compact { "F" } else { &l_fill });
-        ui.checkbox(&mut renderer.show_thermal_risk, if compact { "!" } else { &l_risk });
-        ui.checkbox(&mut renderer.realistic_preview, if compact { "3D" } else { &l_realistic });
+        ui.checkbox(&mut renderer.show_rapids, if compact { "R" } else { &l_rapids })
+            .on_hover_text(tr("Show rapid moves (G0) as dashed lines"));
+        ui.checkbox(&mut renderer.show_fill_preview, if compact { "F" } else { &l_fill })
+            .on_hover_text(tr("Show fill preview for vector shapes"));
+        ui.checkbox(&mut renderer.show_thermal_risk, if compact { "!" } else { &l_risk })
+            .on_hover_text(tr("Highlight areas with thermal risk"));
+        ui.checkbox(&mut renderer.realistic_preview, if compact { "3D" } else { &l_realistic })
+            .on_hover_text(tr("Show 3D realistic preview with kerf width"));
 
         if !segments.is_empty() {
             ui.separator();
@@ -67,19 +73,41 @@ pub fn show(
                 renderer.simulation_progress = if sim_on { Some(0.0) } else { None };
             }
             if let Some(progress) = renderer.simulation_progress.as_mut() {
-                let slider_w = if compact { 60.0 } else { 120.0 };
+                let slider_w = if compact { 80.0 } else { 140.0 };
+                let pct = (*progress * 100.0) as i32;
                 ui.add_sized(
                     egui::vec2(slider_w, 0.0),
                     egui::Slider::new(progress, 0.0..=1.0)
                         .show_value(false)
-                        .text(""),
+                        .text(format!("{}%", pct)),
                 );
+                
+                // Play/Pause button
+                let play_icon = if renderer.simulation_playing { "⏸" } else { "▶" };
+                let play_tip = if renderer.simulation_playing { tr("Pause simulation") } else { tr("Play simulation") };
+                if ui
+                    .button(play_icon)
+                    .on_hover_text(play_tip)
+                    .clicked()
+                {
+                    renderer.simulation_playing = !renderer.simulation_playing;
+                }
+                
                 if ui
                     .button("↺")
                     .on_hover_text("Reset simulation progress to start")
                     .clicked()
                 {
                     *progress = 0.0;
+                    renderer.simulation_playing = false;
+                }
+                
+                // Auto-advance simulation if playing
+                if renderer.simulation_playing && *progress < 1.0 {
+                    *progress = (*progress + 0.005).min(1.0); // Adjust speed as needed
+                    if *progress >= 1.0 {
+                        renderer.simulation_playing = false;
+                    }
                 }
             }
         }
@@ -87,34 +115,39 @@ pub fn show(
         if renderer.show_thermal_risk {
             ui.separator();
             let slider_w = if compact { 50.0 } else { 90.0 };
-            ui.add_sized(
-                egui::vec2(slider_w, 0.0),
-                egui::Slider::new(&mut renderer.risk_threshold, 1.0..=80.0)
-                    .show_value(false)
-                    .text(""),
-            );
-            ui.add(
-                egui::DragValue::new(&mut renderer.risk_cell_mm)
-                    .speed(0.1)
-                    .range(0.5..=20.0)
-                    .suffix("mm"),
-            );
-            ui.label(
-                RichText::new(format!("⚠{}", renderer.last_risk_alert_cells))
-                    .small()
-                    .color(if renderer.last_risk_alert_cells > 0 {
-                        theme::PEACH
-                    } else {
-                        theme::SUBTEXT
-                    }),
-            );
+            ui.horizontal(|ui| {
+                ui.label(format!("{}:", tr("Risk Threshold")));
+                ui.add_sized(
+                    egui::vec2(slider_w, 0.0),
+                    egui::Slider::new(&mut renderer.risk_threshold, 1.0..=80.0)
+                        .show_value(false)
+                        .text(""),
+                )
+                .on_hover_text(tr("Cells with estimated temperature above this threshold trigger warnings"));
+                ui.add(
+                    egui::DragValue::new(&mut renderer.risk_cell_mm)
+                        .speed(0.1)
+                        .range(0.5..=20.0)
+                        .suffix("mm"),
+                )
+                .on_hover_text(tr("Size of each thermal analysis cell"));
+                ui.label(
+                    RichText::new(format!("⚠{}", renderer.last_risk_alert_cells))
+                        .small()
+                        .color(if renderer.last_risk_alert_cells > 0 {
+                            theme::PEACH
+                        } else {
+                            theme::SUBTEXT
+                        }),
+                );
+            });
         }
 
         ui.separator();
-        if ui.button("🔍+").on_hover_text(tr("Zoom in")).clicked() {
+        if ui.button("🔍+").on_hover_text(format!("{} ({})", tr("Zoom in"), tr("or use mouse scroll wheel"))).clicked() {
             action.zoom_in = true;
         }
-        if ui.button("🔍−").on_hover_text(tr("Zoom out")).clicked() {
+        if ui.button("🔍−").on_hover_text(format!("{} ({})", tr("Zoom out"), tr("or use mouse scroll wheel"))).clicked() {
             action.zoom_out = true;
         }
         if ui
@@ -123,6 +156,16 @@ pub fn show(
             .clicked()
         {
             action.auto_fit = true;
+        }
+        if ui
+            .add_enabled(
+                !renderer.selected_shape_idx.is_empty(),
+                egui::Button::new("⛶"),
+            )
+            .on_hover_text(tr("Fit to selection"))
+            .clicked()
+        {
+            action.fit_selection = true;
         }
     });
 

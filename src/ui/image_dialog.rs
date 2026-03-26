@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::imaging::raster::RasterParams;
 use crate::imaging::svg::SvgParams;
 use crate::theme;
@@ -30,7 +31,7 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
     let mut result = ImageImportResult::default();
 
     ui.vertical_centered(|ui| {
-        ui.heading(format!("Import {}", state.filename));
+        ui.heading(format!("{} {}", tr("Import"), state.filename));
     });
 
     ui.add_space(8.0);
@@ -72,7 +73,7 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                 ui.add(egui::Image::new(texture).max_size(max_size).shrink_to_fit());
             } else {
                 ui.add_space(100.0);
-                ui.label("No preview available");
+                ui.label(tr("No preview available"));
                 ui.add_space(100.0);
             }
         });
@@ -83,11 +84,11 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                 ImportType::Raster(_) => {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Bitmap Import Mode:").strong());
-                            if ui.selectable_value(&mut state.vectorize, false, "Raster").changed() {
+                            ui.label(RichText::new(format!("{}:", tr("Bitmap Import Mode"))).strong());
+                            if ui.selectable_value(&mut state.vectorize, false, tr("Raster")).changed() {
                                 state.needs_texture_update = true;
                             }
-                            if ui.selectable_value(&mut state.vectorize, true, "Vectorize (Stencil)").changed() {
+                            if ui.selectable_value(&mut state.vectorize, true, tr("Vectorize (Stencil)")).changed() {
                                 state.needs_texture_update = true;
                             }
                         });
@@ -95,16 +96,16 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
 
                         ui.label(
                             RichText::new(if state.vectorize {
-                                "Vectorize Settings"
+                                tr("Vectorize Settings")
                             } else {
-                                "Raster / Photo Settings"
+                                tr("Raster / Photo Settings")
                             })
                             .color(theme::LAVENDER)
                             .strong(),
                         );
                         ui.add_space(4.0);
 
-                        ui.label("Size:");
+                        ui.label(format!("{}:", tr("Size")));
                         ui.horizontal(|ui| {
                             ui.add(
                                 egui::DragValue::new(&mut state.raster_params.width_mm)
@@ -120,7 +121,7 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                         });
 
                         ui.add_space(4.0);
-                        ui.label("Resolution:");
+                        ui.label(format!("{}:", tr("Resolution")));
                         ui.add(
                             egui::Slider::new(&mut state.raster_params.dpi, 25.4..=1270.0)
                                 .text("DPI"),
@@ -128,35 +129,35 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                         ui.label(format!("({:.2} lines/mm)", state.raster_params.dpi / 25.4));
 
                         ui.add_space(8.0);
-                        ui.label("Image Adjustments:");
+                        ui.label(format!("{}:", tr("Image Adjustments")));
                         if state.vectorize {
                             if ui.add(
                                 egui::Slider::new(&mut state.raster_params.threshold, 0..=255)
-                                    .text("Threshold"),
+                                    .text(tr("Threshold")),
                             ).changed() {
                                 state.needs_texture_update = true;
                             }
                             if ui.add(
                                 egui::Slider::new(&mut state.raster_params.smoothing, 0.0..=1.0)
-                                    .text("Smoothing"),
+                                    .text(tr("Smoothing")),
                             ).changed() {
-                                // Potentially update preview if we supported vector preview, but currently texture is raster.
+                                state.needs_texture_update = true;
                             }
                             if ui.add(
                                 egui::Slider::new(&mut state.raster_params.contrast, 0.0..=5.0)
-                                    .text("Contrast"),
+                                    .text(tr("Contrast")),
                             ).changed() {
                                 state.needs_texture_update = true;
                             }
                             if ui
                                 .checkbox(
                                     &mut state.raster_params.use_skeleton,
-                                    "Centerline / Skeleton",
+                                    tr("Centerline / Skeleton"),
                                 )
-                                .on_hover_text("Use thinning algorithm for centerline tracing")
+                                .on_hover_text(tr("Use thinning algorithm for centerline tracing"))
                                 .changed()
                             {
-                                // Potentially update preview if we supported vector preview, but currently texture is raster.
+                                state.needs_texture_update = true;
                             }
                         } else {
                             let b_res = ui.add(
@@ -431,7 +432,7 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
 
     ui.horizontal(|ui| {
         let btn_import = egui::Button::new(RichText::new("✔ Import").strong())
-            .fill(Color32::from_rgb(64, 160, 43)) // Catppuccin Green-ish
+            .fill(theme::GREEN)
             .min_size(Vec2::new(100.0, 30.0));
 
         if ui.add(btn_import).clicked() {

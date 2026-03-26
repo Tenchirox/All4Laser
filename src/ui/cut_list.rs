@@ -1,12 +1,19 @@
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::layers_new::{CutLayer, CutMode};
-use egui::{Color32, Grid, RichText, Sense, StrokeKind, Ui};
+use egui::{RichText, Sense, StrokeKind, Ui};
 
 pub struct CutListAction {
     pub select_layer: Option<usize>,
     pub open_settings: Option<usize>,
     pub layers_changed: bool,
+    pub select_all_shapes: Option<usize>,
+    pub move_layer: Option<(usize, i32)>, // (layer_idx, direction: -1=up, +1=down)
 }
+
+// Track which layer is currently being renamed and the temporary edit buffer
+static mut RENAME_LAYER: Option<usize> = None;
+static mut RENAME_BUFFER: String = String::new();
 
 fn effective_layer_indices(
     layers_len: usize,
@@ -39,125 +46,246 @@ pub fn show(
         select_layer: None,
         open_settings: None,
         layers_changed: false,
+        select_all_shapes: None,
+        move_layer: None,
     };
     let visible_indices = effective_layer_indices(layers.len(), active_idx, used_layers);
 
     ui.group(|ui| {
-        Grid::new("cut_list_grid")
-            .num_columns(5)
-            .spacing([8.0, 4.0])
-            .striped(true)
-            .min_col_width(20.0)
-            .show(ui, |ui| {
-                // Header
-                ui.label("#");
-                ui.label("Mode");
-                ui.label("Spd/Pwr");
-                ui.label("Out");
-                ui.label("View");
-                ui.end_row();
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!("✂ {}", tr("Layers")))
+                    .color(theme::LAVENDER)
+                    .strong()
+                    .size(14.0),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Badge with layer count - more visible chip style
+                let count = visible_indices.len();
+                let badge_color = if count > 0 { theme::BLUE } else { theme::SUBTEXT };
+                egui::Frame::new()
+                    .fill(theme::SURFACE1)
+                    .corner_radius(egui::CornerRadius::same(10))
+                    .inner_margin(egui::Margin::symmetric(8, 2))
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new(format!("{} {}", count, tr("layers")))
+                                .small()
+                                .color(badge_color)
+                                .strong(),
+                        );
+                    });
+            });
+        });
+        ui.add_space(4.0);
 
-                for &i in &visible_indices {
-                    let Some(layer) = layers.get_mut(i) else {
-                        continue;
-                    };
-                    let is_active = i == active_idx;
+        for &i in &visible_indices {
+            let Some(layer) = layers.get_mut(i) else {
+                continue;
+            };
+            let is_active = i == active_idx;
 
-                    // Row background for active
-                    // Grid doesn't support full row selection easily without custom paint or tricks.
-                    // We will just highlight the text or use a button for the first cell.
-
-                    // 1. Color Swatch + ID
-                    let (rect, response) =
-                        ui.allocate_exact_size(egui::vec2(24.0, 16.0), Sense::click());
-                    if ui.is_rect_visible(rect) {
-                        ui.painter().rect_filled(rect, 2.0, layer.color);
-                        if is_active {
-                            ui.painter().rect_stroke(
-                                rect,
-                                2.0,
-                                egui::Stroke::new(2.0, theme::GREEN),
-                                StrokeKind::Inside,
+            let frame_fill = if is_active { theme::SURFACE1 } else { theme::SURFACE0 };
+            egui::Frame::new()
+                .fill(frame_fill)
+                .inner_margin(egui::Margin::same(4))
+                .corner_radius(egui::CornerRadius::same(4))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        // Color Swatch + ID
+                        let (rect, swatch_resp) =
+                            ui.allocate_exact_size(egui::vec2(32.0, 20.0), Sense::click());
+                        if ui.is_rect_visible(rect) {
+                            ui.painter().rect_filled(rect, 3.0, layer.color);
+                            if is_active {
+                                ui.painter().rect_stroke(
+                                    rect,
+                                    3.0,
+                                    egui::Stroke::new(2.0, theme::GREEN),
+                                    StrokeKind::Inside,
+                                );
+                            }
+                            ui.painter().text(
+                                rect.center(),
+                                egui::Align2::CENTER_CENTER,
+                                format!("{:02}", i),
+                                egui::FontId::monospace(11.0),
+                                if theme::is_light(layer.color) {
+                                    theme::CRUST
+                                } else {
+                                    Color32::WHITE
+                                },
                             );
                         }
-                        ui.painter().text(
-                            rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            format!("{:02}", i),
-                            egui::FontId::monospace(10.0),
-                            if is_light(layer.color) {
-                                Color32::BLACK
+                        if swatch_resp.clicked() {
+                            action.select_layer = Some(i);
+                        }
+                        if swatch_resp.double_clicked() {
+                            action.open_settings = Some(i);
+                        }
+                        swatch_resp.on_hover_text(format!(
+                            "{} C{:02} — {}",
+                            tr("Layer"), i,
+                            tr("click to select, double-click for settings")
+                        ));
+
+                        // Layer name + mode (with inline editing)
+                        ui.vertical(|ui| {
+                            let is_renaming = unsafe { RENAME_LAYER == Some(i) };
+                            if is_renaming {
+                                ui.horizontal(|ui| {
+                                    let text_edit = ui.text_edit_singleline(unsafe { &mut RENAME_BUFFER });
+                                    if text_edit.lost_focus() {
+                                        if unsafe { !RENAME_BUFFER.is_empty() } {
+                                            layer.name = unsafe { RENAME_BUFFER.clone() };
+                                            action.layers_changed = true;
+                                        }
+                                        unsafe {
+                                            RENAME_LAYER = None;
+                                            RENAME_BUFFER.clear();
+                                        }
+                                    }
+                                    if ui.button("✓").clicked() {
+                                        if unsafe { !RENAME_BUFFER.is_empty() } {
+                                            layer.name = unsafe { RENAME_BUFFER.clone() };
+                                            action.layers_changed = true;
+                                        }
+                                        unsafe {
+                                            RENAME_LAYER = None;
+                                            RENAME_BUFFER.clear();
+                                        }
+                                    }
+                                });
                             } else {
-                                Color32::WHITE
-                            },
-                        );
-                    }
-                    if response.clicked() {
-                        action.select_layer = Some(i);
-                    }
-                    if response.double_clicked() {
-                        action.open_settings = Some(i);
-                    }
-                    response.on_hover_text(format!(
-                        "Layer C{:02} — click to select, double-click for settings",
-                        i
-                    ));
+                                let name_label = ui.add(
+                                    egui::Label::new(
+                                        RichText::new(&layer.name)
+                                            .strong()
+                                            .size(12.0)
+                                            .color(if is_active { theme::TEXT } else { theme::SUBTEXT }),
+                                    )
+                                    .sense(Sense::click()),
+                                );
+                                if name_label.double_clicked() {
+                                    unsafe {
+                                        RENAME_LAYER = Some(i);
+                                        RENAME_BUFFER = layer.name.clone();
+                                    }
+                                }
+                            }
+                            ui.horizontal(|ui| {
+                                let mode_before = layer.mode;
+                                egui::ComboBox::from_id_salt(format!("layer_mode_{i}"))
+                                    .width(70.0)
+                                    .selected_text(match layer.mode {
+                                        CutMode::Line => tr("Line"),
+                                        CutMode::Fill => tr("Fill"),
+                                        CutMode::FillAndLine => tr("F+L"),
+                                        CutMode::Offset => tr("Offset"),
+                                    })
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut layer.mode, CutMode::Line, tr("Line"));
+                                        ui.selectable_value(&mut layer.mode, CutMode::Fill, tr("Fill"));
+                                        ui.selectable_value(&mut layer.mode, CutMode::FillAndLine, tr("Fill+Line"));
+                                        ui.selectable_value(&mut layer.mode, CutMode::Offset, tr("Offset"));
+                                    });
+                                if layer.mode != mode_before {
+                                    action.layers_changed = true;
+                                }
 
-                    // 2. Mode
-                    let mode_before = layer.mode;
-                    egui::ComboBox::from_id_salt(format!("layer_mode_{i}"))
-                        .selected_text(match layer.mode {
-                            CutMode::Line => "Line",
-                            CutMode::Fill => "Fill",
-                            CutMode::FillAndLine => "Fill+Line",
-                            CutMode::Offset => "Offset",
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut layer.mode, CutMode::Line, "Line");
-                            ui.selectable_value(&mut layer.mode, CutMode::Fill, "Fill");
-                            ui.selectable_value(&mut layer.mode, CutMode::FillAndLine, "Fill+Line");
-                            ui.selectable_value(&mut layer.mode, CutMode::Offset, "Offset");
+                                // Inline Speed / Power / Passes editing
+                                let pwr_pct = (layer.power / 1000.0).clamp(0.0, 1.0);
+                                let pwr_color = if pwr_pct > 0.8 {
+                                    theme::RED
+                                } else if pwr_pct > 0.5 {
+                                    theme::PEACH
+                                } else {
+                                    theme::GREEN
+                                };
+                                
+                                let speed_before = layer.speed;
+                                let power_before = layer.power;
+                                
+                                ui.horizontal(|ui| {
+                                    ui.add(
+                                        egui::DragValue::new(&mut layer.speed)
+                                            .speed(10.0)
+                                            .range(1.0..=20000.0)
+                                            .suffix(" mm/min")
+                                            .clamp_existing_to_range(true),
+                                    );
+                                    ui.label("/");
+                                    ui.add(
+                                        egui::DragValue::new(&mut layer.power)
+                                            .speed(1.0)
+                                            .range(0.0..=1000.0)
+                                            .suffix(" S")
+                                            .clamp_existing_to_range(true),
+                                    );
+                                });
+                                
+                                if layer.speed != speed_before || layer.power != power_before {
+                                    action.layers_changed = true;
+                                }
+                                
+                                let pass_badge = if layer.passes > 1 {
+                                    format!("×{}", layer.passes)
+                                } else {
+                                    String::new()
+                                };
+                                if !pass_badge.is_empty() {
+                                    ui.label(
+                                        RichText::new(pass_badge)
+                                            .monospace()
+                                            .small()
+                                            .color(pwr_color),
+                                    );
+                                }
+                            });
                         });
-                    if layer.mode != mode_before {
-                        action.layers_changed = true;
-                    }
 
-                    // 3. Speed / Power
-                    ui.label(format!("{:.0} / {:.0}", layer.speed, layer.power));
-
-                    // 4. Output Toggle
-                    if ui
-                        .checkbox(&mut layer.visible, "")
-                        .on_hover_text("Enable/disable layer output")
-                        .changed()
-                    {
-                        action.layers_changed = true;
-                    }
-
-                    // 5. Preview visibility (currently tied to layer.enabled in this app)
-                    ui.label(if layer.visible { "👁" } else { "Ø" });
-
-                    ui.end_row();
-                }
-            });
-
-        ui.add_space(4.0);
-        ui.label(
-            RichText::new(format!(
-                "{} layer(s) visible in Cuts (filtered by preview)",
-                visible_indices.len()
-            ))
-            .small()
-            .color(theme::SUBTEXT),
-        );
+                        // Right side: output toggle + settings + select all + reorder buttons
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            // Reorder buttons
+                            let can_move_up = i > 0;
+                            let can_move_down = i < layers.len().saturating_sub(1);
+                            
+                            if ui
+                                .add_enabled(can_move_up, egui::Button::new("↑").small())
+                                .on_hover_text(tr("Move layer up"))
+                                .clicked()
+                            {
+                                action.move_layer = Some((i, -1));
+                            }
+                            if ui
+                                .add_enabled(can_move_down, egui::Button::new("↓").small())
+                                .on_hover_text(tr("Move layer down"))
+                                .clicked()
+                            {
+                                action.move_layer = Some((i, 1));
+                            }
+                            
+                            if ui.small_button("⚙").on_hover_text(tr("Settings")).clicked() {
+                                action.open_settings = Some(i);
+                            }
+                            if ui.small_button("◇").on_hover_text(tr("Select all shapes on this layer")).clicked() {
+                                action.select_all_shapes = Some(i);
+                            }
+                            if ui
+                                .checkbox(&mut layer.visible, "")
+                                .on_hover_text(tr("Enable/disable layer output"))
+                                .changed()
+                            {
+                                action.layers_changed = true;
+                            }
+                        });
+                    });
+                });
+            ui.add_space(2.0);
+        }
     });
 
     action
-}
-
-fn is_light(c: Color32) -> bool {
-    let brightness = (c.r() as f32 * 299.0 + c.g() as f32 * 587.0 + c.b() as f32 * 114.0) / 1000.0;
-    brightness > 128.0
 }
 
 #[cfg(test)]

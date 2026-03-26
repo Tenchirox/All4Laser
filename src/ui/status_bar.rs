@@ -1,6 +1,7 @@
 use crate::config::settings::DisplayUnit;
 use crate::controller::ControllerCapabilities;
 use crate::grbl::types::{GrblState, MacStatus};
+use crate::i18n::tr;
 use crate::theme;
 use egui::{RichText, Ui};
 use std::time::Duration;
@@ -8,10 +9,13 @@ use std::time::Duration;
 pub struct StatusBarAction {
     pub feed_up: bool,
     pub feed_down: bool,
+    pub feed_reset: bool,
     pub rapid_up: bool,
     pub rapid_down: bool,
+    pub rapid_reset: bool,
     pub spindle_up: bool,
     pub spindle_down: bool,
+    pub spindle_reset: bool,
     pub toggle_unit: bool,
 }
 
@@ -20,10 +24,13 @@ impl Default for StatusBarAction {
         Self {
             feed_up: false,
             feed_down: false,
+            feed_reset: false,
             rapid_up: false,
             rapid_down: false,
+            rapid_reset: false,
             spindle_up: false,
             spindle_down: false,
+            spindle_reset: false,
             toggle_unit: false,
         }
     }
@@ -34,6 +41,7 @@ pub fn show(
     state: &GrblState,
     file_info: Option<(&str, usize, Duration)>,
     progress: Option<(usize, usize)>,
+    zoom: f32,
     caps: ControllerCapabilities,
     display_unit: DisplayUnit,
     cost_estimate: Option<(f32, &str)>,
@@ -62,19 +70,25 @@ pub fn show(
         ui.separator();
 
         // Override controls
-        let sep = if compact { "" } else { ":" };
-
-        ui.label(RichText::new(format!("F{sep}{}%", state.override_feed)).color(theme::TEXT).monospace().size(sz));
+        let feed_color = if state.override_feed != 100 { theme::YELLOW } else { theme::TEXT };
+        ui.label(RichText::new(format!("F:{}%", state.override_feed)).color(feed_color).monospace().size(sz));
         if ui
-            .add_enabled(caps.supports_feed_override, egui::Button::new("▲").small())
-            .on_hover_text("Increase feed override (+10%)")
+            .add_enabled(caps.supports_feed_override && state.override_feed != 100, egui::Button::new("↺").small())
+            .on_hover_text(tr("Feed reset 100%"))
+            .clicked()
+        {
+            action.feed_reset = true;
+        }
+        if ui
+            .add_enabled(caps.supports_feed_override, egui::Button::new("+").small())
+            .on_hover_text(tr("Feed +10%"))
             .clicked()
         {
             action.feed_up = true;
         }
         if ui
-            .add_enabled(caps.supports_feed_override, egui::Button::new("▼").small())
-            .on_hover_text("Decrease feed override (-10%)")
+            .add_enabled(caps.supports_feed_override, egui::Button::new("-").small())
+            .on_hover_text(tr("Feed -10%"))
             .clicked()
         {
             action.feed_down = true;
@@ -82,17 +96,25 @@ pub fn show(
 
         ui.separator();
 
-        ui.label(RichText::new(format!("R{sep}{}%", state.override_rapid)).color(theme::TEXT).monospace().size(sz));
+        let rapid_color = if state.override_rapid != 100 { theme::YELLOW } else { theme::TEXT };
+        ui.label(RichText::new(format!("R:{}%", state.override_rapid)).color(rapid_color).monospace().size(sz));
         if ui
-            .add_enabled(caps.supports_rapid_override, egui::Button::new("▲").small())
-            .on_hover_text("Set rapid override to 100%")
+            .add_enabled(caps.supports_rapid_override && state.override_rapid != 100, egui::Button::new("↺").small())
+            .on_hover_text(tr("Rapid reset 100%"))
+            .clicked()
+        {
+            action.rapid_reset = true;
+        }
+        if ui
+            .add_enabled(caps.supports_rapid_override, egui::Button::new("+").small())
+            .on_hover_text(tr("Rapid 100%"))
             .clicked()
         {
             action.rapid_up = true;
         }
         if ui
-            .add_enabled(caps.supports_rapid_override, egui::Button::new("▼").small())
-            .on_hover_text("Set rapid override to 25%")
+            .add_enabled(caps.supports_rapid_override, egui::Button::new("-").small())
+            .on_hover_text(tr("Rapid 25%"))
             .clicked()
         {
             action.rapid_down = true;
@@ -100,13 +122,24 @@ pub fn show(
 
         ui.separator();
 
-        ui.label(RichText::new(format!("S{sep}{}%", state.override_spindle)).color(theme::TEXT).monospace().size(sz));
+        let spindle_color = if state.override_spindle != 100 { theme::YELLOW } else { theme::TEXT };
+        ui.label(RichText::new(format!("S:{}%", state.override_spindle)).color(spindle_color).monospace().size(sz));
+        if ui
+            .add_enabled(
+                caps.supports_spindle_override && state.override_spindle != 100,
+                egui::Button::new("↺").small(),
+            )
+            .on_hover_text(tr("Laser reset 100%"))
+            .clicked()
+        {
+            action.spindle_reset = true;
+        }
         if ui
             .add_enabled(
                 caps.supports_spindle_override,
-                egui::Button::new("▲").small(),
+                egui::Button::new("+").small(),
             )
-            .on_hover_text("Increase laser power override (+10%)")
+            .on_hover_text(tr("Laser +10%"))
             .clicked()
         {
             action.spindle_up = true;
@@ -114,9 +147,9 @@ pub fn show(
         if ui
             .add_enabled(
                 caps.supports_spindle_override,
-                egui::Button::new("▼").small(),
+                egui::Button::new("-").small(),
             )
-            .on_hover_text("Decrease laser power override (-10%)")
+            .on_hover_text(tr("Laser -10%"))
             .clicked()
         {
             action.spindle_down = true;
@@ -128,25 +161,42 @@ pub fn show(
         let unit_label = display_unit.label();
         if ui
             .small_button(unit_label)
-            .on_hover_text("Toggle mm / inches")
+            .on_hover_text(tr("Toggle mm / inches"))
             .clicked()
         {
             action.toggle_unit = true;
         }
 
-        // File info
+        ui.separator();
+        ui.label(
+            RichText::new(format!("{}: {:.0}%", tr("Zoom"), zoom * 100.0))
+                .monospace()
+                .size(sz)
+                .color(theme::SUBTEXT),
+        )
+        .on_hover_text(tr("Current preview zoom level"));
+
+        // Progress bar + text
         if let Some((current, total)) = progress {
             let pct = if total > 0 {
                 (current as f32 / total as f32) * 100.0
             } else {
                 0.0
             };
-            ui.label(
-                RichText::new(format!("{current}/{total} ({pct:.0}%)"))
-                    .color(theme::YELLOW)
-                    .monospace()
-                    .size(sz),
-            );
+            ui.separator();
+            let bar_width = if compact { 50.0 } else { 80.0 };
+            let bar = egui::ProgressBar::new(pct / 100.0)
+                .desired_width(bar_width)
+                .text(format!("{pct:.0}%"));
+            ui.add(bar);
+            if !compact {
+                ui.label(
+                    RichText::new(format!("{current}/{total}"))
+                        .color(theme::YELLOW)
+                        .monospace()
+                        .size(sz),
+                );
+            }
         }
         if let Some((filename, lines, est)) = file_info {
             if !compact {
@@ -164,7 +214,8 @@ pub fn show(
                     RichText::new(format!("~{cost:.2}{currency}"))
                         .color(theme::GREEN)
                         .size(sz),
-                );
+                )
+                .on_hover_text(tr("Estimated job cost based on machine time and power consumption"));
             }
         }
     });
@@ -174,8 +225,8 @@ pub fn show(
 
 fn status_badge(status: MacStatus) -> (&'static str, egui::Color32) {
     match status {
-        MacStatus::Disconnected => ("DISCONNECTED", theme::SURFACE2),
-        MacStatus::Connecting => ("CONNECTING", theme::YELLOW),
+        MacStatus::Disconnected => ("DISCONNECT", theme::SURFACE2),
+        MacStatus::Connecting => ("CONNECT", theme::YELLOW),
         MacStatus::Idle => ("IDLE", theme::GREEN),
         MacStatus::Run => ("RUN", theme::BLUE),
         MacStatus::Hold => ("HOLD", theme::YELLOW),

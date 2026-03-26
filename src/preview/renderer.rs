@@ -29,6 +29,7 @@ pub struct PreviewRenderer {
     /// Machine workspace in mm (from GRBL $130, $131)
     pub workspace_size: Vec2,
     pub simulation_progress: Option<f32>, // 0.0 to 1.0
+    pub simulation_playing: bool,         // Auto-play simulation
     pub show_rapids: bool,                // Toggle for G0 moves
     pub show_fill_preview: bool,          // Overlay predicted hatch for fill layers
     pub show_thermal_risk: bool,          // Overlay thermal overburn risk heatmap
@@ -69,6 +70,7 @@ impl Default for PreviewRenderer {
             machine_pos: Pos2::ZERO,
             workspace_size: Vec2::new(400.0, 400.0), // conservative default
             simulation_progress: None,
+            simulation_playing: false,
             show_rapids: true,
             show_fill_preview: true,
             show_thermal_risk: false,
@@ -1010,6 +1012,24 @@ impl PreviewRenderer {
         );
     }
 
+    pub fn fit_world_bounds(&mut self, rect: Rect, min_x: f32, min_y: f32, max_x: f32, max_y: f32) {
+        let data_w = (max_x - min_x).max(0.001);
+        let data_h = (max_y - min_y).max(0.001);
+
+        let margin = 40.0;
+        let view_w = rect.width() - margin * 2.0;
+        let view_h = rect.height() - margin * 2.0;
+
+        self.zoom = (view_w / data_w).min(view_h / data_h).max(0.01);
+        let center_x = (min_x + max_x) / 2.0;
+        let center_y = (min_y + max_y) / 2.0;
+
+        self.pan = Vec2::new(
+            rect.center().x - center_x * self.zoom,
+            rect.center().y + center_y * self.zoom,
+        );
+    }
+
     /// Auto-fit all segments in view
     pub fn auto_fit(
         &mut self,
@@ -1060,21 +1080,7 @@ impl PreviewRenderer {
             max_y = max_y.max(p1.y).max(p2.y);
         }
 
-        let data_w = (max_x - min_x).max(0.001);
-        let data_h = (max_y - min_y).max(0.001);
-
-        let margin = 40.0;
-        let view_w = rect.width() - margin * 2.0;
-        let view_h = rect.height() - margin * 2.0;
-
-        self.zoom = (view_w / data_w).min(view_h / data_h);
-        let center_x = (min_x + max_x) / 2.0;
-        let center_y = (min_y + max_y) / 2.0;
-
-        self.pan = Vec2::new(
-            rect.center().x - center_x * self.zoom,
-            rect.center().y + center_y * self.zoom,
-        );
+        self.fit_world_bounds(rect, min_x, min_y, max_x, max_y);
     }
 
     /// Convert screen coordinates to world coordinates (mm)

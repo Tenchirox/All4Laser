@@ -84,13 +84,14 @@ pub fn show(
 
     let mut close_clicked = false;
 
-    egui::Window::new("🧩 Auto Nesting")
+    egui::Window::new(format!("🧩 {}", tr("Auto Nesting")))
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
             ui.label(
                 RichText::new(format!(
-                    "Workspace {:.1} x {:.1} mm",
+                    "{} {:.1} x {:.1} mm",
+                    tr("Workspace"),
                     workspace.x.max(0.0),
                     workspace.y.max(0.0)
                 ))
@@ -103,7 +104,7 @@ pub fn show(
                 .num_columns(2)
                 .spacing([12.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label("Spacing (mm):");
+                    ui.label(format!("{} (mm):", tr("Spacing")));
                     ui.add(
                         egui::DragValue::new(&mut state.spacing_mm)
                             .speed(0.2)
@@ -112,7 +113,7 @@ pub fn show(
                     );
                     ui.end_row();
 
-                    ui.label("Margins (mm):");
+                    ui.label(format!("{} (mm):", tr("Margins")));
                     ui.add(
                         egui::DragValue::new(&mut state.margin_mm)
                             .speed(0.2)
@@ -121,11 +122,11 @@ pub fn show(
                     );
                     ui.end_row();
 
-                    ui.label("Allow 90° rotation:");
+                    ui.label(format!("{}:", tr("Allow 90° rotation")));
                     ui.checkbox(&mut state.allow_rotation, "");
                     ui.end_row();
 
-                    ui.label("Selection only:");
+                    ui.label(format!("{}:", tr("Selection only")));
                     ui.checkbox(&mut state.selection_only, "");
                     ui.end_row();
                 });
@@ -133,8 +134,11 @@ pub fn show(
             ui.add_space(6.0);
             ui.label(
                 RichText::new(format!(
-                    "{} shape(s) selected, {} total",
-                    selected_count, total_shapes
+                    "{} {}, {} {}",
+                    selected_count,
+                    tr("shape(s) selected,"),
+                    total_shapes,
+                    tr("total")
                 ))
                 .small()
                 .color(theme::SUBTEXT),
@@ -153,7 +157,7 @@ pub fn show(
                     .add_enabled(
                         total_shapes > 0,
                         egui::Button::new(
-                            RichText::new("🧩 Apply Nesting")
+                            RichText::new(format!("🧩 {}", tr("Apply Nesting")))
                                 .color(theme::GREEN)
                                 .strong(),
                         ),
@@ -162,7 +166,7 @@ pub fn show(
                 {
                     action.apply = true;
                 }
-                if ui.button("Close").clicked() {
+                if ui.button(tr("Close")).clicked() {
                     close_clicked = true;
                 }
             });

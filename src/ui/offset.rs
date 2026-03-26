@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::drawing::{DrawingState, PathData, ShapeKind, ShapeParams};
 use egui::RichText;
@@ -38,12 +39,12 @@ pub fn show(ctx: &egui::Context, state: &mut OffsetState) -> OffsetAction {
         return action;
     }
 
-    egui::Window::new("📐 Offset Path")
+    egui::Window::new(format!("📐 {}", tr("Offset Path")))
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Distance:");
+                ui.label(format!("{}:", tr("Distance")));
                 ui.add(
                     egui::DragValue::new(&mut state.distance)
                         .speed(0.1)
@@ -52,17 +53,17 @@ pub fn show(ctx: &egui::Context, state: &mut OffsetState) -> OffsetAction {
             });
 
             ui.horizontal(|ui| {
-                ui.label("Style:");
-                ui.selectable_value(&mut state.join_style, JoinStyle::Round, "Round");
-                ui.selectable_value(&mut state.join_style, JoinStyle::Miter, "Miter");
-                ui.selectable_value(&mut state.join_style, JoinStyle::Bevel, "Bevel");
+                ui.label(format!("{}:", tr("Style")));
+                ui.selectable_value(&mut state.join_style, JoinStyle::Round, tr("Round"));
+                ui.selectable_value(&mut state.join_style, JoinStyle::Miter, tr("Miter"));
+                ui.selectable_value(&mut state.join_style, JoinStyle::Bevel, tr("Bevel"));
             });
 
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui
                     .button(
-                        RichText::new("📐 Create Offset")
+                        RichText::new(format!("📐 {}", tr("Create Offset")))
                             .color(theme::GREEN)
                             .strong(),
                     )
@@ -70,7 +71,7 @@ pub fn show(ctx: &egui::Context, state: &mut OffsetState) -> OffsetAction {
                 {
                     action.apply = true;
                 }
-                if ui.button("Close").clicked() {
+                if ui.button(tr("Close")).clicked() {
                     state.is_open = false;
                 }
             });

@@ -16,6 +16,7 @@ pub struct MacrosState {
     pub editing_idx: Option<usize>,
     pub edit_label: String,
     pub edit_gcode: String,
+    pub confirm_execute: Option<MacroDef>,
 }
 
 impl Default for MacrosState {
@@ -25,6 +26,7 @@ impl Default for MacrosState {
             editing_idx: None,
             edit_label: String::new(),
             edit_gcode: String::new(),
+            confirm_execute: None,
         };
         state.load();
 
@@ -62,11 +64,13 @@ impl MacrosState {
 
 pub struct MacrosAction {
     pub execute_macro: Option<MacroDef>,
+    pub confirm_execute: Option<MacroDef>,
 }
 
 pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosAction {
     let mut action = MacrosAction {
         execute_macro: None,
+        confirm_execute: None,
     };
 
     ui.group(|ui| {
@@ -87,23 +91,25 @@ pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosActi
         ui.add_space(4.0);
 
         let mut delete_idx = None;
+        let mut move_up_idx = None;
+        let mut move_down_idx = None;
 
         let count = state.items.len();
         for i in 0..count {
             if state.editing_idx == Some(i) {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Name:");
+                        ui.label(format!("{}:", tr("Name")));
                         ui.text_edit_singleline(&mut state.edit_label);
                     });
-                    ui.label("GCode (multiline):");
+                    ui.label(format!("{}:", tr("GCode (multiline)")));
                     ui.text_edit_multiline(&mut state.edit_gcode);
                     let has_executable = state.edit_gcode.lines().map(str::trim).any(|line| {
                         !line.is_empty() && !line.starts_with(';') && !line.starts_with('#')
                     });
                     if !has_executable {
                         ui.label(
-                            RichText::new("Add at least one executable G-code line.")
+                            RichText::new(tr("Add at least one executable G-code line."))
                                 .small()
                                 .color(theme::SUBTEXT),
                         );
@@ -137,15 +143,41 @@ pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosActi
             } else {
                 let mac_label = state.items[i].label.clone();
                 let mac_gcode = state.items[i].gcode.clone();
+                let is_dangerous = mac_gcode.contains("G38") || mac_gcode.contains("M3") || mac_gcode.contains("M4");
+                
                 ui.horizontal(|ui| {
+                    // Reorder buttons
+                    if i > 0 {
+                        if ui.small_button("↑").clicked() {
+                            move_up_idx = Some(i);
+                        }
+                    } else {
+                        ui.add_space(20.0);
+                    }
+                    if i + 1 < count {
+                        if ui.small_button("↓").clicked() {
+                            move_down_idx = Some(i);
+                        }
+                    } else {
+                        ui.add_space(20.0);
+                    }
+                    
                     if ui
                         .add_enabled(connected, egui::Button::new(&mac_label))
+                        .on_hover_text(if is_dangerous { tr("⚠ This macro contains motion or laser commands") } else { "" })
                         .clicked()
                     {
-                        action.execute_macro = Some(MacroDef {
-                            label: mac_label.clone(),
-                            gcode: mac_gcode.clone(),
-                        });
+                        if is_dangerous {
+                            state.confirm_execute = Some(MacroDef {
+                                label: mac_label.clone(),
+                                gcode: mac_gcode.clone(),
+                            });
+                        } else {
+                            action.execute_macro = Some(MacroDef {
+                                label: mac_label.clone(),
+                                gcode: mac_gcode.clone(),
+                            });
+                        }
                     }
                     if ui.button("✎").clicked() {
                         state.editing_idx = Some(i);
@@ -153,6 +185,20 @@ pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosActi
                         state.edit_gcode = mac_gcode;
                     }
                 });
+            }
+        }
+
+        // Handle reordering
+        if let Some(idx) = move_up_idx {
+            if idx > 0 {
+                state.items.swap(idx - 1, idx);
+                state.save();
+            }
+        }
+        if let Some(idx) = move_down_idx {
+            if idx + 1 < state.items.len() {
+                state.items.swap(idx, idx + 1);
+                state.save();
             }
         }
 

@@ -4,33 +4,6 @@ use crate::theme;
 use crate::ui::drawing::{ShapeParams, ShapeKind};
 use crate::ui::layers_new::{CutLayer, CutMode};
 
-#[derive(Default, Clone, PartialEq)]
-pub enum Severity {
-    #[default]
-    Info,
-    Warning,
-    Error,
-}
-
-#[derive(Clone)]
-pub struct PreflightIssue {
-    pub severity: Severity,
-    pub message: String,
-}
-
-#[derive(Default)]
-pub struct PreflightState {
-    pub is_open: bool,
-    pub block_on_critical: bool,
-    pub bypass: bool,
-    pub issues: Vec<PreflightIssue>,
-}
-
-pub struct PreflightAction {
-    pub proceed: bool,
-    pub cancel: bool,
-}
-
 fn path_is_closed(points: &[(f32, f32)]) -> bool {
     if points.len() < 3 {
         return false;
@@ -42,78 +15,21 @@ fn path_is_closed(points: &[(f32, f32)]) -> bool {
     (dx * dx + dy * dy).sqrt() <= 0.05
 }
 
-pub fn run_checks(shapes: &[ShapeParams], layers: &[CutLayer]) -> Vec<PreflightIssue> {
-    let mut issues = Vec::new();
+#[derive(Default)]
+pub struct PreflightState {
+    pub is_open: bool,
+    pub report: Option<PreflightReport>,
+}
 
-    let mut used_layers = vec![false; layers.len()];
-
-    for (i, shape) in shapes.iter().enumerate() {
-        if shape.layer_idx < layers.len() {
-            used_layers[shape.layer_idx] = true;
-            let layer = &layers[shape.layer_idx];
-
-            if !layer.visible {
-                continue;
-            }
-
-            // Check for valid paths in Fill mode
-            if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine | CutMode::Offset) {
-                if let ShapeKind::Path(pts) = &shape.shape {
-                    if pts.len() < 3 {
-                        issues.push(PreflightIssue {
-                            severity: Severity::Warning,
-                            message: format!("Shape {} on layer {} (Fill) has fewer than 3 points and will be ignored.", i + 1, layer.name),
-                        });
-                    } else if !path_is_closed(pts) {
-                        issues.push(PreflightIssue {
-                            severity: Severity::Warning,
-                            message: format!("Shape {} on layer {} (Fill) is an open path. Close contour to enable fill.", i + 1, layer.name),
-                        });
-                    }
-                }
-            }
-
-            // Check for invalid shapes overall
-            if let ShapeKind::Path(pts) = &shape.shape {
-                if pts.is_empty() {
-                    issues.push(PreflightIssue {
-                        severity: Severity::Error,
-                        message: format!("Shape {} on layer {} has 0 points.", i + 1, layer.name),
-                    });
-                }
-            }
-        } else {
-            issues.push(PreflightIssue {
-                severity: Severity::Error,
-                message: format!("Shape {} refers to invalid layer index {}.", i + 1, shape.layer_idx),
-            });
-        }
-    }
-
-    // Layer-level checks
-    for (idx, layer) in layers.iter().enumerate() {
-        if used_layers[idx] && layer.visible {
-            if layer.power > 80.0 && layer.speed < 100.0 {
-                issues.push(PreflightIssue {
-                    severity: Severity::Warning,
-                    message: format!("Layer {} has high power ({}) and low speed ({}). Fire risk!", layer.name, layer.power, layer.speed),
-                });
-            }
-            if layer.speed <= 0.0 {
-                issues.push(PreflightIssue {
-                    severity: Severity::Error,
-                    message: format!("Layer {} has speed <= 0.", layer.name),
-                });
-            }
-        }
-    }
-
-    issues
+pub struct PreflightAction {
+    pub proceed: bool,
+    pub cancel: bool,
 }
 
 pub fn show(
     ctx: &egui::Context,
     state: &mut PreflightState,
+    block_on_critical: bool,
 ) -> PreflightAction {
     let mut action = PreflightAction { proceed: false, cancel: false };
 
@@ -122,54 +38,144 @@ pub fn show(
     }
 
     let mut is_open = state.is_open;
-    let has_errors = state.issues.iter().any(|i| i.severity == Severity::Error);
+
+    let report = match &state.report {
+        Some(r) => r.clone(),
+        None => PreflightReport::default(),
+    };
+
+    let critical_count = report.critical_count();
+    let warning_count = report.warning_count();
+    let has_critical = critical_count > 0;
+    let all_clear = report.issues.is_empty();
 
     Window::new("🔍 Preflight Check")
         .open(&mut is_open)
         .resizable(true)
         .collapsible(false)
-        .min_width(400.0)
+        .min_width(460.0)
+        .min_height(200.0)
         .show(ctx, |ui| {
-            if state.issues.is_empty() {
-                ui.label(RichText::new("✅ No issues found. Ready to launch.").color(theme::GREEN).strong());
-                ui.add_space(8.0);
-                if ui.button("Launch Job").clicked() {
-                    action.proceed = true;
-                }
-            } else {
-                ui.label("Issues found before running job:");
-                ui.add_space(4.0);
-
-                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                    for issue in &state.issues {
-                        let (icon, color) = match issue.severity {
-                            Severity::Info => ("ℹ", theme::BLUE),
-                            Severity::Warning => ("⚠", theme::PEACH),
-                            Severity::Error => ("❌", theme::RED),
-                        };
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(icon).color(color));
-                            ui.label(&issue.message);
-                        });
-                    }
+            // ── Summary header ──────────────────────────────────────────
+            egui::Frame::new()
+                .inner_margin(egui::Margin::symmetric(8, 6))
+                .corner_radius(egui::CornerRadius::same(4))
+                .fill(if all_clear {
+                    egui::Color32::from_rgba_unmultiplied(166, 227, 161, 20)
+                } else if has_critical {
+                    egui::Color32::from_rgba_unmultiplied(243, 139, 168, 20)
+                } else {
+                    egui::Color32::from_rgba_unmultiplied(250, 179, 135, 20)
+                })
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if all_clear {
+                            ui.label(
+                                RichText::new("✅  All checks passed — ready to launch.")
+                                    .color(theme::GREEN)
+                                    .strong(),
+                            );
+                        } else {
+                            if has_critical {
+                                ui.label(
+                                    RichText::new(format!("⛔  {critical_count} critical"))
+                                        .color(theme::RED)
+                                        .strong(),
+                                );
+                                ui.separator();
+                            }
+                            if warning_count > 0 {
+                                ui.label(
+                                    RichText::new(format!("⚠  {warning_count} warning"))
+                                        .color(theme::PEACH)
+                                        .strong(),
+                                );
+                            }
+                        }
+                    });
                 });
 
-                ui.add_space(8.0);
-                ui.checkbox(&mut state.block_on_critical, "Block launch on critical errors");
+            ui.add_space(6.0);
 
-                ui.horizontal(|ui| {
-                    if has_errors && state.block_on_critical {
-                        ui.label(RichText::new(tr("Cannot launch job with critical errors.")).color(theme::RED));
-                    } else {
-                        if ui.button(RichText::new(tr("Launch Anyway")).color(theme::GREEN)).clicked() {
-                            action.proceed = true;
-                        }
+            // ── Issues list ─────────────────────────────────────────────
+            if !all_clear {
+                egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                    // Criticals first
+                    for issue in report.issues.iter().filter(|i| i.severity == PreflightSeverity::Critical) {
+                        egui::Frame::new()
+                            .inner_margin(egui::Margin::symmetric(6, 3))
+                            .corner_radius(egui::CornerRadius::same(3))
+                            .fill(egui::Color32::from_rgba_unmultiplied(243, 139, 168, 12))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new("⛔").color(theme::RED));
+                                    ui.label(
+                                        RichText::new(&issue.message).color(theme::RED).small(),
+                                    );
+                                });
+                            });
+                        ui.add_space(2.0);
                     }
+                    // Warnings
+                    for issue in report.issues.iter().filter(|i| i.severity == PreflightSeverity::Warning) {
+                        egui::Frame::new()
+                            .inner_margin(egui::Margin::symmetric(6, 3))
+                            .corner_radius(egui::CornerRadius::same(3))
+                            .fill(egui::Color32::from_rgba_unmultiplied(250, 179, 135, 12))
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new("⚠").color(theme::PEACH));
+                                    ui.label(
+                                        RichText::new(&issue.message).color(theme::PEACH).small(),
+                                    );
+                                });
+                            });
+                        ui.add_space(2.0);
+                    }
+                });
+                ui.add_space(8.0);
+            }
+
+            ui.separator();
+            ui.add_space(6.0);
+
+            // ── Action buttons ──────────────────────────────────────────
+            ui.horizontal(|ui| {
+                if all_clear {
+                    if ui
+                        .button(
+                            RichText::new("▶  Launch Job")
+                                .color(theme::GREEN)
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        action.proceed = true;
+                    }
+                } else if has_critical && block_on_critical {
+                    ui.label(
+                        RichText::new(tr("Launch blocked — fix critical issues first."))
+                            .color(theme::RED)
+                            .small(),
+                    );
+                } else {
+                    if ui
+                        .button(
+                            RichText::new("▶  Launch Anyway")
+                                .color(theme::PEACH)
+                                .strong(),
+                        )
+                        .clicked()
+                    {
+                        action.proceed = true;
+                    }
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(tr("Cancel")).clicked() {
                         action.cancel = true;
                     }
                 });
-            }
+            });
         });
 
     if action.proceed || action.cancel {
@@ -255,7 +261,7 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
     let mut report = PreflightReport::default();
 
     if ctx.program_lines.is_empty() {
-        report.add_critical("No program loaded.");
+        report.add_critical(tr("No program loaded."));
         return report;
     }
 
@@ -268,8 +274,10 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
             used_layers.insert(shape.layer_idx);
             if shape.layer_idx >= ctx.layers.len() {
                 report.add_critical(format!(
-                    "Shape #{} uses missing layer index {}.",
+                    "{} #{} {} {}.",
+                    tr("Shape"),
                     idx + 1,
+                    tr("uses missing layer index"),
                     shape.layer_idx
                 ));
             }
@@ -296,7 +304,9 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
 
     if open_paths > 0 {
         report.add_critical(format!(
-            "Detected {open_paths} open path(s). Close contours before launch."
+            "{} {open_paths} {}.",
+            tr("Detected"),
+            tr("open path(s). Close contours before launch")
         ));
     }
 
@@ -306,7 +316,9 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
         .count();
     if duplicate_count > 0 {
         report.add_critical(format!(
-            "Detected {duplicate_count} duplicated path segment group(s)."
+            "{} {duplicate_count} {}.",
+            tr("Detected"),
+            tr("duplicated path segment group(s)")
         ));
     }
 
@@ -330,7 +342,9 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
         }
         if overlap_count > 0 {
             report.add_warning(format!(
-                "{overlap_count} pair(s) of shapes appear identical/overlapping -- risk of double-burn."
+                "{overlap_count} {} -- {}.",
+                tr("pair(s) of shapes appear identical/overlapping"),
+                tr("risk of double-burn")
             ));
         }
     }
@@ -342,8 +356,10 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
         let (min_x, min_y, max_x, max_y) = crate::ui::drawing::shape_world_bounds_pub(shape);
         if min_x < -0.1 || min_y < -0.1 || max_x > ws_x + 0.1 || max_y > ws_y + 0.1 {
             report.add_warning(format!(
-                "Shape #{} extends outside workspace bounds ({:.0}x{:.0}mm).",
+                "{} #{} {} ({:.0}x{:.0}mm).",
+                tr("Shape"),
                 idx + 1,
+                tr("extends outside workspace bounds"),
                 ws_x,
                 ws_y
             ));
@@ -353,12 +369,12 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
     // F94: Interlock safety checks
     if ctx.machine_profile.interlock_lid_enabled {
         report.add_warning(
-            "Lid interlock enabled -- ensure lid is closed before running.".to_string(),
+            tr("Lid interlock enabled -- ensure lid is closed before running.").to_string(),
         );
     }
     if ctx.machine_profile.interlock_water_enabled {
         report.add_warning(
-            "Water cooling interlock enabled -- ensure water flow is active.".to_string(),
+            tr("Water cooling interlock enabled -- ensure water flow is active.").to_string(),
         );
     }
 
@@ -372,32 +388,52 @@ pub fn build_preflight_report(ctx: &PreflightContext) -> PreflightReport {
         };
 
         if layer.speed <= 0.0 {
-            report.add_critical(format!("Layer {} has invalid speed (<= 0).", layer.name));
+            report.add_critical(format!("{} {} {} (<= 0).", tr("Layer"), layer.name, tr("has invalid speed")));
         }
         if layer.power < 0.0 {
-            report.add_critical(format!("Layer {} has invalid power (< 0).", layer.name));
+            report.add_critical(format!("{} {} {} (< 0).", tr("Layer"), layer.name, tr("has invalid power")));
         }
         if layer.passes == 0 {
-            report.add_critical(format!("Layer {} has invalid passes (= 0).", layer.name));
+            report.add_critical(format!("{} {} {} (= 0).", tr("Layer"), layer.name, tr("has invalid passes")));
         }
         if matches!(layer.mode, CutMode::Fill | CutMode::FillAndLine)
             && layer.fill_interval_mm <= 0.0
         {
             report.add_critical(format!(
-                "Layer {} fill interval must be > 0 for fill modes.",
-                layer.name
+                "{} {} {}.",
+                tr("Layer"),
+                layer.name,
+                tr("fill interval must be > 0 for fill modes")
             ));
         }
         if !layer.visible {
             report.add_warning(format!(
-                "Layer {} is disabled but still referenced by current job.",
-                layer.name
+                "{} {} {}.",
+                tr("Layer"),
+                layer.name,
+                tr("is disabled but still referenced by current job")
             ));
         }
         if layer.power > 1000.0 {
             report.add_warning(format!(
-                "Layer {} power ({:.0}) exceeds nominal GRBL S1000 range.",
-                layer.name, layer.power
+                "{} {} {} ({:.0}) {}.",
+                tr("Layer"),
+                layer.name,
+                tr("power"),
+                layer.power,
+                tr("exceeds nominal GRBL S1000 range")
+            ));
+        }
+        if layer.power > 80.0 && layer.speed < 100.0 {
+            report.add_warning(format!(
+                "{} {} {} ({:.0}%) {} ({:.0}mm/min) — {}!",
+                tr("Layer"),
+                layer.name,
+                tr("has high power"),
+                layer.power,
+                tr("and low speed"),
+                layer.speed,
+                tr("fire risk")
             ));
         }
     }

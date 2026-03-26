@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::drawing::DrawingState;
 /// Circular Array: Repeat selected shapes in a circular pattern
@@ -37,7 +38,7 @@ pub fn show(ctx: &egui::Context, state: &mut CircularArrayState) -> CircularArra
         return action;
     }
 
-    egui::Window::new("🌀 Circular Array")
+    egui::Window::new(format!("🌀 {}", tr("Circular Array")))
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
@@ -45,11 +46,11 @@ pub fn show(ctx: &egui::Context, state: &mut CircularArrayState) -> CircularArra
                 .num_columns(2)
                 .spacing([12.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label("Count:");
+                    ui.label(format!("{}:", tr("Count")));
                     ui.add(egui::DragValue::new(&mut state.count).range(2..=100));
                     ui.end_row();
 
-                    ui.label("Center X (mm):");
+                    ui.label(format!("{} X (mm):", tr("Center")));
                     ui.add(
                         egui::DragValue::new(&mut state.center_x)
                             .speed(1.0)
@@ -57,7 +58,7 @@ pub fn show(ctx: &egui::Context, state: &mut CircularArrayState) -> CircularArra
                     );
                     ui.end_row();
 
-                    ui.label("Center Y (mm):");
+                    ui.label(format!("{} Y (mm):", tr("Center")));
                     ui.add(
                         egui::DragValue::new(&mut state.center_y)
                             .speed(1.0)
@@ -65,7 +66,7 @@ pub fn show(ctx: &egui::Context, state: &mut CircularArrayState) -> CircularArra
                     );
                     ui.end_row();
 
-                    ui.label("Total Angle (°):");
+                    ui.label(format!("{} (°):", tr("Total Angle")));
                     ui.add(
                         egui::DragValue::new(&mut state.total_angle)
                             .speed(1.0)
@@ -74,7 +75,7 @@ pub fn show(ctx: &egui::Context, state: &mut CircularArrayState) -> CircularArra
                     );
                     ui.end_row();
 
-                    ui.label("Rotate copies:");
+                    ui.label(format!("{}:", tr("Rotate copies")));
                     ui.checkbox(&mut state.rotate_copies, "");
                     ui.end_row();
                 });
@@ -83,7 +84,7 @@ pub fn show(ctx: &egui::Context, state: &mut CircularArrayState) -> CircularArra
             ui.horizontal(|ui| {
                 if ui
                     .button(
-                        RichText::new("🌀 Create Array")
+                        RichText::new(format!("🌀 {}", tr("Create Array")))
                             .color(theme::GREEN)
                             .strong(),
                     )
@@ -91,7 +92,7 @@ pub fn show(ctx: &egui::Context, state: &mut CircularArrayState) -> CircularArra
                 {
                     action.apply = true;
                 }
-                if ui.button("Close").clicked() {
+                if ui.button(tr("Close")).clicked() {
                     state.is_open = false;
                 }
             });

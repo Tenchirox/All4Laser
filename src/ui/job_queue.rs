@@ -2,9 +2,35 @@
 
 use egui::RichText;
 use std::sync::Arc;
+use std::time::Duration;
 
+use crate::gcode::{estimation, parser};
 use crate::i18n::tr;
 use crate::theme;
+
+fn format_duration(d: Duration) -> String {
+    let secs = d.as_secs();
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{}m {:02}s", secs / 60, secs % 60)
+    } else {
+        format!("{}h {:02}m", secs / 3600, (secs % 3600) / 60)
+    }
+}
+
+fn estimate_job_duration(lines: &[String]) -> Option<Duration> {
+    if lines.is_empty() {
+        return None;
+    }
+    let parsed: Vec<_> = lines.iter().map(|line| parser::parse_line(line)).collect();
+    let result = estimation::estimate(&parsed);
+    if result.estimated_seconds > 0.0 {
+        Some(result.duration())
+    } else {
+        None
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct QueuedJob {
@@ -29,6 +55,7 @@ pub struct JobQueueState {
     pub auto_run_next: bool,
     pub queue: Vec<QueuedJob>,
     pub history: Vec<JobHistoryEntry>,
+    pub confirm_remove: Option<usize>,
     next_id: u64,
 }
 
@@ -39,6 +66,7 @@ impl Default for JobQueueState {
             auto_run_next: true,
             queue: Vec::new(),
             history: Vec::new(),
+            confirm_remove: None,
             next_id: 1,
         }
     }
@@ -209,6 +237,7 @@ pub struct JobQueueAction {
     pub enqueue_current: bool,
     pub start_next: bool,
     pub retry_last_failed: bool,
+    pub requeue_from_history: Option<JobHistoryEntry>,
 }
 
 pub fn show(
@@ -226,7 +255,7 @@ pub fn show(
 
     let mut close_clicked = false;
 
-    egui::Window::new("📚 Job Queue")
+    egui::Window::new(format!("📚 {}", tr("Job Queue")))
         .resizable(true)
         .collapsible(false)
         .default_width(520.0)
@@ -235,7 +264,7 @@ pub fn show(
                 if ui
                     .add_enabled(
                         has_loaded_program,
-                        egui::Button::new("➕ Queue Current Job"),
+                        egui::Button::new(format!("➕ {}", tr("Queue Current Job"))),
                     )
                     .clicked()
                 {
@@ -244,33 +273,33 @@ pub fn show(
                 if ui
                     .add_enabled(
                         !running && !state.queue.is_empty(),
-                        egui::Button::new("▶ Start Next"),
+                        egui::Button::new(format!("▶ {}", tr("Start Next"))),
                     )
                     .clicked()
                 {
                     action.start_next = true;
                 }
                 if ui
-                    .add_enabled(!running, egui::Button::new("🔁 Retry Last Failed"))
+                    .add_enabled(!running, egui::Button::new(format!("🔁 {}", tr("Retry Last Failed"))))
                     .clicked()
                 {
                     action.retry_last_failed = true;
                 }
-                if ui.button("Close").clicked() {
+                if ui.button(tr("Close")).clicked() {
                     close_clicked = true;
                 }
             });
 
             ui.horizontal(|ui| {
-                ui.checkbox(&mut state.auto_run_next, "Auto-run next queued job");
+                ui.checkbox(&mut state.auto_run_next, tr("Auto-run next queued job"));
                 let (total, completed, failed) = state.stats_summary();
                 ui.label(
                     RichText::new(format!(
-                        "Pending: {} | Done: {} | Failed: {} | Total: {}",
-                        state.queue.len(),
-                        completed,
-                        failed,
-                        total,
+                        "{}: {} | {}: {} | {}: {} | {}: {}",
+                        tr("Pending"), state.queue.len(),
+                        tr("Done"), completed,
+                        tr("Failed"), failed,
+                        tr("Total"), total,
                     ))
                     .small()
                     .color(theme::SUBTEXT),
@@ -278,37 +307,69 @@ pub fn show(
             });
 
             ui.horizontal(|ui| {
-                if ui.button("📂 Batch Import").on_hover_text("Load multiple GCode files into the queue").clicked() {
+                if ui.button(format!("📂 {}", tr("Batch Import"))).on_hover_text(tr("Load multiple GCode files into the queue")).clicked() {
                     if let Some(paths) = rfd::FileDialog::new()
                         .add_filter("GCode", &["gcode", "nc", "gc", "ngc", "txt"])
                         .pick_files()
                     {
+                        let count_before = state.queue.len();
                         let ids = state.batch_enqueue_from_paths(&paths);
                         if !ids.is_empty() {
-                            // IDs are generated, jobs are queued
+                            let imported = ids.len();
+                            let total_lines: usize = state.queue[count_before..].iter().map(|j| j.lines.len()).sum();
+                            ui.label(
+                                RichText::new(format!("✅ {} {} ({} {})", 
+                                    imported, 
+                                    if imported == 1 { tr("file imported") } else { tr("files imported") },
+                                    total_lines,
+                                    tr("total lines")
+                                ))
+                                .small()
+                                .color(theme::GREEN),
+                            );
                         }
                     }
                 }
-                if ui.button("💾 Save History").on_hover_text("Save job history to disk").clicked() {
+                if ui.button(format!("💾 {}", tr("Save History"))).on_hover_text(tr("Save job history to disk")).clicked() {
                     state.save_history();
                 }
-                if ui.button("📂 Load History").on_hover_text("Restore saved job history").clicked() {
+                if ui.button(format!("📂 {}", tr("Load History"))).on_hover_text(tr("Restore saved job history")).clicked() {
                     state.load_history();
                 }
             });
 
             if let Some(name) = active_job_name {
                 ui.label(
-                    RichText::new(format!("Running: {name}"))
+                    RichText::new(format!("{}: {name}", tr("Running")))
                         .color(theme::GREEN)
                         .strong(),
                 );
             }
 
+            // Confirmation dialog for job removal
+            if let Some(idx) = state.confirm_remove {
+                egui::Window::new(format!("⚠ {}", tr("Confirm Removal")))
+                    .collapsible(false)
+                    .resizable(false)
+                    .show(ctx, |ui| {
+                        ui.label(format!("{} '{}' {}?", tr("Remove job"), state.queue.get(idx).map(|j| j.name.as_str()).unwrap_or(""), tr("from queue")));
+                        ui.horizontal(|ui| {
+                            if ui.button(format!("✘ {}", tr("Remove"))).clicked() {
+                                state.remove(idx);
+                                state.confirm_remove = None;
+                            }
+                            if ui.button(tr("Cancel")).clicked() {
+                                state.confirm_remove = None;
+                            }
+                        });
+                    });
+            }
+
             ui.add_space(8.0);
             ui.label(RichText::new(tr("Pending Queue")).strong());
+            let queue_height = (state.queue.len() as f32 * 24.0).clamp(80.0, 200.0);
             egui::ScrollArea::vertical()
-                .max_height(180.0)
+                .max_height(queue_height)
                 .show(ui, |ui| {
                     if state.queue.is_empty() {
                         ui.label(
@@ -319,17 +380,23 @@ pub fn show(
                     } else {
                         let mut move_up_idx = None;
                         let mut move_down_idx = None;
-                        let mut remove_idx = None;
 
                         for (idx, job) in state.queue.iter().enumerate() {
                             ui.horizontal(|ui| {
+                                let eta = estimate_job_duration(job.lines.as_ref())
+                                    .map(format_duration)
+                                    .unwrap_or_else(|| tr("n/a"));
                                 ui.label(
                                     RichText::new(format!(
-                                        "#{} {} ({} lines, try {})",
+                                        "#{} {} ({} {}, {} {}, {} {})",
                                         job.id,
                                         job.name,
                                         job.lines.len(),
-                                        job.attempts
+                                        tr("lines"),
+                                        tr("try"),
+                                        job.attempts,
+                                        tr("ETA"),
+                                        eta,
                                     ))
                                     .small(),
                                 );
@@ -339,8 +406,8 @@ pub fn show(
                                 if ui.button("↓").clicked() {
                                     move_down_idx = Some(idx);
                                 }
-                                if ui.button("✕").clicked() {
-                                    remove_idx = Some(idx);
+                                if ui.button("✕").on_hover_text(tr("Remove from queue")).clicked() {
+                                    state.confirm_remove = Some(idx);
                                 }
                             });
                         }
@@ -350,9 +417,6 @@ pub fn show(
                         }
                         if let Some(idx) = move_down_idx {
                             state.move_down(idx);
-                        }
-                        if let Some(idx) = remove_idx {
-                            state.remove(idx);
                         }
                     }
                 });
@@ -365,8 +429,9 @@ pub fn show(
                 }
             });
 
+            let history_height = (state.history.len() as f32 * 20.0).clamp(60.0, 180.0);
             egui::ScrollArea::vertical()
-                .max_height(180.0)
+                .max_height(history_height)
                 .show(ui, |ui| {
                     if state.history.is_empty() {
                         ui.label(
@@ -375,7 +440,8 @@ pub fn show(
                                 .color(theme::SUBTEXT),
                         );
                     } else {
-                        for entry in state.history.iter().rev() {
+                        let mut requeue_idx = None;
+                        for (idx, entry) in state.history.iter().enumerate().rev() {
                             let color = if entry.status == "Completed" {
                                 theme::GREEN
                             } else if entry.status == "Aborted" {
@@ -383,14 +449,24 @@ pub fn show(
                             } else {
                                 theme::RED
                             };
-                            ui.label(
-                                RichText::new(format!(
-                                    "#{} {} — {} (try {})",
-                                    entry.id, entry.name, entry.status, entry.attempts
-                                ))
-                                .small()
-                                .color(color),
-                            );
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "#{} {} — {} (try {})",
+                                        entry.id, entry.name, entry.status, entry.attempts
+                                    ))
+                                    .small()
+                                    .color(color),
+                                );
+                                if ui.small_button("↻").on_hover_text(tr("Requeue this job")).clicked() {
+                                    requeue_idx = Some(idx);
+                                }
+                            });
+                        }
+                        if let Some(idx) = requeue_idx {
+                            if let Some(entry) = state.history.get(idx) {
+                                action.requeue_from_history = Some(entry.clone());
+                            }
                         }
                     }
                 });

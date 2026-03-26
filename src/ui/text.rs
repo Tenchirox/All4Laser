@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::i18n::tr;
 use crate::ui::drawing::{PathData, ShapeKind, ShapeParams};
 use egui::{RichText, Ui};
 use font_kit::family_name::FamilyName;
@@ -124,7 +125,7 @@ impl Default for TextToolState {
             csv_has_header: true,
             csv_delimiter: ',',
             csv_values: Vec::new(),
-            csv_path_display: "No CSV loaded".to_string(),
+            csv_path_display: tr("No CSV loaded").to_string(),
         }
     }
 }
@@ -267,40 +268,54 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.checkbox(&mut state.is_variable, "🔢 Variable Text (Serial Numbers)");
+            ui.checkbox(&mut state.is_variable, &format!("🔢 {}", tr("Variable Text (Serial Numbers)")));
         });
 
         if state.is_variable {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Source:");
-                    ui.selectable_value(&mut state.var_source, VariableSource::Serial, "Serial");
-                    ui.selectable_value(&mut state.var_source, VariableSource::Csv, "CSV Column");
+                    ui.label(format!("{}:", tr("Source")));
+                    ui.selectable_value(&mut state.var_source, VariableSource::Serial, tr("Serial"));
+                    ui.selectable_value(&mut state.var_source, VariableSource::Csv, tr("CSV Column"));
                 });
 
                 if state.var_source == VariableSource::Serial {
                     ui.horizontal(|ui| {
-                        ui.label("Prefix:");
+                        ui.label(format!("{}:", tr("Prefix")));
                         ui.text_edit_singleline(&mut state.var_prefix);
-                        ui.label("Suffix:");
+                        ui.label(format!("{}:", tr("Suffix")));
                         ui.text_edit_singleline(&mut state.var_suffix);
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Start:");
+                        ui.label(format!("{}:", tr("Start")));
                         ui.add(egui::DragValue::new(&mut state.var_start));
-                        ui.label("Inc:");
+                        ui.label(format!("{}:", tr("Inc")));
                         ui.add(egui::DragValue::new(&mut state.var_inc));
-                        ui.label("Pad:");
+                        ui.label(format!("{}:", tr("Pad")));
                         ui.add(egui::DragValue::new(&mut state.var_padding).range(0..=10));
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Batch Count:");
+                        ui.label(format!("{}:", tr("Batch Count")));
                         ui.add(egui::DragValue::new(&mut state.var_count).range(1..=100));
                     });
+                    
+                    // Preview of generated serial numbers
+                    ui.separator();
+                    ui.label(format!("{}:", tr("Preview")));
+                    let preview_count = state.var_count.min(5) as i32;
+                    for i in 0..preview_count {
+                        let val = state.var_start + (i * state.var_inc);
+                        let val_str = format!("{:0>width$}", val, width = state.var_padding);
+                        let preview = format!("{}{}{}", state.var_prefix, val_str, state.var_suffix);
+                        ui.label(RichText::new(format!("  {}: {}", i + 1, preview)).small().color(theme::SUBTEXT));
+                    }
+                    if state.var_count > 5 {
+                        ui.label(RichText::new(format!("  ... {} {} ...", state.var_count - 5, tr("more"))).small().color(theme::SUBTEXT));
+                    }
                 } else {
                     let mut reload_csv = false;
                     ui.horizontal(|ui| {
-                        ui.label("Column:");
+                        ui.label(format!("{}:", tr("Column")));
                         if ui
                             .add(egui::DragValue::new(&mut state.csv_column).range(0..=100))
                             .changed()
@@ -308,7 +323,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                             reload_csv = true;
                         }
                         if ui
-                            .checkbox(&mut state.csv_has_header, "Header row")
+                            .checkbox(&mut state.csv_has_header, tr("Header row"))
                             .changed()
                         {
                             reload_csv = true;
@@ -316,7 +331,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Delimiter:");
+                        ui.label(format!("{}:", tr("Delimiter")));
                         let mut delimiter_text = state.csv_delimiter.to_string();
                         if ui.text_edit_singleline(&mut delimiter_text).changed() {
                             if let Some(ch) = delimiter_text.chars().next() {
@@ -324,7 +339,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                                 reload_csv = true;
                             }
                         }
-                        if ui.button("📁 Load CSV").clicked() {
+                        if ui.button(format!("📁 {}", tr("Load CSV"))).clicked() {
                             if let Some(path) = rfd::FileDialog::new()
                                 .add_filter("CSV", &["csv", "txt"])
                                 .pick_file()
@@ -366,19 +381,19 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                         }
                     }
 
-                    ui.label(format!("CSV: {}", state.csv_path_display));
-                    ui.label(format!("Loaded rows: {}", state.csv_values.len()));
+                    ui.label(format!("{}: {}", tr("CSV"), state.csv_path_display));
+                    ui.label(format!("{}: {}", tr("Loaded rows"), state.csv_values.len()));
                 }
             });
         } else {
             ui.horizontal(|ui| {
-                ui.label("Text:");
+                ui.label(format!("{}:", tr("Text")));
                 ui.text_edit_singleline(&mut state.text);
             });
         }
 
         ui.horizontal(|ui| {
-            ui.label("Size:");
+            ui.label(format!("{}:", tr("Size")));
             ui.add(
                 egui::DragValue::new(&mut state.font_size)
                     .range(1.0..=300.0)
@@ -387,10 +402,10 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
         });
 
         ui.horizontal(|ui| {
-            ui.label("Source:");
-            ui.selectable_value(&mut state.font_source, FontSource::Bundled, "Bundled");
-            ui.selectable_value(&mut state.font_source, FontSource::System, "System");
-            ui.selectable_value(&mut state.font_source, FontSource::File, "File");
+            ui.label(format!("{}:", tr("Source")));
+            ui.selectable_value(&mut state.font_source, FontSource::Bundled, tr("Bundled"));
+            ui.selectable_value(&mut state.font_source, FontSource::System, tr("System"));
+            ui.selectable_value(&mut state.font_source, FontSource::File, tr("File"));
         });
 
         if state.font_source == FontSource::Bundled {
@@ -401,7 +416,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
             }
 
             ui.horizontal(|ui| {
-                ui.label("Font:");
+                ui.label(format!("{}:", tr("Font")));
                 egui::ComboBox::from_id_salt("bundled_font_combo")
                     .selected_text(&state.selected_font)
                     .width(240.0)
@@ -413,7 +428,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
             });
             ui.label(
                 RichText::new(
-                    "Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use).",
+                    tr("Bundled fonts included in project (SIL OFL 1.1, GPLv3-compatible use)."),
                 )
                 .small(),
             );
@@ -424,7 +439,7 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
             }
 
             ui.horizontal(|ui| {
-                ui.label("Font:");
+                ui.label(format!("{}:", tr("Font")));
                 egui::ComboBox::from_id_salt("font_combo")
                     .selected_text(&state.selected_font)
                     .width(200.0)
@@ -436,12 +451,12 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
             });
             if state.system_fonts.is_empty() {
                 ui.label(
-                    RichText::new("No system fonts detected. Use Bundled or File source.").small(),
+                    RichText::new(tr("No system fonts detected. Use Bundled or File source.")).small(),
                 );
             }
         } else {
             ui.horizontal(|ui| {
-                if ui.button("📁 Load Font File").clicked() {
+                if ui.button(format!("📁 {}", tr("Load Font File"))).clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("TrueType Font", &["ttf", "otf"])
                         .pick_file()
@@ -456,10 +471,10 @@ pub fn show(ui: &mut Ui, state: &mut TextToolState, active_layer_idx: usize) -> 
                         }
                     }
                 }
-                ui.label(format!("File: {}", state.selected_font));
+                ui.label(format!("{}: {}", tr("File"), state.selected_font));
             });
         }
-        if ui.button("➕ Add Text to Drawing").clicked() {
+        if ui.button(format!("➕ {}", tr("Add Text to Drawing"))).clicked() {
             let mut resolved_font_data: Option<Vec<u8>> = match state.font_source {
                 FontSource::Bundled => {
                     bundled_font_data(&state.selected_font).map(|data| data.to_vec())

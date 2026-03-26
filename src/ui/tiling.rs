@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 /// Tiling: repeat a GCode job in an N×M grid
 use egui::RichText;
@@ -36,7 +37,7 @@ pub fn show(ctx: &egui::Context, state: &mut TilingState, source_lines: &[String
     let mut apply_clicked = false;
     let mut close_clicked = false;
 
-    egui::Window::new("⊟ Tiling — Repeat Job")
+    egui::Window::new(format!("⊟ {} — {}", tr("Tiling"), tr("Repeat Job")))
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
@@ -44,20 +45,20 @@ pub fn show(ctx: &egui::Context, state: &mut TilingState, source_lines: &[String
                 .num_columns(2)
                 .spacing([12.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label("Columns:");
+                    ui.label(format!("{}:", tr("Columns")));
                     ui.add(egui::DragValue::new(&mut state.cols).range(1..=20));
                     ui.end_row();
-                    ui.label("Rows:");
+                    ui.label(format!("{}:", tr("Rows")));
                     ui.add(egui::DragValue::new(&mut state.rows).range(1..=20));
                     ui.end_row();
-                    ui.label("Spacing X (mm):");
+                    ui.label(format!("{} X (mm):", tr("Spacing")));
                     ui.add(
                         egui::DragValue::new(&mut state.spacing_x)
                             .speed(1.0)
                             .suffix(" mm"),
                     );
                     ui.end_row();
-                    ui.label("Spacing Y (mm):");
+                    ui.label(format!("{} Y (mm):", tr("Spacing")));
                     ui.add(
                         egui::DragValue::new(&mut state.spacing_y)
                             .speed(1.0)
@@ -67,7 +68,7 @@ pub fn show(ctx: &egui::Context, state: &mut TilingState, source_lines: &[String
                 });
 
             ui.label(
-                RichText::new(format!("→ {} copies total", state.cols * state.rows))
+                RichText::new(format!("→ {} {} {}", state.cols * state.rows, tr("copies"), tr("total")))
                     .small()
                     .color(theme::SUBTEXT),
             );
@@ -75,12 +76,12 @@ pub fn show(ctx: &egui::Context, state: &mut TilingState, source_lines: &[String
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 if ui
-                    .button(RichText::new("⊟ Apply Tiling").color(theme::GREEN).strong())
+                    .button(RichText::new(format!("⊟ {}", tr("Apply Tiling"))).color(theme::GREEN).strong())
                     .clicked()
                 {
                     apply_clicked = true;
                 }
-                if ui.button("Close").clicked() {
+                if ui.button(tr("Close")).clicked() {
                     close_clicked = true;
                 }
             });

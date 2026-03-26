@@ -108,14 +108,22 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
             }
         });
 
-        ui.collapsing("📥 Box Maker (Finger Joints)", |ui| {
-            ui.add(egui::Slider::new(&mut state.box_w, 20.0..=500.0).text("Width (X)"));
-            ui.add(egui::Slider::new(&mut state.box_h, 20.0..=500.0).text("Height (Y)"));
-            ui.add(egui::Slider::new(&mut state.box_d, 20.0..=500.0).text("Depth (Z)"));
-            ui.add(egui::Slider::new(&mut state.box_thickness, 1.0..=20.0).text("Thickness"));
-            ui.add(egui::Slider::new(&mut state.box_tab_size, 5.0..=50.0).text("Tab Size"));
+        ui.collapsing(format!("📥 {}", tr("Box Maker (Finger Joints)")), |ui| {
+            ui.add(egui::Slider::new(&mut state.box_w, 20.0..=500.0).text(tr("Width (X)")));
+            ui.add(egui::Slider::new(&mut state.box_h, 20.0..=500.0).text(tr("Height (Y)")));
+            ui.add(egui::Slider::new(&mut state.box_d, 20.0..=500.0).text(tr("Depth (Z)")));
+            ui.add(
+                egui::Slider::new(&mut state.box_thickness, 1.0..=20.0)
+                    .text(tr("Thickness"))
+                    .tooltip(tr("Material thickness for tab calculations")),
+            );
+            ui.add(
+                egui::Slider::new(&mut state.box_tab_size, 5.0..=50.0)
+                    .text(tr("Tab Size"))
+                    .tooltip(tr("Size of interlocking tabs on box edges")),
+            );
 
-            if ui.button("🚀 Generate Box Components").clicked() {
+            if ui.button(format!("🚀 {}", tr("Generate Box Components"))).clicked() {
                 let w = state.box_w;
                 let h = state.box_h;
                 let d = state.box_d;
@@ -159,14 +167,26 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
             }
         });
 
-        ui.collapsing("🚪 Living Hinge", |ui| {
-            ui.add(egui::Slider::new(&mut state.hinge_w, 10.0..=500.0).text("Width (X)"));
-            ui.add(egui::Slider::new(&mut state.hinge_h, 10.0..=500.0).text("Height (Y)"));
-            ui.add(egui::Slider::new(&mut state.hinge_cut_length, 2.0..=100.0).text("Cut Length"));
-            ui.add(egui::Slider::new(&mut state.hinge_gap, 1.0..=50.0).text("Gap Between Cuts"));
-            ui.add(egui::Slider::new(&mut state.hinge_dist, 1.0..=20.0).text("Distance Between Rows"));
+        ui.collapsing(format!("🚪 {}", tr("Living Hinge")), |ui| {
+            ui.add(egui::Slider::new(&mut state.hinge_w, 10.0..=500.0).text(tr("Width (X)")));
+            ui.add(egui::Slider::new(&mut state.hinge_h, 10.0..=500.0).text(tr("Height (Y)")));
+            ui.add(
+                egui::Slider::new(&mut state.hinge_cut_length, 2.0..=100.0)
+                    .text(tr("Cut Length"))
+                    .tooltip(tr("Length of each individual cut line in the hinge pattern")),
+            );
+            ui.add(
+                egui::Slider::new(&mut state.hinge_gap, 1.0..=50.0)
+                    .text(tr("Gap Between Cuts"))
+                    .tooltip(tr("Space between consecutive cuts in the same row")),
+            );
+            ui.add(
+                egui::Slider::new(&mut state.hinge_dist, 1.0..=20.0)
+                    .text(tr("Distance Between Rows"))
+                    .tooltip(tr("Horizontal spacing between vertical cut rows")),
+            );
 
-            if ui.button("🚀 Generate Hinge").clicked() {
+            if ui.button(format!("🚀 {}", tr("Generate Hinge"))).clicked() {
                 action.generate_shapes = Some(make_living_hinge(
                     state.hinge_w,
                     state.hinge_h,

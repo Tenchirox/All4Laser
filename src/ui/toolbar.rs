@@ -12,6 +12,7 @@ pub struct ToolbarAction {
     pub save_file: bool,
     pub save_project: bool,
     pub open_project: bool,
+    pub new_clear_project: bool,
     pub run_program: bool,
     pub frame_bbox: bool,
     pub dry_run: bool,
@@ -57,6 +58,7 @@ impl Default for ToolbarAction {
             save_file: false,
             save_project: false,
             open_project: false,
+            new_clear_project: false,
             run_program: false,
             frame_bbox: false,
             dry_run: false,
@@ -105,6 +107,7 @@ impl ToolbarAction {
         self.save_file |= other.save_file;
         self.save_project |= other.save_project;
         self.open_project |= other.open_project;
+        self.new_clear_project |= other.new_clear_project;
         self.run_program |= other.run_program;
         self.frame_bbox |= other.frame_bbox;
         self.dry_run |= other.dry_run;
@@ -158,6 +161,8 @@ pub fn show(
     has_file: bool,
     has_shapes: bool,
     caps: ControllerCapabilities,
+    current_theme: theme::UiTheme,
+    current_layout: theme::UiLayout,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::default();
 
@@ -177,9 +182,10 @@ pub fn show(
         // Connect / Disconnect
         let (conn_icon, conn_txt) = if connected { ("⏏", tr("Disconnect")) } else { ("🔌", tr("Connect")) };
         let conn_color = if connected { theme::RED } else { theme::GREEN };
+        let conn_tip = if connected { tr("Disconnect") } else { tr("Connect") };
         if ui
             .button(RichText::new(label(conn_icon, &conn_txt)).color(conn_color).size(sz))
-            .on_hover_text(if connected { tr("Disconnect") } else { tr("Connect") })
+            .on_hover_text(format!("{} (Ctrl+K)", conn_tip))
             .clicked()
         {
             action.connect_toggle = true;
@@ -187,16 +193,8 @@ pub fn show(
 
         ui.separator();
 
-        // File group
-        if ui
-            .button(RichText::new(label("📂", &tr("Open"))).size(sz))
-            .on_hover_text(tr("Open"))
-            .clicked()
-        {
-            action.open_file = true;
-        }
         // Recent files dropdown
-        egui::menu::menu_button(ui, "▾", |ui| {
+        let recent_btn = egui::menu::menu_button(ui, &label("▾", &tr("Recent")), |ui| {
             ui.set_min_width(280.0);
             if recent.paths.is_empty() {
                 ui.label(tr("No recent files"));
@@ -215,10 +213,22 @@ pub fn show(
         })
         .response
         .on_hover_text(tr("Recent Files"));
+        
+        // Open button with recent dropdown
+        ui.horizontal(|ui| {
+            if ui
+                .button(RichText::new(label("📂", &tr("Open"))).size(sz))
+                .on_hover_text(format!("{} (Ctrl+O)", tr("Open")))
+                .clicked()
+            {
+                action.open_file = true;
+            }
+            recent_btn;
+        });
 
         if ui
             .button(RichText::new(label("💾", &tr("Save"))).size(sz))
-            .on_hover_text(tr("Save"))
+            .on_hover_text(format!("{} (Ctrl+S)", tr("Save")))
             .clicked()
         {
             action.save_file = true;
@@ -226,7 +236,11 @@ pub fn show(
 
         // Project menu
         egui::menu::menu_button(ui, label("📁", &tr("Project")), |ui| {
-            if ui.button(format!("📂 {} (.a4l)", tr("Open Project"))).clicked() {
+            if ui.button(format!("� {}", tr("New Project"))).clicked() {
+                action.new_clear_project = true;
+                ui.close_menu();
+            }
+            if ui.button(format!("� {} (.a4l)", tr("Open Project"))).clicked() {
                 action.open_project = true;
                 ui.close_menu();
             }
@@ -265,17 +279,38 @@ pub fn show(
 
         // Run / Abort toggle
         if running {
-            if ui
-                .button(
-                    RichText::new(label("⛔", &tr("Stop")))
-                        .color(theme::RED)
-                        .size(sz),
+            // Pulsing animation for running status
+            let pulse = (ui.ctx().animate_value_with_time(
+                egui::Id::new("running_pulse"),
+                1.0,
+                std::time::Duration::from_millis(500),
+            ) * std::f32::consts::PI).sin() * 0.5 + 0.5;
+            let pulse_color = egui::Color32::from_rgb(
+                (theme::RED.r() as f32 * (0.5 + pulse * 0.5)) as u8,
+                (theme::RED.g() as f32 * (0.5 + pulse * 0.5)) as u8,
+                (theme::RED.b() as f32 * (0.5 + pulse * 0.5)) as u8,
+            );
+            
+            ui.horizontal(|ui| {
+                if ui
+                    .button(
+                        RichText::new(label("⛔", &tr("Stop")))
+                            .color(pulse_color)
+                            .size(sz),
+                    )
+                    .on_hover_text(tr("Stop"))
+                    .clicked()
+                {
+                    action.abort_program = true;
+                }
+                // Running indicator
+                ui.label(
+                    RichText::new("●")
+                        .color(pulse_color)
+                        .size(16.0)
                 )
-                .on_hover_text(tr("Stop"))
-                .clicked()
-            {
-                action.abort_program = true;
-            }
+                .on_hover_text(tr("Job is running"));
+            });
         } else {
             let run_btn = ui.add_enabled(
                 connected,
@@ -285,7 +320,7 @@ pub fn show(
                         .size(sz),
                 ),
             );
-            if run_btn.on_hover_text(tr("Run")).clicked() {
+            if run_btn.on_hover_text(format!("{} (Space)", tr("Run"))).clicked() {
                 action.run_program = true;
             }
 
@@ -304,7 +339,7 @@ pub fn show(
                     connected,
                     egui::Button::new(RichText::new(frame_lbl).color(frame_col).size(sz)),
                 )
-                .on_hover_text(tr("Frame"))
+                .on_hover_text(format!("{} (F)", tr("Frame")))
                 .clicked()
             {
                 action.frame_bbox = true;
@@ -336,7 +371,7 @@ pub fn show(
         if ui
             .add_enabled(
                 connected && caps.supports_hold_resume,
-                egui::Button::new(RichText::new(label("▶", &tr("Resume"))).size(sz)),
+                egui::Button::new(RichText::new(label("⏯", &tr("Resume"))).size(sz)),
             )
             .on_hover_text(tr("Resume"))
             .clicked()
@@ -351,7 +386,7 @@ pub fn show(
                 connected && caps.supports_home,
                 egui::Button::new(RichText::new(label("🏠", &tr("Home"))).size(sz)),
             )
-            .on_hover_text(tr("Home"))
+            .on_hover_text(format!("{} (H)", tr("Home")))
             .clicked()
         {
             action.home = true;
@@ -361,7 +396,7 @@ pub fn show(
                 connected && caps.supports_unlock,
                 egui::Button::new(RichText::new(label("🔓", &tr("Unlock"))).size(sz)),
             )
-            .on_hover_text(tr("Unlock"))
+            .on_hover_text(format!("{} (Ctrl+U)", tr("Unlock")))
             .clicked()
         {
             action.unlock = true;
@@ -371,7 +406,7 @@ pub fn show(
                 connected,
                 egui::Button::new(RichText::new(label("⊙", &tr("Zero"))).size(sz)),
             )
-            .on_hover_text(tr("Set Zero"))
+            .on_hover_text(format!("{} (Z)", tr("Set Zero")))
             .clicked()
         {
             action.set_zero = true;
@@ -398,18 +433,18 @@ pub fn show(
         egui::menu::menu_button(ui, label("👁", &tr("View")), |ui| {
             ui.label(RichText::new(format!("{}:", tr("Theme"))).strong());
             if ui
-                .selectable_label(false, tr("Modern (recommended)"))
+                .selectable_label(current_theme == theme::UiTheme::Modern, tr("Modern (recommended)"))
                 .clicked()
             {
                 action.set_theme = Some(theme::UiTheme::Modern);
                 ui.close_menu();
             }
-            if ui.selectable_label(false, tr("Pro (new)")).clicked() {
+            if ui.selectable_label(current_theme == theme::UiTheme::Pro, tr("Pro (new)")).clicked() {
                 action.set_theme = Some(theme::UiTheme::Pro);
                 ui.close_menu();
             }
             if ui
-                .selectable_label(false, tr("Industrial (advanced)"))
+                .selectable_label(current_theme == theme::UiTheme::Industrial, tr("Industrial (advanced)"))
                 .clicked()
             {
                 action.set_theme = Some(theme::UiTheme::Industrial);
@@ -419,21 +454,21 @@ pub fn show(
             ui.separator();
             ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());
             if ui
-                .selectable_label(false, tr("Modern layout (simple)"))
+                .selectable_label(current_layout == theme::UiLayout::Modern, tr("Modern layout (simple)"))
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Modern);
                 ui.close_menu();
             }
             if ui
-                .selectable_label(false, tr("Pro layout (aesthetic & practical)"))
+                .selectable_label(current_layout == theme::UiLayout::Pro, tr("Pro layout (aesthetic & practical)"))
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Pro);
                 ui.close_menu();
             }
             if ui
-                .selectable_label(false, tr("Classic layout (expert)"))
+                .selectable_label(current_layout == theme::UiLayout::Classic, tr("Classic layout (expert)"))
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Classic);
@@ -556,12 +591,18 @@ pub fn show_menu_bar(
     beginner_mode: bool,
     light_mode: bool,
     caps: ControllerCapabilities,
+    current_theme: theme::UiTheme,
+    current_layout: theme::UiLayout,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::default();
 
     egui::menu::bar(ui, |ui| {
         // File / Fichier
         ui.menu_button(format!("📂 {}", tr("File")), |ui| {
+            if ui.button(format!("📄 {}", tr("New Project"))).clicked() {
+                action.new_clear_project = true;
+                ui.close_menu();
+            }
             if ui.button(format!("📂 {}", tr("Open"))).clicked() {
                 action.open_file = true;
                 ui.close_menu();
@@ -647,18 +688,18 @@ pub fn show_menu_bar(
         ui.menu_button(format!("👁 {}", tr("View")), |ui| {
             ui.label(RichText::new(format!("{}:", tr("Theme"))).strong());
             if ui
-                .selectable_label(false, tr("Modern (recommended)"))
+                .selectable_label(current_theme == theme::UiTheme::Modern, tr("Modern (recommended)"))
                 .clicked()
             {
                 action.set_theme = Some(theme::UiTheme::Modern);
                 ui.close_menu();
             }
-            if ui.selectable_label(false, tr("Pro (new)")).clicked() {
+            if ui.selectable_label(current_theme == theme::UiTheme::Pro, tr("Pro (new)")).clicked() {
                 action.set_theme = Some(theme::UiTheme::Pro);
                 ui.close_menu();
             }
             if ui
-                .selectable_label(false, tr("Industrial (advanced)"))
+                .selectable_label(current_theme == theme::UiTheme::Industrial, tr("Industrial (advanced)"))
                 .clicked()
             {
                 action.set_theme = Some(theme::UiTheme::Industrial);
@@ -668,21 +709,21 @@ pub fn show_menu_bar(
             ui.separator();
             ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());
             if ui
-                .selectable_label(false, tr("Modern layout (simple)"))
+                .selectable_label(current_layout == theme::UiLayout::Modern, tr("Modern layout (simple)"))
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Modern);
                 ui.close_menu();
             }
             if ui
-                .selectable_label(false, tr("Pro layout (aesthetic & practical)"))
+                .selectable_label(current_layout == theme::UiLayout::Pro, tr("Pro layout (aesthetic & practical)"))
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Pro);
                 ui.close_menu();
             }
             if ui
-                .selectable_label(false, tr("Classic layout (expert)"))
+                .selectable_label(current_layout == theme::UiLayout::Classic, tr("Classic layout (expert)"))
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Classic);

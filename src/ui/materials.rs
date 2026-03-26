@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::layers_new::CutMode;
 use egui::{RichText, Ui};
@@ -44,7 +45,7 @@ pub struct MaterialPreset {
 impl Default for MaterialPreset {
     fn default() -> Self {
         Self {
-            name: "New Material".into(),
+            name: tr("New Material").into(),
             thickness_mm: 3.0,
             speed: 1000.0,
             power: 800.0,
@@ -318,12 +319,12 @@ pub fn show_with_context(
     ui.group(|ui| {
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new("📦 Material Presets")
+                RichText::new(format!("📦 {}", tr("Material Presets")))
                     .color(theme::LAVENDER)
                     .strong(),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("📤 Export").clicked() {
+                if ui.button(format!("📤 {}", tr("Export"))).clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("JSON", &["json"])
                         .save_file()
@@ -333,7 +334,7 @@ pub fn show_with_context(
                         }
                     }
                 }
-                if ui.button("📥 Import").clicked() {
+                if ui.button(format!("📥 {}", tr("Import"))).clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("JSON", &["json"])
                         .pick_file()
@@ -355,11 +356,14 @@ pub fn show_with_context(
         if let Some(layer) = &context.active_layer {
             ui.label(
                 RichText::new(format!(
-                    "Layer: {} | {} mm/min | S{} | {} pass(es)",
+                    "{}: {} | {} {} | S{} | {} {}",
+                    tr("Layer"),
                     layer.name,
                     layer.speed.round(),
+                    tr("mm/min"),
                     layer.power.round(),
-                    layer.passes
+                    layer.passes,
+                    tr("pass(es)")
                 ))
                 .small(),
             );
@@ -369,11 +373,11 @@ pub fn show_with_context(
             if let Some(preset) = state.presets.get(idx) {
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new(format!("⭐ Recommended: {}", preset.name))
+                        RichText::new(format!("⭐ {}: {}", tr("Recommended"), preset.name))
                             .color(theme::GREEN)
                             .strong(),
                     );
-                    if context.active_layer.is_some() && ui.button("Apply Recommended").clicked() {
+                    if context.active_layer.is_some() && ui.button(tr("Apply Recommended")).clicked() {
                         action.apply_speed = Some(preset.speed);
                         action.apply_power = Some(preset.power);
                         action.apply_cut_speed = Some(preset.cut_speed);
@@ -407,19 +411,22 @@ pub fn show_with_context(
             let preset = preset.clone();
             ui.horizontal(|ui| {
                 let machine_scope = if preset.machine_profile.trim().is_empty() {
-                    "All machines".to_string()
+                    tr("All machines").to_string()
                 } else {
-                    format!("Machine: {}", preset.machine_profile)
+                    format!("{}: {}", tr("Machine"), preset.machine_profile)
                 };
                 ui.label(
                     RichText::new(format!(
-                        "{}mm | Engrave {} / S{} | Cut {} / S{} | Passes {} | {}",
+                        "{}mm | {} {} / S{} | {} {} / S{} | {} {} | {}",
                         preset.thickness_mm,
+                        tr("Engrave"),
                         preset.speed,
                         preset.power,
+                        tr("Cut"),
                         preset.cut_speed,
                         preset.cut_power,
                         preset.recommended_passes,
+                        tr("Passes"),
                         machine_scope
                     ))
                     .small(),
@@ -429,7 +436,7 @@ pub fn show_with_context(
 
             ui.horizontal(|ui| {
                 if ui
-                    .button(RichText::new("✔ Apply").color(theme::GREEN))
+                    .button(RichText::new(format!("✔ {}", tr("Apply"))).color(theme::GREEN))
                     .clicked()
                 {
                     action.apply_speed = Some(preset.speed);
@@ -437,7 +444,7 @@ pub fn show_with_context(
                     action.apply_cut_speed = Some(preset.cut_speed);
                     action.apply_cut_power = Some(preset.cut_power);
                 }
-                if context.active_layer.is_some() && ui.button("🎯 Apply to Active Layer").clicked()
+                if context.active_layer.is_some() && ui.button(format!("🎯 {}", tr("Apply to Active Layer"))).clicked()
                 {
                     action.apply_to_active_layer = Some(preset.as_layer_update());
                     action.apply_speed = Some(preset.speed);
@@ -445,7 +452,7 @@ pub fn show_with_context(
                     action.apply_cut_speed = Some(preset.cut_speed);
                     action.apply_cut_power = Some(preset.cut_power);
                 }
-                if ui.button("✎ Edit").clicked() {
+                if ui.button(format!("✎ {}", tr("Edit"))).clicked() {
                     state.editing = true;
                     state.edit_preset = preset.clone();
                 }
@@ -475,11 +482,11 @@ pub fn show_with_context(
             let mut ep = state.edit_preset.clone();
 
             ui.horizontal(|ui| {
-                ui.label("Name:");
+                ui.label(format!("{}:", tr("Name")));
                 ui.text_edit_singleline(&mut ep.name);
             });
             ui.horizontal(|ui| {
-                ui.label("Thickness (mm):");
+                ui.label(format!("{} (mm):", tr("Thickness")));
                 ui.add(
                     egui::DragValue::new(&mut ep.thickness_mm)
                         .speed(0.5)
@@ -487,51 +494,51 @@ pub fn show_with_context(
                 );
             });
             ui.horizontal(|ui| {
-                ui.label("Engrave Speed:");
+                ui.label(format!("{} {}:", tr("Engrave"), tr("Speed")));
                 ui.add(egui::DragValue::new(&mut ep.speed).speed(10.0));
-                ui.label("Power:");
+                ui.label(format!("{}:", tr("Power")));
                 ui.add(egui::DragValue::new(&mut ep.power).speed(5.0));
             });
             ui.horizontal(|ui| {
-                ui.label("Cut Speed:");
+                ui.label(format!("{} {}:", tr("Cut"), tr("Speed")));
                 ui.add(egui::DragValue::new(&mut ep.cut_speed).speed(10.0));
-                ui.label("Power:");
+                ui.label(format!("{}:", tr("Power")));
                 ui.add(egui::DragValue::new(&mut ep.cut_power).speed(5.0));
             });
             ui.horizontal(|ui| {
-                ui.label("Recommended Passes:");
+                ui.label(format!("{}:", tr("Recommended Passes")));
                 ui.add(egui::DragValue::new(&mut ep.recommended_passes).range(1..=20));
             });
             ui.horizontal(|ui| {
-                ui.label("Machine Profile:");
+                ui.label(format!("{}:", tr("Machine Profile")));
                 ui.text_edit_singleline(&mut ep.machine_profile);
             });
             ui.horizontal(|ui| {
-                ui.label("Operation:");
+                ui.label(format!("{}:", tr("Operation")));
                 egui::ComboBox::from_id_salt("material_operation_combo")
                     .selected_text(match ep.operation {
-                        MaterialOperation::Engrave => "Engrave",
-                        MaterialOperation::Cut => "Cut",
-                        MaterialOperation::Hybrid => "Hybrid",
+                        MaterialOperation::Engrave => tr("Engrave"),
+                        MaterialOperation::Cut => tr("Cut"),
+                        MaterialOperation::Hybrid => tr("Hybrid"),
                     })
                     .show_ui(ui, |ui| {
                         ui.selectable_value(
                             &mut ep.operation,
                             MaterialOperation::Engrave,
-                            "Engrave",
+                            tr("Engrave"),
                         );
-                        ui.selectable_value(&mut ep.operation, MaterialOperation::Cut, "Cut");
-                        ui.selectable_value(&mut ep.operation, MaterialOperation::Hybrid, "Hybrid");
+                        ui.selectable_value(&mut ep.operation, MaterialOperation::Cut, tr("Cut"));
+                        ui.selectable_value(&mut ep.operation, MaterialOperation::Hybrid, tr("Hybrid"));
                     });
             });
             ui.horizontal(|ui| {
                 if ui
-                    .button(RichText::new("💾 Save").color(theme::GREEN))
+                    .button(RichText::new(format!("💾 {}", tr("Save"))).color(theme::GREEN))
                     .clicked()
                 {
                     save_clicked = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if ui.button(tr("Cancel")).clicked() {
                     cancel_clicked = true;
                 }
             });

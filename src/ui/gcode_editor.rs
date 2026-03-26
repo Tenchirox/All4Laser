@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 /// Integrated GCode editor panel
 use egui::RichText;
@@ -6,6 +7,9 @@ pub struct GCodeEditorState {
     pub is_open: bool,
     pub text: String,
     pub dirty: bool,
+    pub confirm_close: bool,
+    pub search_query: String,
+    pub search_case_sensitive: bool,
 }
 
 impl Default for GCodeEditorState {
@@ -14,6 +18,9 @@ impl Default for GCodeEditorState {
             is_open: false,
             text: String::new(),
             dirty: false,
+            confirm_close: false,
+            search_query: String::new(),
+            search_case_sensitive: false,
         }
     }
 }
@@ -32,22 +39,45 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
     let mut apply_clicked = false;
     let mut close_clicked = false;
 
+    // Confirmation dialog for unsaved changes
+    if state.confirm_close {
+        egui::Window::new(format!("⚠ {}", tr("Unsaved Changes")))
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(tr("You have unsaved changes. Discard them?"));
+                ui.horizontal(|ui| {
+                    if ui.button(format!("💾 {}", tr("Save & Close"))).clicked() {
+                        apply_clicked = true;
+                        state.confirm_close = false;
+                        close_clicked = true;
+                    }
+                    if ui.button(format!("✘ {}", tr("Discard"))).clicked() {
+                        state.confirm_close = false;
+                        close_clicked = true;
+                    }
+                    if ui.button(tr("Cancel")).clicked() {
+                        state.confirm_close = false;
+                    }
+                });
+            });
+    }
+
     egui::Window::new("📝 GCode Editor")
         .resizable(true)
         .default_size([640.0, 480.0])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new("📝 GCode Editor")
-                        .color(theme::LAVENDER)
-                        .strong(),
-                );
                 if state.dirty {
                     ui.label(RichText::new("● unsaved").color(theme::PEACH).small());
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("✖ Close").clicked() {
-                        close_clicked = true;
+                    if ui.button(format!("✖ {}", tr("Close"))).clicked() {
+                        if state.dirty {
+                            state.confirm_close = true;
+                        } else {
+                            close_clicked = true;
+                        }
                     }
                     if ui
                         .button(RichText::new("✔ Apply").color(theme::GREEN))
@@ -57,6 +87,34 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
                     }
                 });
             });
+            ui.separator();
+            
+            // Search bar
+            ui.horizontal(|ui| {
+                ui.label(tr("Search:"));
+                let search_response = ui.add(
+                    egui::TextEdit::singleline(&mut state.search_query)
+                        .hint_text(tr("Ctrl+F to search"))
+                        .desired_width(200.0)
+                );
+                ui.checkbox(&mut state.search_case_sensitive, tr("Case Sensitive"));
+                
+                // Handle Ctrl+F focus
+                if ui.input(|i| i.key_pressed(egui::Key::F) && i.modifiers.ctrl) {
+                    ui.memory_mut(|mem| mem.request_focus(search_response.id));
+                }
+                
+                // Highlight search results
+                if !state.search_query.is_empty() {
+                    let match_count = count_matches(&state.text, &state.search_query, state.search_case_sensitive);
+                    if match_count == 0 {
+                        ui.label(RichText::new("No matches").color(theme::SUBTEXT).small());
+                    } else {
+                        ui.label(RichText::new(format!("{} matches", match_count)).color(theme::GREEN).small());
+                    }
+                }
+            });
+            
             ui.separator();
 
             let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
@@ -116,21 +174,43 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
                 ui.fonts(|f| f.layout_job(job))
             };
 
-            let response = egui::ScrollArea::vertical()
-                .max_height(420.0)
-                .show(ui, |ui| {
-                    ui.add_sized(
-                        [ui.available_width(), 400.0],
-                        egui::TextEdit::multiline(&mut state.text)
-                            .font(egui::TextStyle::Monospace)
-                            .layouter(&mut layouter)
-                            .desired_rows(20),
-                    )
+            // Line numbers + editor layout
+            let font_id = egui::TextStyle::Monospace.resolve(ui.style());
+            let line_height = ui.fonts(|f| f.row_height(&font_id));
+            let text = &state.text;
+            let line_count = text.lines().count().max(1);
+            let gutter_width = format!("{}", line_count).len() as f32 * 8.0 + 16.0;
+
+            ui.horizontal(|ui| {
+                // Gutter with line numbers
+                ui.vertical(|ui| {
+                    ui.set_width(gutter_width);
+                    for i in 1..=line_count {
+                        ui.label(
+                            RichText::new(format!("{}", i))
+                                .font(font_id.clone())
+                                .color(theme::SUBTEXT)
+                                .small(),
+                        );
+                    }
                 });
 
-            if response.inner.changed() {
-                state.dirty = true;
-            }
+                let response = egui::ScrollArea::vertical()
+                    .max_height(ui.available_height() - 100.0) // Extra space for search bar
+                    .show(ui, |ui| {
+                        ui.add_sized(
+                            [ui.available_width(), (line_count as f32 * line_height).max(400.0)],
+                            egui::TextEdit::multiline(&mut state.text)
+                                .font(egui::TextStyle::Monospace)
+                                .layouter(&mut layouter)
+                                .desired_rows(line_count.max(20)),
+                        )
+                    });
+
+                if response.inner.changed() {
+                    state.dirty = true;
+                }
+            });
         });
 
     if apply_clicked {
@@ -143,6 +223,38 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
     }
 
     action
+}
+
+fn count_matches(text: &str, query: &str, case_sensitive: bool) -> usize {
+    if query.is_empty() {
+        return 0;
+    }
+
+    let text_owned;
+    let query_owned;
+    let search_text = if case_sensitive {
+        text
+    } else {
+        text_owned = text.to_lowercase();
+        &text_owned
+    };
+    let search_query = if case_sensitive {
+        query
+    } else {
+        query_owned = query.to_lowercase();
+        &query_owned
+    };
+
+    let mut count = 0;
+    for line in search_text.lines() {
+        let mut start = 0;
+        while let Some(pos) = line[start..].find(search_query) {
+            count += 1;
+            start += pos + 1;
+        }
+    }
+
+    count
 }
 
 fn format_token(ui: &egui::Ui, token: &str) -> egui::TextFormat {

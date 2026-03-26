@@ -24,32 +24,41 @@ pub fn show(
                 .size(14.0),
         );
         ui.add_space(4.0);
+        
+        // Keyboard hint
+        ui.label(
+            RichText::new(format!("💡 {}", tr("Use arrow keys to jog")))
+                .small()
+                .color(theme::SUBTEXT),
+        );
+        ui.add_space(4.0);
 
-        let btn_size = Vec2::new(36.0, 36.0);
+        let cardinal = Vec2::new(38.0, 38.0);
+        let z_btn = Vec2::new(38.0, 32.0);
 
         // Row 1: NW N NE
         ui.horizontal(|ui| {
             if ui
-                .add_enabled(can_jog, egui::Button::new("↖").min_size(btn_size))
+                .add_enabled(can_jog, egui::Button::new("↖").min_size(cardinal))
                 .clicked()
             {
                 action.direction = Some(JogDirection::NW);
             }
             if ui
-                .add_enabled(can_jog, egui::Button::new("↑").min_size(btn_size))
+                .add_enabled(can_jog, egui::Button::new(RichText::new("↑").strong()).min_size(cardinal))
                 .clicked()
             {
                 action.direction = Some(JogDirection::N);
             }
             if ui
-                .add_enabled(can_jog, egui::Button::new("↗").min_size(btn_size))
+                .add_enabled(can_jog, egui::Button::new("↗").min_size(cardinal))
                 .clicked()
             {
                 action.direction = Some(JogDirection::NE);
             }
             ui.add_space(8.0);
             if ui
-                .add_enabled(can_jog, egui::Button::new("Z↑").min_size(btn_size))
+                .add_enabled(can_jog, egui::Button::new("Z↑").min_size(z_btn))
                 .clicked()
             {
                 action.direction = Some(JogDirection::Zup);
@@ -59,7 +68,7 @@ pub fn show(
         // Row 2: W Home E
         ui.horizontal(|ui| {
             if ui
-                .add_enabled(can_jog, egui::Button::new("←").min_size(btn_size))
+                .add_enabled(can_jog, egui::Button::new(RichText::new("←").strong()).min_size(cardinal))
                 .clicked()
             {
                 action.direction = Some(JogDirection::W);
@@ -67,21 +76,21 @@ pub fn show(
             if ui
                 .add_enabled(
                     can_jog && can_home,
-                    egui::Button::new("⌂").min_size(btn_size),
+                    egui::Button::new(RichText::new("⌂").strong()).min_size(cardinal),
                 )
                 .clicked()
             {
                 action.direction = Some(JogDirection::Home);
             }
             if ui
-                .add_enabled(can_jog, egui::Button::new("→").min_size(btn_size))
+                .add_enabled(can_jog, egui::Button::new(RichText::new("→").strong()).min_size(cardinal))
                 .clicked()
             {
                 action.direction = Some(JogDirection::E);
             }
             ui.add_space(8.0);
             if ui
-                .add_enabled(can_jog, egui::Button::new("Z↓").min_size(btn_size))
+                .add_enabled(can_jog, egui::Button::new("Z↓").min_size(z_btn))
                 .clicked()
             {
                 action.direction = Some(JogDirection::Zdown);
@@ -91,19 +100,19 @@ pub fn show(
         // Row 3: SW S SE
         ui.horizontal(|ui| {
             if ui
-                .add_enabled(can_jog, egui::Button::new("↙").min_size(btn_size))
+                .add_enabled(can_jog, egui::Button::new("↙").min_size(cardinal))
                 .clicked()
             {
                 action.direction = Some(JogDirection::SW);
             }
             if ui
-                .add_enabled(can_jog, egui::Button::new("↓").min_size(btn_size))
+                .add_enabled(can_jog, egui::Button::new(RichText::new("↓").strong()).min_size(cardinal))
                 .clicked()
             {
                 action.direction = Some(JogDirection::S);
             }
             if ui
-                .add_enabled(can_jog, egui::Button::new("↘").min_size(btn_size))
+                .add_enabled(can_jog, egui::Button::new("↘").min_size(cardinal))
                 .clicked()
             {
                 action.direction = Some(JogDirection::SE);
@@ -115,7 +124,7 @@ pub fn show(
         // Step size selector
         ui.horizontal(|ui| {
             ui.label(RichText::new(tr("Step:")).color(theme::SUBTEXT));
-            for &s in &[0.1_f32, 1.0, 5.0, 10.0] {
+            for &s in &[0.1_f32, 0.5, 1.0, 5.0, 10.0, 50.0] {
                 let label = if s < 1.0 {
                     format!("{s}")
                 } else {

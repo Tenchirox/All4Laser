@@ -14,6 +14,7 @@ pub enum QuickPosition {
 pub struct MachineStateAction {
     pub toggle_focus: bool,
     pub quick_pos: Option<QuickPosition>,
+    pub confirm_focus: bool,
 }
 
 use crate::i18n::tr;
@@ -27,6 +28,7 @@ pub fn show(
     let mut action = MachineStateAction {
         toggle_focus: false,
         quick_pos: None,
+        confirm_focus: false,
     };
 
     ui.group(|ui| {
@@ -35,16 +37,7 @@ pub fn show(
                 .color(theme::LAVENDER)
                 .strong()
                 .size(14.0),
-        ); // Used Machine Profile but typically "Status"
-        // Let's use "Status" or just re-use Machine Profile string if it matches intent, or add new key.
-        // I added "Machine Profile" to dictionary. Let's use that or add "Machine State".
-        // Actually the dictionary has "Machine Profile". The panel is "Machine State".
-        // Let's stick to "Machine Profile" or add "Machine State" to dictionary?
-        // I'll stick to "Machine Profile" for now as it's close enough or I will update i18n later.
-        // Actually, let's just use "Machine State" and rely on English fallback until I add it.
-        // Wait, I can add it to i18n.rs easily.
-        // I'll assume "Machine Profile" is OK or add "Machine State".
-        // Let's use "Machine Profile" as I have it translated.
+        );
         ui.add_space(4.0);
 
         Grid::new("machine_state_grid")
@@ -59,7 +52,7 @@ pub fn show(
                 ui.end_row();
 
                 // MPos
-                ui.label(RichText::new("MPos").color(theme::SUBTEXT));
+                ui.label(RichText::new(tr("MPos")).color(theme::SUBTEXT));
                 ui.label(
                     RichText::new(format!("{:.3}", state.mpos.x))
                         .color(theme::TEXT)
@@ -78,7 +71,7 @@ pub fn show(
                 ui.end_row();
 
                 // WPos
-                ui.label(RichText::new("WPos").color(theme::SUBTEXT));
+                ui.label(RichText::new(tr("WPos")).color(theme::SUBTEXT));
                 ui.label(
                     RichText::new(format!("{:.3}", state.wpos.x))
                         .color(theme::TEXT)
@@ -107,9 +100,9 @@ pub fn show(
                     .monospace(),
             );
             ui.add_space(12.0);
-            ui.label(RichText::new(tr("Spindle:")).color(theme::SUBTEXT));
+            ui.label(RichText::new(tr("Laser:")).color(theme::SUBTEXT));
             ui.label(
-                RichText::new(format!("{:.0} RPM", state.spindle_speed))
+                RichText::new(format!("S{:.0}", state.spindle_speed))
                     .color(theme::MAUVE)
                     .monospace(),
             );
@@ -118,9 +111,9 @@ pub fn show(
         ui.add_space(4.0);
 
         let focus_label = if is_focused {
-            "🔥 Laser Focus (ON)"
+            format!("🔥 {} ({})", tr("Laser Focus"), tr("ON"))
         } else {
-            "🔦 Laser Focus (OFF)"
+            format!("🔦 {} ({})", tr("Laser Focus"), tr("OFF"))
         };
         let focus_color = if is_focused {
             theme::RED
@@ -132,9 +125,15 @@ pub fn show(
                 connected,
                 egui::Button::new(RichText::new(focus_label).color(focus_color)),
             )
+            .on_hover_text(tr("Click to toggle laser focus mode (low power laser on)"))
             .clicked()
         {
-            action.toggle_focus = true;
+            // Show confirmation when turning ON
+            if !is_focused {
+                action.confirm_focus = true;
+            } else {
+                action.toggle_focus = true;
+            }
         }
 
         ui.add_space(8.0);
@@ -143,38 +142,40 @@ pub fn show(
                 .color(theme::LAVENDER)
                 .strong(),
         );
+        ui.add_space(2.0);
 
+        let qb = egui::vec2(36.0, 24.0);
         ui.horizontal(|ui| {
-            if ui
-                .add_enabled(connected, egui::Button::new("⌜ TL"))
-                .clicked()
-            {
+            if ui.add_enabled(connected, egui::Button::new(format!("⌜ {}", tr("TL"))).min_size(qb)
+                .on_hover_text(format!("{} (0, Ymax)", tr("Move to Top-Left")))
+            ).clicked() {
                 action.quick_pos = Some(QuickPosition::TopLeft);
             }
-            if ui
-                .add_enabled(connected, egui::Button::new("⌂ C"))
-                .clicked()
-            {
-                action.quick_pos = Some(QuickPosition::Center);
-            }
-            if ui
-                .add_enabled(connected, egui::Button::new("⌝ TR"))
-                .clicked()
-            {
+            ui.add_space(4.0);
+            if ui.add_enabled(connected, egui::Button::new(format!("⌝ {}", tr("TR"))).min_size(qb)
+                .on_hover_text(format!("{} (Xmax, Ymax)", tr("Move to Top-Right")))
+            ).clicked() {
                 action.quick_pos = Some(QuickPosition::TopRight);
             }
         });
         ui.horizontal(|ui| {
-            if ui
-                .add_enabled(connected, egui::Button::new("⌞ BL"))
-                .clicked()
-            {
+            ui.add_space(16.0);
+            if ui.add_enabled(connected, egui::Button::new(format!("⌂ {}", tr("C"))).min_size(qb)
+                .on_hover_text(format!("{} (Xmax/2, Ymax/2)", tr("Move to Center")))
+            ).clicked() {
+                action.quick_pos = Some(QuickPosition::Center);
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui.add_enabled(connected, egui::Button::new(format!("⌞ {}", tr("BL"))).min_size(qb)
+                .on_hover_text(format!("{} (0, 0)", tr("Move to Bottom-Left")))
+            ).clicked() {
                 action.quick_pos = Some(QuickPosition::BottomLeft);
             }
-            if ui
-                .add_enabled(connected, egui::Button::new("⌟ BR"))
-                .clicked()
-            {
+            ui.add_space(4.0);
+            if ui.add_enabled(connected, egui::Button::new(format!("⌟ {}", tr("BR"))).min_size(qb)
+                .on_hover_text(format!("{} (Xmax, 0)", tr("Move to Bottom-Right")))
+            ).clicked() {
                 action.quick_pos = Some(QuickPosition::BottomRight);
             }
         });

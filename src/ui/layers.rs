@@ -1,13 +1,14 @@
 #![allow(dead_code)]
 
 use crate::gcode::types::LayerSettings;
+use crate::i18n::tr;
 use egui::{RichText, Ui};
 
 pub fn show(ui: &mut Ui, layers: &mut [LayerSettings]) {
     ui.group(|ui| {
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new("📑 Project Layers")
+                RichText::new(format!("📑 {}", tr("Project Layers")))
                     .color(crate::theme::LAVENDER)
                     .strong(),
             );
@@ -15,7 +16,7 @@ pub fn show(ui: &mut Ui, layers: &mut [LayerSettings]) {
         ui.add_space(4.0);
 
         if layers.is_empty() {
-            ui.label("No layers detected.");
+            ui.label(tr("No layers detected."));
             return;
         }
 
@@ -34,7 +35,7 @@ pub fn show(ui: &mut Ui, layers: &mut [LayerSettings]) {
                             ui.checkbox(&mut layer.visible, "");
 
                             let name = if layer.name.is_empty() {
-                                format!("Layer {}", i)
+                                format!("{} {}", tr("Layer"), i)
                             } else {
                                 layer.name.clone()
                             };
@@ -43,9 +44,9 @@ pub fn show(ui: &mut Ui, layers: &mut [LayerSettings]) {
 
                         if layer.visible {
                             ui.horizontal(|ui| {
-                                ui.label("Passes:");
+                                ui.label(format!("{}:", tr("Passes")));
                                 ui.add(egui::DragValue::new(&mut layer.passes).range(1..=50));
-                                ui.label("Pwr:");
+                                ui.label(format!("{}:", tr("Pwr")));
                                 ui.add(
                                     egui::DragValue::new(&mut layer.power)
                                         .speed(10.0)

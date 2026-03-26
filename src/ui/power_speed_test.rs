@@ -1,5 +1,6 @@
 /// Power/Speed Test Matrix Generator
 /// Produces a grid of small squares, each engraved at a different power/speed combination
+use crate::i18n::tr;
 use crate::theme;
 
 pub struct PowerSpeedTestState {
@@ -52,7 +53,7 @@ pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState) -> PowerSpeedT
     let mut generate_clicked = false;
     let mut close = false;
 
-    egui::Window::new("⊞ Power/Speed Test Matrix")
+    egui::Window::new(format!("⊞ {}", tr("Power/Speed Test Matrix")))
         .resizable(false)
         .collapsible(false)
         .show(ctx, |ui| {
@@ -60,56 +61,58 @@ pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState) -> PowerSpeedT
                 .num_columns(2)
                 .spacing([12.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label("Rows (speed steps):");
+                    ui.label(format!("{} ({}):", tr("Rows"), tr("speed steps")));
                     ui.add(egui::DragValue::new(&mut state.rows).range(1..=20));
                     ui.end_row();
-                    ui.label("Cols (power steps):");
+                    ui.label(format!("{} ({}):", tr("Cols"), tr("power steps")));
                     ui.add(egui::DragValue::new(&mut state.cols).range(1..=20));
                     ui.end_row();
-                    ui.label("Speed min (mm/min):");
+                    ui.label(format!("{} {} (mm/min):", tr("Speed"), tr("min")));
                     ui.add(egui::DragValue::new(&mut state.speed_min).speed(50.0));
                     ui.end_row();
-                    ui.label("Speed max (mm/min):");
+                    ui.label(format!("{} {} (mm/min):", tr("Speed"), tr("max")));
                     ui.add(egui::DragValue::new(&mut state.speed_max).speed(50.0));
                     ui.end_row();
-                    ui.label("Power min (S):");
+                    ui.label(format!("{} {} (S):", tr("Power"), tr("min")));
                     ui.add(egui::DragValue::new(&mut state.power_min).speed(10.0));
                     ui.end_row();
-                    ui.label("Power max (S):");
+                    ui.label(format!("{} {} (S):", tr("Power"), tr("max")));
                     ui.add(egui::DragValue::new(&mut state.power_max).speed(10.0));
                     ui.end_row();
-                    ui.label("Cell size (mm):");
+                    ui.label(format!("{} (mm):", tr("Cell size")));
                     ui.add(egui::DragValue::new(&mut state.cell_size).range(2.0..=50.0));
                     ui.end_row();
-                    ui.label("Gap (mm):");
+                    ui.label(format!("{} (mm):", tr("Gap")));
                     ui.add(egui::DragValue::new(&mut state.cell_gap).range(0.5..=10.0));
                     ui.end_row();
-                    ui.label("Interval (mm):");
+                    ui.label(format!("{} (mm):", tr("Interval")));
                     ui.add(
                         egui::DragValue::new(&mut state.interval_mm)
                             .range(0.01..=2.0)
                             .speed(0.01),
                     );
                     ui.end_row();
-                    ui.label("Origin X:");
+                    ui.label(format!("{} X:", tr("Origin")));
                     ui.add(egui::DragValue::new(&mut state.origin_x));
                     ui.end_row();
-                    ui.label("Origin Y:");
+                    ui.label(format!("{} Y:", tr("Origin")));
                     ui.add(egui::DragValue::new(&mut state.origin_y));
                     ui.end_row();
                 });
             ui.horizontal(|ui| {
-                ui.checkbox(&mut state.scan_bidirectional, "Bidirectional Scan");
+                ui.checkbox(&mut state.scan_bidirectional, tr("Bidirectional Scan"));
             });
 
             let total_w = (state.cell_size + state.cell_gap) * state.cols as f32;
             let total_h = (state.cell_size + state.cell_gap) * state.rows as f32;
             ui.label(
                 egui::RichText::new(format!(
-                    "Total size: {:.0}×{:.0}mm | {} squares",
+                    "{}: {:.0}×{:.0}mm | {} {}",
+                    tr("Total size"),
                     total_w,
                     total_h,
-                    state.rows * state.cols
+                    state.rows * state.cols,
+                    tr("squares")
                 ))
                 .small(),
             );
@@ -118,7 +121,7 @@ pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState) -> PowerSpeedT
             ui.horizontal(|ui| {
                 if ui
                     .button(
-                        egui::RichText::new("⚡ Generate & Load")
+                        egui::RichText::new(format!("⚡ {}", tr("Generate & Load")))
                             .color(theme::GREEN)
                             .strong(),
                     )
@@ -126,7 +129,7 @@ pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState) -> PowerSpeedT
                 {
                     generate_clicked = true;
                 }
-                if ui.button("Close").clicked() {
+                if ui.button(tr("Close")).clicked() {
                     close = true;
                 }
             });

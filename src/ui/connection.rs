@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 use egui::{ComboBox, RichText, Ui};
 
@@ -31,7 +32,7 @@ pub fn show(
 
     ui.group(|ui| {
         ui.label(
-            RichText::new("Connection")
+            RichText::new(tr("Connection"))
                 .color(theme::LAVENDER)
                 .strong()
                 .size(14.0),
@@ -39,9 +40,9 @@ pub fn show(
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.label("Port:");
+            ui.label(format!("{}:", tr("Port")));
             let port_label = if ports.is_empty() {
-                "No ports".to_string()
+                tr("No ports").to_string()
             } else {
                 ports.get(*selected_port).cloned().unwrap_or_default()
             };
@@ -55,7 +56,7 @@ pub fn show(
         });
 
         ui.horizontal(|ui| {
-            ui.label("Baud:");
+            ui.label(format!("{}:", tr("Baud")));
             let baud_label = format!("{}", get_baud(baud_rates, *selected_baud));
             ComboBox::from_id_salt("baud_combo")
                 .selected_text(baud_label)
@@ -69,7 +70,7 @@ pub fn show(
         ui.horizontal(|ui| {
             if connected {
                 if ui
-                    .button(RichText::new("Disconnect").color(theme::RED))
+                    .button(RichText::new(tr("Disconnect")).color(theme::RED))
                     .clicked()
                 {
                     action.disconnect = true;
@@ -79,14 +80,14 @@ pub fn show(
                 if ui
                     .add_enabled(
                         can_connect,
-                        egui::Button::new(RichText::new("Connect").color(theme::GREEN)),
+                        egui::Button::new(RichText::new(tr("Connect")).color(theme::GREEN)),
                     )
                     .clicked()
                 {
                     action.connect = true;
                 }
             }
-            if ui.button("↻ Refresh").clicked() {
+            if ui.button(format!("↻ {}", tr("Refresh"))).clicked() {
                 action.refresh_ports = true;
             }
         });
