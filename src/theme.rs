@@ -123,9 +123,43 @@ pub const TEAL: Color32 = Color32::from_rgb(148, 226, 213); // #94E2D5
 pub const BASE: Color32 = DARK_BASE;
 pub const MANTLE: Color32 = DARK_MANTLE;
 pub const CRUST: Color32 = DARK_CRUST;
+// Legacy constants (always dark) - use get_surface0(), get_surface1(), get_surface2() for theme-aware colors
 pub const SURFACE0: Color32 = DARK_SURFACE0;
 pub const SURFACE1: Color32 = DARK_SURFACE1;
 pub const SURFACE2: Color32 = DARK_SURFACE2;
+
+/// Get theme-aware surface colors based on current app theme
+pub fn get_surface0(is_light: bool) -> Color32 {
+    if is_light { LIGHT_SURFACE0 } else { DARK_SURFACE0 }
+}
+
+pub fn get_surface1(is_light: bool) -> Color32 {
+    if is_light { LIGHT_SURFACE1 } else { DARK_SURFACE1 }
+}
+
+pub fn get_surface2(is_light: bool) -> Color32 {
+    if is_light { LIGHT_SURFACE2 } else { DARK_SURFACE2 }
+}
+
+pub fn get_base(is_light: bool) -> Color32 {
+    if is_light { LIGHT_BASE } else { DARK_BASE }
+}
+
+pub fn get_mantle(is_light: bool) -> Color32 {
+    if is_light { LIGHT_MANTLE } else { DARK_MANTLE }
+}
+
+pub fn get_crust(is_light: bool) -> Color32 {
+    if is_light { LIGHT_CRUST } else { DARK_CRUST }
+}
+
+pub fn get_text(is_light: bool) -> Color32 {
+    if is_light { LIGHT_TEXT } else { DARK_TEXT }
+}
+
+pub fn get_subtext(is_light: bool) -> Color32 {
+    if is_light { LIGHT_SUBTEXT } else { DARK_SUBTEXT }
+}
 pub const OVERLAY0: Color32 = DARK_OVERLAY0;
 pub const OVERLAY2: Color32 = DARK_OVERLAY2;
 pub const TEXT: Color32 = DARK_TEXT;

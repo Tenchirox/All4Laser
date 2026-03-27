@@ -8,7 +8,7 @@ pub struct PaletteAction {
     pub open_settings: Option<usize>,
 }
 
-pub fn show(ui: &mut Ui, layers: &[CutLayer], active_idx: usize) -> PaletteAction {
+pub fn show(ui: &mut Ui, layers: &[CutLayer], active_idx: usize, is_light_mode: bool) -> PaletteAction {
     let mut action = PaletteAction {
         select_layer: None,
         open_settings: None,
@@ -33,9 +33,9 @@ pub fn show(ui: &mut Ui, layers: &[CutLayer], active_idx: usize) -> PaletteActio
                     if ui.is_rect_visible(rect) {
                         // Background
                         let bg = if is_active {
-                            theme::TEXT
+                            crate::theme::get_text(is_light_mode)
                         } else {
-                            theme::SURFACE0
+                            crate::theme::get_surface0(is_light_mode)
                         };
                         ui.painter().rect_filled(rect, 2.0, bg);
 

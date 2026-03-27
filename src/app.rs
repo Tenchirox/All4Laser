@@ -3911,6 +3911,7 @@ impl All4LaserApp {
                             &mut self.layers,
                             self.active_layer_idx,
                             &used_layers,
+                            self.light_mode,
                         );
                         if let Some(idx) = list_action.select_layer {
                             self.active_layer_idx = idx;
@@ -5534,7 +5535,7 @@ impl eframe::App for All4LaserApp {
         TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             // Palette (above status info for visibility)
             ui.add_space(2.0);
-            let pal_action = ui::cut_palette::show(ui, &self.layers, self.active_layer_idx);
+            let pal_action = ui::cut_palette::show(ui, &self.layers, self.active_layer_idx, self.light_mode);
             if let Some(idx) = pal_action.select_layer {
                 self.assign_selected_shapes_to_layer(idx);
                 self.active_layer_idx = idx;

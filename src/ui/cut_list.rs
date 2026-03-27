@@ -44,6 +44,7 @@ pub fn show(
     layers: &mut [CutLayer],
     active_idx: usize,
     used_layers: &[usize],
+    is_light_mode: bool,
 ) -> CutListAction {
     let mut action = CutListAction {
         select_layer: None,
@@ -89,7 +90,11 @@ pub fn show(
             };
             let is_active = i == active_idx;
 
-            let frame_fill = if is_active { theme::SURFACE1 } else { theme::SURFACE0 };
+            let frame_fill = if is_active { 
+    crate::theme::get_surface1(is_light_mode) 
+} else { 
+    crate::theme::get_surface0(is_light_mode) 
+};
             egui::Frame::new()
                 .fill(frame_fill)
                 .inner_margin(egui::Margin::same(4))
@@ -161,7 +166,11 @@ pub fn show(
                                         RichText::new(&layer.name)
                                             .strong()
                                             .size(12.0)
-                                            .color(if is_active { theme::TEXT } else { theme::SUBTEXT }),
+                                            .color(if is_active { 
+    crate::theme::get_text(is_light_mode) 
+} else { 
+    crate::theme::get_subtext(is_light_mode) 
+}),
                                     )
                                     .sense(Sense::click()),
                                 );
