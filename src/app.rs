@@ -4269,6 +4269,9 @@ impl All4LaserApp {
         if actions.save_project {
             self.handle_save_project();
         }
+        if actions.new_clear_project {
+            self.new_clear_project();
+        }
         if actions.open_settings {
             if self.settings_state.is_none() {
                 let mut state = ui::settings_dialog::SettingsDialogState::default();
@@ -4499,6 +4502,35 @@ impl All4LaserApp {
                 Err(e) => self.show_error(format!("Project save failed: {e}")),
             }
         }
+    }
+
+    fn new_clear_project(&mut self) {
+        // Clear all project data
+        self.loaded_file = None;
+        self.drawing_state = crate::ui::drawing::DrawingState::default();
+        self.clipboard_shapes.clear();
+        self.clipboard_paste_serial = 0;
+        self.node_undo_stack.clear();
+        self.node_redo_stack.clear();
+        self.import_state = None;
+        self.project_notes.clear();
+        self.active_layer_idx = 0;
+        self.layers = ui::layers_new::CutLayer::default_palette();
+        
+        // Reset camera and preview
+        self.renderer = PreviewRenderer::default();
+        self.needs_auto_fit = false;
+        
+        // Clear console
+        self.console_log.clear();
+        self.console_log.push_back("All4Laser ready. New project created.".to_string());
+        
+        // Reset other states
+        self.last_error = None;
+        self.preflight_report = None;
+        
+        // Add to console log that project was cleared
+        self.log("Project cleared".to_string());
     }
 
     fn update_preview(&mut self, ctx: &egui::Context) {
