@@ -7,14 +7,34 @@ use egui::{Color32, Context};
 pub enum UiTheme {
     Modern,     // Catppuccin
     Industrial, // LightBurn-style
-    Pro,        // Clean, High-contrast, Modern Professional
+    Pro,        // Deprecated: use Industrial instead
+}
+
+impl UiTheme {
+    /// Normalize deprecated variants
+    pub fn canonical(self) -> Self {
+        match self {
+            UiTheme::Pro => UiTheme::Industrial,
+            other => other,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum UiLayout {
     Modern,  // sidebar left
-    Classic, // LightBurn style (sidebar left/right, console right)
-    Pro,     // High-end workspace: wider panels, robust layout
+    Classic, // LightBurn style (sidebar left/right, console bottom)
+    Pro,     // Deprecated: use Classic instead
+}
+
+impl UiLayout {
+    /// Normalize deprecated variants
+    pub fn canonical(self) -> Self {
+        match self {
+            UiLayout::Pro => UiLayout::Classic,
+            other => other,
+        }
+    }
 }
 
 pub struct AppTheme {
@@ -209,32 +229,7 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
                 )
             }
         }
-        UiTheme::Pro => {
-            if state.is_light {
-                (
-                    Color32::from_rgb(250, 250, 250), // Base
-                    Color32::from_rgb(240, 240, 240), // Mantle
-                    Color32::from_rgb(230, 230, 230), // Crust
-                    Color32::from_rgb(255, 255, 255), // Surface0
-                    Color32::from_rgb(245, 245, 245), // Surface1
-                    Color32::from_rgb(220, 220, 220), // Surface2
-                    Color32::from_rgb(17, 24, 39),    // Text (very dark gray)
-                    Color32::from_rgb(14, 165, 233),  // Accent (Sky Blue)
-                )
-            } else {
-                (
-                    Color32::from_rgb(15, 23, 42),    // Base (Slate 900)
-                    Color32::from_rgb(2, 6, 23),      // Mantle (Slate 950)
-                    Color32::from_rgb(0, 0, 0),       // Crust (Black)
-                    Color32::from_rgb(30, 41, 59),    // Surface0 (Slate 800)
-                    Color32::from_rgb(51, 65, 85),    // Surface1 (Slate 700)
-                    Color32::from_rgb(71, 85, 105),   // Surface2 (Slate 600)
-                    Color32::from_rgb(248, 250, 252), // Text (Slate 50)
-                    Color32::from_rgb(56, 189, 248),  // Accent (Sky 400)
-                )
-            }
-        }
-        UiTheme::Industrial => {
+        UiTheme::Pro | UiTheme::Industrial => {
             // LightBurn utilise un thème sombre professionnel avec des accents bleus
             if state.is_light {
                 // Version claire inspirée de LightBurn
@@ -279,13 +274,7 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
                 Color32::from_rgb(60, 63, 82)
             }
         }
-        UiTheme::Pro => {
-            if state.is_light {
-                Color32::from_rgb(226, 232, 240) // Slate 200
-            } else {
-                Color32::from_rgb(51, 65, 85) // Slate 700
-            }
-        }
+        UiTheme::Pro => Color32::TRANSPARENT, // unreachable after canonical(), keeps match exhaustive
     };
 
     style.visuals.dark_mode = !state.is_light;
@@ -298,9 +287,8 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
 
     // Rounding based on theme
     let rounding = match state.ui_theme {
-        UiTheme::Industrial => egui::CornerRadius::same(1), // Quasi plat
-        UiTheme::Pro => egui::CornerRadius::same(4),        // Slightly rounded, crisp
-        UiTheme::Modern => egui::CornerRadius::same(6),     // Modern/Round
+        UiTheme::Industrial | UiTheme::Pro => egui::CornerRadius::same(1), // Quasi plat
+        UiTheme::Modern => egui::CornerRadius::same(6), // Modern/Round
     };
 
     // Noninteractive
@@ -312,14 +300,10 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
 
     // Inactive (default button state)
     style.visuals.widgets.inactive.bg_fill = surface0;
-    style.visuals.widgets.inactive.weak_bg_fill = if state.ui_theme == UiTheme::Industrial {
+    style.visuals.widgets.inactive.weak_bg_fill = if state.ui_theme == UiTheme::Industrial || state.ui_theme == UiTheme::Pro {
         mantle
     } else if state.is_light {
-        if state.ui_theme == UiTheme::Pro {
-            Color32::from_rgb(241, 245, 249)
-        } else {
-            Color32::from_rgb(225, 228, 238)
-        }
+        Color32::from_rgb(225, 228, 238)
     } else {
         surface0
     };
@@ -394,11 +378,7 @@ pub fn apply_theme(ctx: &Context, state: &AppTheme) {
             style.spacing.indent = 10.0;
             style.visuals.window_stroke = egui::Stroke::new(1.0, Color32::from_rgb(83, 85, 92));
         }
-        UiTheme::Pro => {
-            style.spacing.button_padding = egui::vec2(10.0, 5.0);
-            style.spacing.item_spacing = egui::vec2(6.0, 6.0);
-            style.spacing.indent = 12.0;
-        }
+        UiTheme::Pro => {} // unreachable after canonical()
         UiTheme::Modern => {
             style.spacing.button_padding = egui::vec2(12.0, 6.0);
             style.spacing.item_spacing = egui::vec2(8.0, 7.0);

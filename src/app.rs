@@ -345,8 +345,8 @@ impl All4LaserApp {
         });
 
         // Apply loaded settings
-        app.ui_theme = app.settings.theme;
-        app.ui_layout = app.settings.layout;
+        app.ui_theme = app.settings.theme.canonical();
+        app.ui_layout = app.settings.layout.canonical();
         app.light_mode = app.settings.light_mode;
         app.beginner_mode = app.settings.beginner_mode;
         app.language = app.settings.language;
@@ -5484,7 +5484,7 @@ impl eframe::App for All4LaserApp {
         let caps = self.controller_capabilities();
 
         let mut menu_actions = ui::toolbar::ToolbarAction::default();
-        if self.ui_theme == theme::UiTheme::Industrial || self.ui_theme == theme::UiTheme::Pro {
+        if self.ui_theme == theme::UiTheme::Industrial {
             TopBottomPanel::top("menu_bar_panel").show(ctx, |ui| {
                 menu_actions = ui::toolbar::show_menu_bar(
                     ui,
@@ -5530,7 +5530,7 @@ impl eframe::App for All4LaserApp {
                 let right_btn = ui.toggle_value(&mut self.show_right_panel, crate::i18n::tr("Right Panel"));
                 right_btn.on_hover_text(crate::i18n::tr("Toggle layers, cuts, and settings panel"));
                 
-                if self.ui_layout == theme::UiLayout::Pro {
+                if self.ui_layout == theme::UiLayout::Classic || self.ui_layout == theme::UiLayout::Pro {
                     let bottom_btn = ui.toggle_value(&mut self.show_bottom_panel, crate::i18n::tr("Console"));
                     bottom_btn.on_hover_text(crate::i18n::tr("Toggle console output panel"));
                 }
@@ -5628,8 +5628,7 @@ impl eframe::App for All4LaserApp {
         // === LEFT SIDEBAR ===
         let left_panel_width = match self.ui_layout {
             theme::UiLayout::Modern => LEFT_PANEL_WIDTH,
-            theme::UiLayout::Pro => 300.0,
-            theme::UiLayout::Classic => 360.0,
+            theme::UiLayout::Classic | theme::UiLayout::Pro => 340.0,
         };
         if self.show_left_panel {
             SidePanel::left("left_panel")
@@ -5649,8 +5648,7 @@ impl eframe::App for All4LaserApp {
         // === RIGHT SIDEBAR ===
         let right_panel_width = match self.ui_layout {
             theme::UiLayout::Modern => 220.0,
-            theme::UiLayout::Pro => 280.0,
-            theme::UiLayout::Classic => 340.0,
+            theme::UiLayout::Classic | theme::UiLayout::Pro => 320.0,
         };
         if self.show_right_panel {
             SidePanel::right("right_panel")
@@ -5667,8 +5665,8 @@ impl eframe::App for All4LaserApp {
                 });
         }
 
-        // === BOTTOM PANEL (Pro Layout Only) ===
-        if self.ui_layout == theme::UiLayout::Pro && self.show_bottom_panel {
+        // === BOTTOM PANEL (Classic Layout) ===
+        if (self.ui_layout == theme::UiLayout::Classic || self.ui_layout == theme::UiLayout::Pro) && self.show_bottom_panel {
             egui::TopBottomPanel::bottom("bottom_console_panel")
                 .resizable(true)
                 .default_height(150.0)

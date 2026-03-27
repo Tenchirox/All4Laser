@@ -436,10 +436,6 @@ pub fn show(
                 action.set_theme = Some(theme::UiTheme::Modern);
                 ui.close_menu();
             }
-            if ui.selectable_label(current_theme == theme::UiTheme::Pro, tr("Pro (new)")).clicked() {
-                action.set_theme = Some(theme::UiTheme::Pro);
-                ui.close_menu();
-            }
             if ui
                 .selectable_label(current_theme == theme::UiTheme::Industrial, tr("Industrial (advanced)"))
                 .clicked()
@@ -455,13 +451,6 @@ pub fn show(
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Modern);
-                ui.close_menu();
-            }
-            if ui
-                .selectable_label(current_layout == theme::UiLayout::Pro, tr("Pro layout (aesthetic & practical)"))
-                .clicked()
-            {
-                action.set_layout = Some(theme::UiLayout::Pro);
                 ui.close_menu();
             }
             if ui
@@ -691,10 +680,6 @@ pub fn show_menu_bar(
                 action.set_theme = Some(theme::UiTheme::Modern);
                 ui.close_menu();
             }
-            if ui.selectable_label(current_theme == theme::UiTheme::Pro, tr("Pro (new)")).clicked() {
-                action.set_theme = Some(theme::UiTheme::Pro);
-                ui.close_menu();
-            }
             if ui
                 .selectable_label(current_theme == theme::UiTheme::Industrial, tr("Industrial (advanced)"))
                 .clicked()
@@ -710,13 +695,6 @@ pub fn show_menu_bar(
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Modern);
-                ui.close_menu();
-            }
-            if ui
-                .selectable_label(current_layout == theme::UiLayout::Pro, tr("Pro layout (aesthetic & practical)"))
-                .clicked()
-            {
-                action.set_layout = Some(theme::UiLayout::Pro);
                 ui.close_menu();
             }
             if ui
