@@ -168,6 +168,13 @@ fn parse_path_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>
     let raw_h = raw_max_y - raw_min_y;
 
     // Coordinate transform: map raw dPath coords to display bbox, then flip Y
+    // Then bake in XCS rotation so the shape geometry is final (no ShapeParams.rotation needed).
+    let angle_rad = angle.to_radians();
+    let (sin_a, cos_a) = angle_rad.sin_cos();
+    // Rotation center in world coords (center of the display element)
+    let rot_cx = disp_x + disp_w * 0.5;
+    let rot_cy = -(disp_y + disp_h * 0.5);
+
     let xform = |px: f32, py: f32| -> (f32, f32) {
         let nx = if raw_w > 0.001 {
             (px - raw_min_x) / raw_w * disp_w + disp_x
@@ -179,7 +186,17 @@ fn parse_path_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>
         } else {
             disp_y
         };
-        (nx, -canvas_y)
+        let wx = nx;
+        let wy = -canvas_y;
+        // Bake rotation around display element center
+        if angle_rad.abs() > 1e-6 {
+            let dx = wx - rot_cx;
+            let dy = wy - rot_cy;
+            (rot_cx + dx * cos_a - dy * sin_a,
+             rot_cy + dx * sin_a + dy * cos_a)
+        } else {
+            (wx, wy)
+        }
     };
 
     let mut result = Vec::new();
@@ -188,7 +205,7 @@ fn parse_path_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>
             continue;
         }
 
-        // Transform start point and all segments
+        // Transform start point and all segments (includes rotation baking)
         let t_start = xform(sp.start.0, sp.start.1);
         let t_segs: Vec<PathSegment> = sp
             .segments
@@ -253,7 +270,7 @@ fn parse_path_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>
             shape: ShapeKind::Path(local_path),
             x: min_x,
             y: min_y,
-            rotation: angle,
+            rotation: 0.0,
             layer_idx,
             ..Default::default()
         });
