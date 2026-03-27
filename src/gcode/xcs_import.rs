@@ -80,6 +80,15 @@ pub fn import_xcs(content: &str) -> Result<Vec<ShapeParams>, String> {
                         None => eprintln!("[XCS]     -> parse_bitmap_display returned None"),
                     }
                 }
+                "CIRCLE" | "ELLIPSE" => {
+                    match parse_circle_display(disp, layer_idx) {
+                        Some(s) => {
+                            eprintln!("[XCS]     -> {} circle/ellipse shape(s)", s.len());
+                            shapes.extend(s);
+                        }
+                        None => eprintln!("[XCS]     -> parse_circle_display returned None"),
+                    }
+                }
                 _ => { eprintln!("[XCS]     -> skipped"); }
             }
         }
@@ -491,18 +500,24 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 }
             }
             "A" | "a" => {
-                // Arc command — approximate with line to endpoint
+                // Arc command — convert to cubic bezier curves
                 let relative = tokens[i] == "a";
                 i += 1;
                 while let Some((p7, adv)) = read_n_nums(&tokens, i, 7) {
-                    if relative {
-                        cx += p7[5];
-                        cy += p7[6];
+                    let rx = p7[0];
+                    let ry = p7[1];
+                    let x_rot = p7[2];
+                    let large_arc = p7[3].abs() > 0.5;
+                    let sweep = p7[4].abs() > 0.5;
+                    let (ex, ey) = if relative {
+                        (cx + p7[5], cy + p7[6])
                     } else {
-                        cx = p7[5];
-                        cy = p7[6];
-                    }
-                    segments.push(PathSegment::LineTo(cx, cy));
+                        (p7[5], p7[6])
+                    };
+                    let arc_segs = arc_to_beziers(cx, cy, rx, ry, x_rot, large_arc, sweep, ex, ey);
+                    segments.extend(arc_segs);
+                    cx = ex;
+                    cy = ey;
                     i += adv;
                 }
             }
@@ -599,5 +614,249 @@ fn read_n_nums(tokens: &[String], i: usize, n: usize) -> Option<(Vec<f32>, usize
         }
     }
     Some((vals, n))
+}
+
+/// Convert an SVG elliptical arc to cubic bézier segments.
+/// Uses the SVG spec's endpoint-to-center parameterization, then approximates
+/// each ≤90° arc segment with a cubic bézier curve.
+fn arc_to_beziers(
+    cx: f32, cy: f32,
+    mut rx: f32, mut ry: f32,
+    x_rotation_deg: f32,
+    large_arc: bool,
+    sweep: bool,
+    ex: f32, ey: f32,
+) -> Vec<PathSegment> {
+    use std::f32::consts::{FRAC_PI_2, TAU};
+
+    // Degenerate: same point
+    if (cx - ex).abs() < 1e-6 && (cy - ey).abs() < 1e-6 {
+        return Vec::new();
+    }
+
+    rx = rx.abs();
+    ry = ry.abs();
+    if rx < 1e-6 || ry < 1e-6 {
+        return vec![PathSegment::LineTo(ex, ey)];
+    }
+
+    let phi = x_rotation_deg.to_radians();
+    let (sin_phi, cos_phi) = phi.sin_cos();
+
+    // Step 1: Compute (x1', y1') — rotated midpoint
+    let dx = (cx - ex) / 2.0;
+    let dy = (cy - ey) / 2.0;
+    let x1p = cos_phi * dx + sin_phi * dy;
+    let y1p = -sin_phi * dx + cos_phi * dy;
+
+    // Step 2: Ensure radii are large enough
+    let x1p2 = x1p * x1p;
+    let y1p2 = y1p * y1p;
+    let mut rx2 = rx * rx;
+    let mut ry2 = ry * ry;
+
+    let lambda = x1p2 / rx2 + y1p2 / ry2;
+    if lambda > 1.0 {
+        let s = lambda.sqrt();
+        rx *= s;
+        ry *= s;
+        rx2 = rx * rx;
+        ry2 = ry * ry;
+    }
+
+    // Step 3: Compute center in transformed coordinates
+    let num = (rx2 * ry2 - rx2 * y1p2 - ry2 * x1p2).max(0.0);
+    let den = rx2 * y1p2 + ry2 * x1p2;
+    let sq = if den > 1e-10 { (num / den).sqrt() } else { 0.0 };
+    let sign = if large_arc == sweep { -1.0 } else { 1.0 };
+    let cxp = sign * sq * rx * y1p / ry;
+    let cyp = -sign * sq * ry * x1p / rx;
+
+    // Step 4: Compute actual center
+    let ccx = cos_phi * cxp - sin_phi * cyp + (cx + ex) / 2.0;
+    let ccy = sin_phi * cxp + cos_phi * cyp + (cy + ey) / 2.0;
+
+    // Step 5: Compute start angle and delta angle
+    let vangle = |ux: f32, uy: f32, vx: f32, vy: f32| -> f32 {
+        let n = (ux * ux + uy * uy).sqrt() * (vx * vx + vy * vy).sqrt();
+        if n < 1e-10 { return 0.0; }
+        let c = ((ux * vx + uy * vy) / n).clamp(-1.0, 1.0);
+        let mut a = c.acos();
+        if ux * vy - uy * vx < 0.0 { a = -a; }
+        a
+    };
+
+    let theta1 = vangle(1.0, 0.0, (x1p - cxp) / rx, (y1p - cyp) / ry);
+    let mut dtheta = vangle(
+        (x1p - cxp) / rx, (y1p - cyp) / ry,
+        (-x1p - cxp) / rx, (-y1p - cyp) / ry,
+    );
+
+    if !sweep && dtheta > 0.0 {
+        dtheta -= TAU;
+    } else if sweep && dtheta < 0.0 {
+        dtheta += TAU;
+    }
+
+    // Step 6: Split into segments ≤ 90° and convert to cubic béziers
+    let n_segs = ((dtheta.abs() / FRAC_PI_2).ceil() as usize).max(1);
+    let seg_angle = dtheta / n_segs as f32;
+    let alpha = 4.0 / 3.0 * (seg_angle / 4.0).tan();
+
+    let mut result = Vec::with_capacity(n_segs);
+    let mut t = theta1;
+    for _ in 0..n_segs {
+        let t2 = t + seg_angle;
+        let (sin1, cos1) = t.sin_cos();
+        let (sin2, cos2) = t2.sin_cos();
+
+        // Start point on rotated ellipse
+        let spx = cos_phi * rx * cos1 - sin_phi * ry * sin1 + ccx;
+        let spy = sin_phi * rx * cos1 + cos_phi * ry * sin1 + ccy;
+        // End point on rotated ellipse
+        let epx = cos_phi * rx * cos2 - sin_phi * ry * sin2 + ccx;
+        let epy = sin_phi * rx * cos2 + cos_phi * ry * sin2 + ccy;
+
+        // Tangent at start (derivative of parametric ellipse, rotated by phi)
+        let tdx1 = cos_phi * (-rx * sin1) - sin_phi * (ry * cos1);
+        let tdy1 = sin_phi * (-rx * sin1) + cos_phi * (ry * cos1);
+        // Tangent at end
+        let tdx2 = cos_phi * (-rx * sin2) - sin_phi * (ry * cos2);
+        let tdy2 = sin_phi * (-rx * sin2) + cos_phi * (ry * cos2);
+
+        result.push(PathSegment::CubicBezier {
+            c1: (spx + alpha * tdx1, spy + alpha * tdy1),
+            c2: (epx - alpha * tdx2, epy - alpha * tdy2),
+            end: (epx, epy),
+        });
+
+        t = t2;
+    }
+
+    result
+}
+
+/// Parse a CIRCLE/ELLIPSE display element into ShapeParams.
+/// Generates a closed ellipse path from 4 cubic bézier curves.
+fn parse_circle_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>> {
+    let dx = disp.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+    let dy = disp.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+    let dw = disp.get("width").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+    let dh = disp.get("height").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+    let angle = disp.get("angle").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+
+    if dw < 0.001 || dh < 0.001 {
+        return None;
+    }
+
+    // Ellipse parameters in canvas coords (Y-down)
+    let rx = dw / 2.0;
+    let ry = dh / 2.0;
+    let ccx = dx + rx;
+    let ccy = dy + ry;
+
+    // Convert center to world coords (Y-up)
+    let wcx = ccx;
+    let wcy = -ccy;
+
+    // κ = 4(√2 − 1)/3 ≈ 0.5522847498 — standard circle-to-bézier constant
+    let kx = rx * 0.5522847498;
+    let ky = ry * 0.5522847498;
+
+    // 4 cubic bézier curves forming a closed ellipse (world Y-up)
+    let start = (wcx + rx, wcy);
+    let segs = vec![
+        PathSegment::CubicBezier {
+            c1: (wcx + rx, wcy + ky),
+            c2: (wcx + kx, wcy + ry),
+            end: (wcx, wcy + ry),
+        },
+        PathSegment::CubicBezier {
+            c1: (wcx - kx, wcy + ry),
+            c2: (wcx - rx, wcy + ky),
+            end: (wcx - rx, wcy),
+        },
+        PathSegment::CubicBezier {
+            c1: (wcx - rx, wcy - ky),
+            c2: (wcx - kx, wcy - ry),
+            end: (wcx, wcy - ry),
+        },
+        PathSegment::CubicBezier {
+            c1: (wcx + kx, wcy - ry),
+            c2: (wcx + rx, wcy - ky),
+            end: (wcx + rx, wcy),
+        },
+    ];
+
+    // Bake rotation if present
+    let segs = if angle.abs() > 1e-6 {
+        let angle_rad = angle.to_radians();
+        let (sin_a, cos_a) = angle_rad.sin_cos();
+        let rotate = |px: f32, py: f32| -> (f32, f32) {
+            let ddx = px - wcx;
+            let ddy = py - wcy;
+            (wcx + ddx * cos_a - ddy * sin_a,
+             wcy + ddx * sin_a + ddy * cos_a)
+        };
+        let rot_seg = |seg: &PathSegment| -> PathSegment {
+            match seg {
+                PathSegment::CubicBezier { c1, c2, end } => PathSegment::CubicBezier {
+                    c1: rotate(c1.0, c1.1),
+                    c2: rotate(c2.0, c2.1),
+                    end: rotate(end.0, end.1),
+                },
+                PathSegment::LineTo(x, y) => {
+                    let (rx, ry) = rotate(*x, *y);
+                    PathSegment::LineTo(rx, ry)
+                }
+                other => other.clone(),
+            }
+        };
+        segs.iter().map(rot_seg).collect()
+    } else {
+        segs
+    };
+
+    let start_pt = if angle.abs() > 1e-6 {
+        let angle_rad = angle.to_radians();
+        let (sin_a, cos_a) = angle_rad.sin_cos();
+        let ddx = start.0 - wcx;
+        let ddy = start.1 - wcy;
+        (wcx + ddx * cos_a - ddy * sin_a, wcy + ddx * sin_a + ddy * cos_a)
+    } else {
+        start
+    };
+
+    let path_data = PathData::from_segments(start_pt, segs);
+    if path_data.points.len() < 2 {
+        return None;
+    }
+
+    // Make coordinates local
+    let min_x = path_data.points.iter().map(|p| p.0).fold(f32::MAX, f32::min);
+    let min_y = path_data.points.iter().map(|p| p.1).fold(f32::MAX, f32::min);
+    let local_start = (path_data.start.0 - min_x, path_data.start.1 - min_y);
+    let local_segs: Vec<PathSegment> = path_data.segments.iter().map(|seg| match seg {
+        PathSegment::LineTo(x, y) => PathSegment::LineTo(x - min_x, y - min_y),
+        PathSegment::CubicBezier { c1, c2, end } => PathSegment::CubicBezier {
+            c1: (c1.0 - min_x, c1.1 - min_y),
+            c2: (c2.0 - min_x, c2.1 - min_y),
+            end: (end.0 - min_x, end.1 - min_y),
+        },
+        PathSegment::QuadBezier { c, end } => PathSegment::QuadBezier {
+            c: (c.0 - min_x, c.1 - min_y),
+            end: (end.0 - min_x, end.1 - min_y),
+        },
+    }).collect();
+    let local_path = PathData::from_segments(local_start, local_segs);
+
+    Some(vec![ShapeParams {
+        shape: ShapeKind::Path(local_path),
+        x: min_x,
+        y: min_y,
+        rotation: 0.0,
+        layer_idx,
+        ..Default::default()
+    }])
 }
 
