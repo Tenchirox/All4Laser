@@ -1,3 +1,4 @@
+use crate::i18n::tr;
 use crate::theme;
 use crate::ui::layers_new::CutLayer;
 use egui::{Color32, RichText, Sense, Stroke, StrokeKind, Ui};

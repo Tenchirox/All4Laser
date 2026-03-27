@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 
+use crate::ai::llm_provider::{AiBackend, AiConfig};
 use crate::i18n::tr;
 use crate::ui::drawing::{PathData, ShapeKind, ShapeParams};
 use egui::{RichText, Ui};
 use qrcode::QrCode;
+use std::sync::{Arc, Mutex};
 
 pub struct GeneratorState {
     pub qr_text: String,
@@ -24,6 +26,18 @@ pub struct GeneratorState {
     pub hinge_cut_length: f32,
     pub hinge_gap: f32,
     pub hinge_dist: f32,
+    // AI / LLM fields
+    pub ai_prompt: String,
+    pub ai_width: f32,
+    pub ai_height: f32,
+    pub ai_use_llm: bool,
+    pub ai_config: AiConfig,
+    pub ai_llm_busy: bool,
+    pub ai_llm_error: String,
+    pub ai_llm_result: Arc<Mutex<Option<Result<Vec<ShapeParams>, String>>>>,
+    pub ai_layer_cut: usize,
+    pub ai_layer_engrave: usize,
+    pub ai_layer_fine: usize,
 }
 
 impl Default for GeneratorState {
@@ -47,6 +61,17 @@ impl Default for GeneratorState {
             hinge_cut_length: 15.0,
             hinge_gap: 3.0,
             hinge_dist: 2.0,
+            ai_prompt: String::new(),
+            ai_width: 80.0,
+            ai_height: 80.0,
+            ai_use_llm: true,
+            ai_config: AiConfig::default(),
+            ai_llm_busy: false,
+            ai_llm_error: String::new(),
+            ai_llm_result: Arc::new(Mutex::new(None)),
+            ai_layer_cut: 0,
+            ai_layer_engrave: 1,
+            ai_layer_fine: 2,
         }
     }
 }
@@ -114,13 +139,11 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
             ui.add(egui::Slider::new(&mut state.box_d, 20.0..=500.0).text(tr("Depth (Z)")));
             ui.add(
                 egui::Slider::new(&mut state.box_thickness, 1.0..=20.0)
-                    .text(tr("Thickness"))
-                    .tooltip(tr("Material thickness for tab calculations")),
+                    .text(tr("Thickness")),
             );
             ui.add(
                 egui::Slider::new(&mut state.box_tab_size, 5.0..=50.0)
-                    .text(tr("Tab Size"))
-                    .tooltip(tr("Size of interlocking tabs on box edges")),
+                    .text(tr("Tab Size")),
             );
 
             if ui.button(format!("🚀 {}", tr("Generate Box Components"))).clicked() {
@@ -172,18 +195,15 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
             ui.add(egui::Slider::new(&mut state.hinge_h, 10.0..=500.0).text(tr("Height (Y)")));
             ui.add(
                 egui::Slider::new(&mut state.hinge_cut_length, 2.0..=100.0)
-                    .text(tr("Cut Length"))
-                    .tooltip(tr("Length of each individual cut line in the hinge pattern")),
+                    .text(tr("Cut Length")),
             );
             ui.add(
                 egui::Slider::new(&mut state.hinge_gap, 1.0..=50.0)
-                    .text(tr("Gap Between Cuts"))
-                    .tooltip(tr("Space between consecutive cuts in the same row")),
+                    .text(tr("Gap Between Cuts")),
             );
             ui.add(
                 egui::Slider::new(&mut state.hinge_dist, 1.0..=20.0)
-                    .text(tr("Distance Between Rows"))
-                    .tooltip(tr("Horizontal spacing between vertical cut rows")),
+                    .text(tr("Distance Between Rows")),
             );
 
             if ui.button(format!("🚀 {}", tr("Generate Hinge"))).clicked() {
@@ -242,9 +262,191 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
                 action.generate_shapes = Some(generate_fiducials_shapes(state, active_layer));
             }
         });
+
+        // ── AI / LLM Shape Generator ──
+        ui.collapsing(format!("🧠 {}", tr("AI Shape Generator (LLM)")), |ui| {
+            ui.label(RichText::new("Generate artistic shapes via LLM with multi-layer support (cut/engrave/fine).").small());
+            ui.add_space(4.0);
+
+            // Backend selector
+            ui.horizontal(|ui| {
+                ui.label("Backend:");
+                if ui.selectable_label(state.ai_config.backend == AiBackend::Ollama, "Ollama").clicked() {
+                    state.ai_config.backend = AiBackend::Ollama;
+                    if !state.ai_config.endpoint.contains("11434") {
+                        state.ai_config.endpoint = "http://localhost:11434".to_string();
+                    }
+                }
+                if ui.selectable_label(state.ai_config.backend == AiBackend::OpenAi, "OpenAI").clicked() {
+                    state.ai_config.backend = AiBackend::OpenAi;
+                    if !state.ai_config.endpoint.contains("openai.com") {
+                        state.ai_config.endpoint = "https://api.openai.com".to_string();
+                    }
+                    if !state.ai_config.model.starts_with("gpt") {
+                        state.ai_config.model = "gpt-4o-mini".to_string();
+                    }
+                }
+                if ui.selectable_label(state.ai_config.backend == AiBackend::Gemini, "Gemini").clicked() {
+                    state.ai_config.backend = AiBackend::Gemini;
+                    if !state.ai_config.endpoint.contains("googleapis.com") {
+                        state.ai_config.endpoint = "https://generativelanguage.googleapis.com".to_string();
+                    }
+                    if !state.ai_config.model.starts_with("gemini") {
+                        state.ai_config.model = "gemini-2.5-flash".to_string();
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Endpoint:");
+                ui.text_edit_singleline(&mut state.ai_config.endpoint);
+            });
+            ui.horizontal(|ui| {
+                ui.label("Model:");
+                ui.text_edit_singleline(&mut state.ai_config.model);
+            });
+            if state.ai_config.backend == AiBackend::OpenAi || state.ai_config.backend == AiBackend::Gemini {
+                ui.horizontal(|ui| {
+                    ui.label("API Key:");
+                    ui.add(egui::TextEdit::singleline(&mut state.ai_config.api_key).password(true));
+                });
+            }
+            ui.horizontal(|ui| {
+                ui.label("Max tokens:");
+                ui.add(egui::DragValue::new(&mut state.ai_config.max_tokens).range(256..=131072));
+            });
+
+            ui.separator();
+            ui.label(RichText::new("Layer mapping (color index 0-29):").small());
+            ui.horizontal(|ui| {
+                ui.label("✂ Cut:");
+                ui.add(egui::DragValue::new(&mut state.ai_layer_cut).range(0..=29));
+                ui.label("  ▪ Engrave:");
+                ui.add(egui::DragValue::new(&mut state.ai_layer_engrave).range(0..=29));
+                ui.label("  ∿ Fine:");
+                ui.add(egui::DragValue::new(&mut state.ai_layer_fine).range(0..=29));
+            });
+
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Prompt:");
+            });
+            ui.text_edit_multiline(&mut state.ai_prompt);
+
+            ui.horizontal(|ui| {
+                ui.label("Size:");
+                ui.add(egui::DragValue::new(&mut state.ai_width).range(5.0..=500.0).suffix(" mm"));
+                ui.label("×");
+                ui.add(egui::DragValue::new(&mut state.ai_height).range(5.0..=500.0).suffix(" mm"));
+            });
+
+            // Poll async result
+            if let Ok(mut guard) = state.ai_llm_result.try_lock() {
+                if let Some(result) = guard.take() {
+                    state.ai_llm_busy = false;
+                    match result {
+                        Ok(shapes) => {
+                            state.ai_llm_error.clear();
+                            action.generate_shapes = Some(shapes);
+                        }
+                        Err(e) => {
+                            state.ai_llm_error = e;
+                        }
+                    }
+                }
+            }
+
+            if state.ai_llm_busy {
+                ui.spinner();
+                ui.label("Generating…");
+            } else {
+                if ui.button("🧠 Generate with LLM").clicked() {
+                    state.ai_llm_busy = true;
+                    state.ai_llm_error.clear();
+                    let config = state.ai_config.clone();
+                    let prompt = state.ai_prompt.clone();
+                    let w = state.ai_width.max(10.0);
+                    let h = state.ai_height.max(10.0);
+                    let layers = [state.ai_layer_cut, state.ai_layer_engrave, state.ai_layer_fine];
+                    let result_slot = Arc::clone(&state.ai_llm_result);
+                    std::thread::spawn(move || {
+                        let res = llm_generate_shapes(&config, &prompt, w, h, &layers);
+                        if let Ok(mut guard) = result_slot.lock() {
+                            *guard = Some(res);
+                        }
+                    });
+                }
+            }
+
+            if !state.ai_llm_error.is_empty() {
+                ui.colored_label(egui::Color32::RED, &state.ai_llm_error);
+            }
+        });
     });
 
     action
+}
+
+/// Call the LLM, parse SVG paths from its response, and convert to ShapeParams.
+/// `layer_map` is [cut_layer, engrave_layer, fine_layer].
+fn llm_generate_shapes(
+    config: &AiConfig,
+    prompt: &str,
+    width_mm: f32,
+    height_mm: f32,
+    layer_map: &[usize; 3],
+) -> Result<Vec<ShapeParams>, String> {
+    let raw_svg = crate::ai::call_llm(config, prompt)?;
+
+    eprintln!("[AI] LLM raw response ({} chars):\n{}", raw_svg.len(), &raw_svg[..raw_svg.len().min(1000)]);
+
+    let layered = crate::ai::extract_layered_paths(&raw_svg);
+    eprintln!("[AI] Extracted {} paths", layered.len());
+    if layered.is_empty() {
+        return Err(format!(
+            "LLM did not return valid SVG paths. Raw response (first 500 chars):\n{}",
+            &raw_svg[..raw_svg.len().min(500)]
+        ));
+    }
+
+    let n_cut = layered.iter().filter(|lp| lp.layer == crate::ai::PathLayer::Cut).count();
+    let n_eng = layered.iter().filter(|lp| lp.layer == crate::ai::PathLayer::Engrave).count();
+    let n_fine = layered.iter().filter(|lp| lp.layer == crate::ai::PathLayer::Fine).count();
+    eprintln!("[AI] Layers: {} cut, {} engrave, {} fine", n_cut, n_eng, n_fine);
+
+    let sx = width_mm / 100.0;
+    let sy = height_mm / 100.0;
+
+    let group_id = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
+        & 0xFFFF_FFFF) as u32;
+
+    let shapes: Vec<ShapeParams> = layered
+        .into_iter()
+        .filter(|lp| lp.points.len() >= 2)
+        .map(|lp| {
+            let layer_idx = match lp.layer {
+                crate::ai::PathLayer::Cut => layer_map[0],
+                crate::ai::PathLayer::Engrave => layer_map[1],
+                crate::ai::PathLayer::Fine => layer_map[2],
+            };
+            let scaled_pts: Vec<(f32, f32)> = lp.points.into_iter()
+                .map(|(x, y)| (x * sx, y * sy))
+                .collect();
+            ShapeParams {
+                shape: ShapeKind::Path(PathData::from_points(scaled_pts)),
+                x: 0.0,
+                y: 0.0,
+                layer_idx,
+                group_id: Some(group_id),
+                ..ShapeParams::default()
+            }
+        })
+        .collect();
+
+    eprintln!("[AI] Generated {} shape(s) for canvas", shapes.len());
+    Ok(shapes)
 }
 
 fn generate_fiducials_shapes(state: &GeneratorState, active_layer: usize) -> Vec<ShapeParams> {

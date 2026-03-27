@@ -1,7 +1,8 @@
 use crate::i18n::tr;
 use crate::theme;
 use crate::ui::layers_new::{CutLayer, CutMode};
-use egui::{RichText, Sense, StrokeKind, Ui};
+use egui::{Color32, RichText, Sense, StrokeKind, Ui};
+use std::cell::RefCell;
 
 pub struct CutListAction {
     pub select_layer: Option<usize>,
@@ -12,8 +13,10 @@ pub struct CutListAction {
 }
 
 // Track which layer is currently being renamed and the temporary edit buffer
-static mut RENAME_LAYER: Option<usize> = None;
-static mut RENAME_BUFFER: String = String::new();
+thread_local! {
+    static RENAME_LAYER: RefCell<Option<usize>> = RefCell::new(None);
+    static RENAME_BUFFER: RefCell<String> = RefCell::new(String::new());
+}
 
 fn effective_layer_indices(
     layers_len: usize,
@@ -79,6 +82,7 @@ pub fn show(
         });
         ui.add_space(4.0);
 
+        let layer_count = layers.len();
         for &i in &visible_indices {
             let Some(layer) = layers.get_mut(i) else {
                 continue;
@@ -131,29 +135,24 @@ pub fn show(
 
                         // Layer name + mode (with inline editing)
                         ui.vertical(|ui| {
-                            let is_renaming = unsafe { RENAME_LAYER == Some(i) };
+                            let is_renaming = RENAME_LAYER.with(|r| *r.borrow() == Some(i));
                             if is_renaming {
                                 ui.horizontal(|ui| {
-                                    let text_edit = ui.text_edit_singleline(unsafe { &mut RENAME_BUFFER });
-                                    if text_edit.lost_focus() {
-                                        if unsafe { !RENAME_BUFFER.is_empty() } {
-                                            layer.name = unsafe { RENAME_BUFFER.clone() };
+                                    let text_edit = RENAME_BUFFER.with(|b| {
+                                        ui.text_edit_singleline(&mut *b.borrow_mut())
+                                    });
+                                    let should_commit = text_edit.lost_focus() || ui.button("✓").clicked();
+                                    if should_commit {
+                                        let new_name = RENAME_BUFFER.with(|b| {
+                                            let buf = b.borrow();
+                                            if !buf.is_empty() { Some(buf.clone()) } else { None }
+                                        });
+                                        if let Some(name) = new_name {
+                                            layer.name = name;
                                             action.layers_changed = true;
                                         }
-                                        unsafe {
-                                            RENAME_LAYER = None;
-                                            RENAME_BUFFER.clear();
-                                        }
-                                    }
-                                    if ui.button("✓").clicked() {
-                                        if unsafe { !RENAME_BUFFER.is_empty() } {
-                                            layer.name = unsafe { RENAME_BUFFER.clone() };
-                                            action.layers_changed = true;
-                                        }
-                                        unsafe {
-                                            RENAME_LAYER = None;
-                                            RENAME_BUFFER.clear();
-                                        }
+                                        RENAME_LAYER.with(|r| *r.borrow_mut() = None);
+                                        RENAME_BUFFER.with(|b| b.borrow_mut().clear());
                                     }
                                 });
                             } else {
@@ -167,10 +166,8 @@ pub fn show(
                                     .sense(Sense::click()),
                                 );
                                 if name_label.double_clicked() {
-                                    unsafe {
-                                        RENAME_LAYER = Some(i);
-                                        RENAME_BUFFER = layer.name.clone();
-                                    }
+                                    RENAME_LAYER.with(|r| *r.borrow_mut() = Some(i));
+                                    RENAME_BUFFER.with(|b| *b.borrow_mut() = layer.name.clone());
                                 }
                             }
                             ui.horizontal(|ui| {
@@ -248,7 +245,7 @@ pub fn show(
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             // Reorder buttons
                             let can_move_up = i > 0;
-                            let can_move_down = i < layers.len().saturating_sub(1);
+                            let can_move_down = i < layer_count.saturating_sub(1);
                             
                             if ui
                                 .add_enabled(can_move_up, egui::Button::new("↑").small())

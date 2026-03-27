@@ -89,7 +89,7 @@ pub fn show(ui: &mut Ui, state: &mut CameraState) -> CameraAction {
         });
 
         if !state.enabled {
-            return action;
+            return;
         }
 
         // Device & Stream Section

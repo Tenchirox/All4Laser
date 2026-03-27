@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::app::RightPanelTab;
+use crate::ai::AiConfig;
 use crate::i18n::Language;
 use crate::theme::{UiLayout, UiTheme};
 use crate::ui::camera::CameraCalibration;
@@ -150,6 +151,17 @@ pub struct AppSettings {
     pub colorblind_mode: ColorblindMode,
     #[serde(default)]
     pub high_contrast: bool,
+    // AI / LLM generator settings
+    #[serde(default)]
+    pub ai_config: AiConfig,
+    #[serde(default)]
+    pub ai_use_llm: bool,
+    #[serde(default)]
+    pub ai_layer_cut: usize,
+    #[serde(default = "default_ai_layer_engrave")]
+    pub ai_layer_engrave: usize,
+    #[serde(default = "default_ai_layer_fine")]
+    pub ai_layer_fine: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -238,6 +250,9 @@ pub fn lightburn_shortcuts() -> std::collections::HashMap<String, String> {
     m
 }
 
+fn default_ai_layer_engrave() -> usize { 1 }
+fn default_ai_layer_fine() -> usize { 2 }
+
 fn default_shortcuts() -> std::collections::HashMap<String, String> {
     let mut m = std::collections::HashMap::new();
     m.insert("run".into(), "Ctrl+R".into());
@@ -299,6 +314,11 @@ impl Default for AppSettings {
             network_port: default_network_port(),
             colorblind_mode: ColorblindMode::None,
             high_contrast: false,
+            ai_config: AiConfig::default(),
+            ai_use_llm: false,
+            ai_layer_cut: 0,
+            ai_layer_engrave: 1,
+            ai_layer_fine: 2,
         }
     }
 }

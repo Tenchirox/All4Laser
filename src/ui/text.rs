@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use crate::i18n::tr;
+use crate::theme;
 use crate::ui::drawing::{PathData, ShapeKind, ShapeParams};
 use egui::{RichText, Ui};
 use font_kit::family_name::FamilyName;

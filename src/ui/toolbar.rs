@@ -283,7 +283,7 @@ pub fn show(
             let pulse = (ui.ctx().animate_value_with_time(
                 egui::Id::new("running_pulse"),
                 1.0,
-                std::time::Duration::from_millis(500),
+                0.5,
             ) * std::f32::consts::PI).sin() * 0.5 + 0.5;
             let pulse_color = egui::Color32::from_rgb(
                 (theme::RED.r() as f32 * (0.5 + pulse * 0.5)) as u8,

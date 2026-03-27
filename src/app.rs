@@ -361,6 +361,12 @@ impl All4LaserApp {
         if let Some(preset_name) = app.settings.material_selected_preset.as_deref() {
             app.materials_state.select_preset_by_name(preset_name);
         }
+        // Restore AI / LLM generator settings
+        app.generator_state.ai_config = app.settings.ai_config.clone();
+        app.generator_state.ai_use_llm = app.settings.ai_use_llm;
+        app.generator_state.ai_layer_cut = app.settings.ai_layer_cut;
+        app.generator_state.ai_layer_engrave = app.settings.ai_layer_engrave;
+        app.generator_state.ai_layer_fine = app.settings.ai_layer_fine;
         if app.camera_state.live_streaming {
             app.start_live_camera();
         } else if let Some(path) = app.camera_state.snapshot_path.clone() {
@@ -466,6 +472,12 @@ impl All4LaserApp {
             .materials_state
             .selected_preset_name()
             .map(str::to_string);
+        // Persist AI / LLM generator settings
+        self.settings.ai_config = self.generator_state.ai_config.clone();
+        self.settings.ai_use_llm = self.generator_state.ai_use_llm;
+        self.settings.ai_layer_cut = self.generator_state.ai_layer_cut;
+        self.settings.ai_layer_engrave = self.generator_state.ai_layer_engrave;
+        self.settings.ai_layer_fine = self.generator_state.ai_layer_fine;
         self.settings.save();
         self.event_log.save();
     }
@@ -5449,6 +5461,8 @@ impl eframe::App for All4LaserApp {
                     self.beginner_mode,
                     self.light_mode,
                     caps,
+                    self.ui_theme,
+                    self.ui_layout,
                 );
             });
         }
@@ -5468,6 +5482,8 @@ impl eframe::App for All4LaserApp {
                 has_file,
                 has_shapes,
                 caps,
+                self.ui_theme,
+                self.ui_layout,
             );
             actions.merge(menu_actions);
             ui.add_space(4.0);

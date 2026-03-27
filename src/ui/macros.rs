@@ -164,7 +164,7 @@ pub fn show(ui: &mut Ui, state: &mut MacrosState, connected: bool) -> MacrosActi
                     
                     if ui
                         .add_enabled(connected, egui::Button::new(&mac_label))
-                        .on_hover_text(if is_dangerous { tr("⚠ This macro contains motion or laser commands") } else { "" })
+                        .on_hover_text(if is_dangerous { tr("⚠ This macro contains motion or laser commands") } else { String::new() })
                         .clicked()
                     {
                         if is_dangerous {

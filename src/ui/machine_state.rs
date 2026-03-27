@@ -146,36 +146,26 @@ pub fn show(
 
         let qb = egui::vec2(36.0, 24.0);
         ui.horizontal(|ui| {
-            if ui.add_enabled(connected, egui::Button::new(format!("⌜ {}", tr("TL"))).min_size(qb)
-                .on_hover_text(format!("{} (0, Ymax)", tr("Move to Top-Left")))
-            ).clicked() {
+            if ui.add_enabled(connected, egui::Button::new(format!("⌜ {}", tr("TL"))).min_size(qb)).clicked() {
                 action.quick_pos = Some(QuickPosition::TopLeft);
             }
             ui.add_space(4.0);
-            if ui.add_enabled(connected, egui::Button::new(format!("⌝ {}", tr("TR"))).min_size(qb)
-                .on_hover_text(format!("{} (Xmax, Ymax)", tr("Move to Top-Right")))
-            ).clicked() {
+            if ui.add_enabled(connected, egui::Button::new(format!("⌝ {}", tr("TR"))).min_size(qb)).clicked() {
                 action.quick_pos = Some(QuickPosition::TopRight);
             }
         });
         ui.horizontal(|ui| {
             ui.add_space(16.0);
-            if ui.add_enabled(connected, egui::Button::new(format!("⌂ {}", tr("C"))).min_size(qb)
-                .on_hover_text(format!("{} (Xmax/2, Ymax/2)", tr("Move to Center")))
-            ).clicked() {
+            if ui.add_enabled(connected, egui::Button::new(format!("⌂ {}", tr("C"))).min_size(qb)).clicked() {
                 action.quick_pos = Some(QuickPosition::Center);
             }
         });
         ui.horizontal(|ui| {
-            if ui.add_enabled(connected, egui::Button::new(format!("⌞ {}", tr("BL"))).min_size(qb)
-                .on_hover_text(format!("{} (0, 0)", tr("Move to Bottom-Left")))
-            ).clicked() {
+            if ui.add_enabled(connected, egui::Button::new(format!("⌞ {}", tr("BL"))).min_size(qb)).clicked() {
                 action.quick_pos = Some(QuickPosition::BottomLeft);
             }
             ui.add_space(4.0);
-            if ui.add_enabled(connected, egui::Button::new(format!("⌟ {}", tr("BR"))).min_size(qb)
-                .on_hover_text(format!("{} (Xmax, 0)", tr("Move to Bottom-Right")))
-            ).clicked() {
+            if ui.add_enabled(connected, egui::Button::new(format!("⌟ {}", tr("BR"))).min_size(qb)).clicked() {
                 action.quick_pos = Some(QuickPosition::BottomRight);
             }
         });
