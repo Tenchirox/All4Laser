@@ -5522,11 +5522,19 @@ impl eframe::App for All4LaserApp {
             ui.add_space(4.0);
 
             ui.separator();
-            ui.toggle_value(&mut self.show_left_panel, crate::i18n::tr("Left"));
-            ui.toggle_value(&mut self.show_right_panel, crate::i18n::tr("Right"));
-            if self.ui_layout == theme::UiLayout::Pro {
-                ui.toggle_value(&mut self.show_bottom_panel, crate::i18n::tr("Bottom"));
-            }
+            // Panel visibility toggles with tooltips
+            ui.horizontal(|ui| {
+                let left_btn = ui.toggle_value(&mut self.show_left_panel, crate::i18n::tr("Left Panel"));
+                left_btn.on_hover_text(crate::i18n::tr("Toggle drawing tools and shapes panel"));
+                
+                let right_btn = ui.toggle_value(&mut self.show_right_panel, crate::i18n::tr("Right Panel"));
+                right_btn.on_hover_text(crate::i18n::tr("Toggle layers, cuts, and settings panel"));
+                
+                if self.ui_layout == theme::UiLayout::Pro {
+                    let bottom_btn = ui.toggle_value(&mut self.show_bottom_panel, crate::i18n::tr("Console"));
+                    bottom_btn.on_hover_text(crate::i18n::tr("Toggle console output panel"));
+                }
+            });
 
             self.handle_toolbar_actions(ctx, actions);
         });

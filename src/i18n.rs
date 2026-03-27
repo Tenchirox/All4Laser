@@ -70,6 +70,11 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         fr.insert("Material Library", "Bibliothèque Matériaux");
         fr.insert("Preview", "Aperçu");
         fr.insert("Console", "Console");
+        fr.insert("Left Panel", "Panneau Gauche");
+        fr.insert("Right Panel", "Panneau Droite");
+        fr.insert("Toggle drawing tools and shapes panel", "Afficher/Masquer le panneau des outils de dessin et formes");
+        fr.insert("Toggle layers, cuts, and settings panel", "Afficher/Masquer le panneau des calques, coupes et paramètres");
+        fr.insert("Toggle console output panel", "Afficher/Masquer le panneau de la console");
         fr.insert("Drawing Tools", "Outils de Dessin");
         fr.insert("Job Transformation", "Transformation Job");
         fr.insert("Z-Probe", "Sonde Z");
