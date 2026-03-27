@@ -62,6 +62,7 @@ impl MacrosState {
     }
 }
 
+#[allow(dead_code)]
 pub struct MacrosAction {
     pub execute_macro: Option<MacroDef>,
     pub confirm_execute: Option<MacroDef>,

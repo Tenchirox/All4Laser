@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::ai::llm_provider::{AiBackend, AiConfig};
+use crate::ai::{AiBackend, AiConfig};
 use crate::i18n::tr;
 use crate::ui::drawing::{PathData, ShapeKind, ShapeParams};
 use egui::{RichText, Ui};

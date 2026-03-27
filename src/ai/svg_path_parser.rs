@@ -2,6 +2,8 @@
 //! Cleans up markdown/text noise, extracts paths, auto-normalizes coordinates.
 //! Supports layer classification via class="cut|engrave|fine" attributes.
 
+#![allow(dead_code)]
+
 /// Layer classification for a path element.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PathLayer {

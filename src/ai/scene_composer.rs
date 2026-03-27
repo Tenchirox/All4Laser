@@ -1,6 +1,8 @@
 //! Scene composer: takes a prompt string, parses it, generates shapes from the
 //! library, scales/positions them, and returns `Vec<ShapeParams>` ready for the canvas.
 
+#![allow(dead_code)]
+
 use super::prompt_parser::{self, Relation};
 use super::shape_library;
 use crate::ui::drawing::{PathData, ShapeKind, ShapeParams};

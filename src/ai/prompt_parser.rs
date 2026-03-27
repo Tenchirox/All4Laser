@@ -1,6 +1,8 @@
 //! Minimal NLP-lite prompt parser for the embedded AI shape generator.
 //! Extracts subjects, modifiers and spatial relationships from FR+EN text.
 
+#![allow(dead_code)]
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Subject {
     Bird,

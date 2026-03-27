@@ -2,6 +2,7 @@
 //! Each generator returns a `Vec<Vec<(f32, f32)>>` — a list of closed/open polylines
 //! in normalised coordinates [0,1]×[0,1].
 
+#![allow(dead_code)]
 use super::prompt_parser::Subject;
 use std::f32::consts::PI;
 

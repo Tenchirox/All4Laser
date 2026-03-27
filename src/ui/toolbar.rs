@@ -194,7 +194,7 @@ pub fn show(
         ui.separator();
 
         // Recent files dropdown
-        let recent_btn = egui::menu::menu_button(ui, &label("▾", &tr("Recent")), |ui| {
+        egui::menu::menu_button(ui, &label("▾", &tr("Recent")), |ui| {
             ui.set_min_width(280.0);
             if recent.paths.is_empty() {
                 ui.label(tr("No recent files"));
@@ -214,17 +214,14 @@ pub fn show(
         .response
         .on_hover_text(tr("Recent Files"));
         
-        // Open button with recent dropdown
-        ui.horizontal(|ui| {
-            if ui
-                .button(RichText::new(label("📂", &tr("Open"))).size(sz))
-                .on_hover_text(format!("{} (Ctrl+O)", tr("Open")))
-                .clicked()
-            {
-                action.open_file = true;
-            }
-            recent_btn;
-        });
+        // Open button
+        if ui
+            .button(RichText::new(label("📂", &tr("Open"))).size(sz))
+            .on_hover_text(format!("{} (Ctrl+O)", tr("Open")))
+            .clicked()
+        {
+            action.open_file = true;
+        }
 
         if ui
             .button(RichText::new(label("💾", &tr("Save"))).size(sz))
