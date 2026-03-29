@@ -652,6 +652,15 @@ impl All4LaserApp {
                                 let old_status = self.grbl_state.status;
                                 // Store machine position in renderer for crosshair display
                                 self.renderer.machine_pos = egui::pos2(state.mpos.x, state.mpos.y);
+                                // Log state transitions for debugging
+                                if state.status != old_status {
+                                    self.log(format!(
+                                        "[STATE] {} → {} (line {}/{}, pos: {:.1},{:.1})",
+                                        old_status, state.status,
+                                        self.program_index, self.program_lines.len(),
+                                        state.mpos.x, state.mpos.y,
+                                    ));
+                                }
                                 self.grbl_state = state;
 
                                 if self.framing_active {
@@ -712,7 +721,9 @@ impl All4LaserApp {
                                     }
                                 }
                             }
-                            GrblResponse::Message(_) => {}
+                            GrblResponse::Message(msg) => {
+                                self.log(format!("[MSG] {msg}"));
+                            }
                         },
                         ControllerResponse::Message => {}
                     }
@@ -790,6 +801,7 @@ impl All4LaserApp {
             if trimmed.is_empty() || trimmed.starts_with(';') || trimmed.starts_with('(') {
                 continue;
             }
+            self.log(format!("[TX:{}/{}] {}", self.program_index, self.program_lines.len(), trimmed));
             if let Some(conn) = self.connection.as_ref() {
                 conn.send(&trimmed);
             }
@@ -2080,6 +2092,12 @@ impl All4LaserApp {
     }
 
     fn handle_program_failed(&mut self, reason: String) {
+        let line_info = if self.program_index > 0 {
+            format!(" (at line {}/{})", self.program_index, self.program_lines.len())
+        } else {
+            String::new()
+        };
+        self.show_error(format!("Job failed{line_info}: {reason}"));
         self.running = false;
         self.is_dry_run = false;
         self.framing_active = false;
