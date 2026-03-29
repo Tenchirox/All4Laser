@@ -1,9 +1,37 @@
 use crate::config::recent_files::RecentFiles;
 use crate::controller::ControllerCapabilities;
+use crate::i18n::{self, Language, tr};
 use crate::theme;
 use egui::{RichText, Ui};
 
-use crate::i18n::{self, Language, tr};
+/// C.6: Rich button atoms helper - combines icon and text for egui 0.34+ Button::new(atoms)
+/// 
+/// Usage: `ui.button(RichButton::atoms("📂", tr("Open")))` for rich icon+text buttons
+pub struct RichButton<'a> {
+    icon: &'a str,
+    text: &'a str,
+}
+
+impl<'a> RichButton<'a> {
+    pub fn new(icon: &'a str, text: &'a str) -> Self {
+        Self { icon, text }
+    }
+
+    /// Returns the combined RichText for use with egui::Button::new()
+    pub fn atoms(&self, compact: bool) -> RichText {
+        let sz = if compact { 12.0 } else { 13.0 };
+        if compact {
+            RichText::new(self.icon).size(sz)
+        } else {
+            RichText::new(format!("{} {}", self.icon, self.text)).size(sz)
+        }
+    }
+
+    /// Create a RichText directly with custom formatting
+    pub fn atoms_colored(&self, compact: bool, color: egui::Color32) -> RichText {
+        self.atoms(compact).color(color)
+    }
+}
 
 pub struct ToolbarAction {
     pub connect_toggle: bool,
@@ -194,7 +222,7 @@ pub fn show(
         ui.separator();
 
         // Recent files dropdown
-        egui::menu::menu_button(ui, &label("▾", &tr("Recent")), |ui| {
+        ui.menu_button( &label("▾", &tr("Recent")), |ui| {
             ui.set_min_width(280.0);
             if recent.paths.is_empty() {
                 ui.label(tr("No recent files"));
@@ -206,7 +234,7 @@ pub fn show(
                         .unwrap_or(path);
                     if ui.selectable_label(false, display).clicked() {
                         action.open_recent = Some(path.clone());
-                        ui.close_menu();
+                        ui.close();
                     }
                 }
             }
@@ -232,21 +260,21 @@ pub fn show(
         }
 
         // Project menu
-        egui::menu::menu_button(ui, label("📁", &tr("Project")), |ui| {
+        ui.menu_button( label("📁", &tr("Project")), |ui| {
             if ui.button(format!("� {}", tr("New Project"))).clicked() {
                 action.new_clear_project = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui.button(format!("� {} (.a4l)", tr("Open Project"))).clicked() {
                 action.open_project = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_file, egui::Button::new(format!("💾 {} (.a4l)", tr("Save Project"))))
                 .clicked()
             {
                 action.save_project = true;
-                ui.close_menu();
+                ui.close();
             }
             ui.separator();
             if ui
@@ -254,21 +282,21 @@ pub fn show(
                 .clicked()
             {
                 action.export_lbrn2 = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_shapes, egui::Button::new("📤 Export .svg"))
                 .clicked()
             {
                 action.export_svg = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_file, egui::Button::new(format!("📊 {}", tr("Export Job Report"))))
                 .clicked()
             {
                 action.export_job_report = true;
-                ui.close_menu();
+                ui.close();
             }
         });
 
@@ -427,21 +455,21 @@ pub fn show(
         }
 
         // View menu
-        egui::menu::menu_button(ui, label("👁", &tr("View")), |ui| {
+        ui.menu_button( label("👁", &tr("View")), |ui| {
             ui.label(RichText::new(format!("{}:", tr("Theme"))).strong());
             if ui
                 .selectable_label(current_theme == theme::UiTheme::Modern, tr("Modern (recommended)"))
                 .clicked()
             {
                 action.set_theme = Some(theme::UiTheme::Modern);
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .selectable_label(current_theme == theme::UiTheme::Industrial, tr("Industrial (advanced)"))
                 .clicked()
             {
                 action.set_theme = Some(theme::UiTheme::Industrial);
-                ui.close_menu();
+                ui.close();
             }
 
             ui.separator();
@@ -451,14 +479,14 @@ pub fn show(
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Modern);
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .selectable_label(current_layout == theme::UiLayout::Classic, tr("Classic layout (expert)"))
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Classic);
-                ui.close_menu();
+                ui.close();
             }
 
             ui.separator();
@@ -469,7 +497,7 @@ pub fn show(
             };
             if ui.selectable_label(beginner_mode, beginner_label).clicked() {
                 action.toggle_beginner_mode = true;
-                ui.close_menu();
+                ui.close();
             }
 
             ui.separator();
@@ -491,20 +519,20 @@ pub fn show(
                     .clicked()
                 {
                     action.set_language = Some(lang);
-                    ui.close_menu();
+                    ui.close();
                 }
             }
         });
 
         // Tools menu
-        egui::menu::menu_button(ui, label("🔧", &tr("Tools")), |ui| {
+        ui.menu_button( label("🔧", &tr("Tools")), |ui| {
             if ui.button(format!("⊞ {}", tr("Power/Speed Test"))).clicked() {
                 action.open_power_speed_test = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui.button(format!("🔥 {}", tr("Test Fire"))).clicked() {
                 action.open_test_fire = true;
-                ui.close_menu();
+                ui.close();
             }
             ui.separator();
             if ui
@@ -512,32 +540,32 @@ pub fn show(
                 .clicked()
             {
                 action.open_gcode_editor = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_file, egui::Button::new(format!("⊟ {}", tr("Tiling"))))
                 .clicked()
             {
                 action.open_tiling = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_shapes, egui::Button::new(format!("🧩 {}", tr("Auto Nesting"))))
                 .clicked()
             {
                 action.open_nesting = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_file, egui::Button::new(format!("📚 {}", tr("Job Queue"))))
                 .clicked()
             {
                 action.open_job_queue = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui.button(format!("⌨ {}", tr("Shortcuts"))).clicked() {
                 action.open_shortcuts = true;
-                ui.close_menu();
+                ui.close();
             }
         });
 
@@ -582,16 +610,16 @@ pub fn show_menu_bar(
 ) -> ToolbarAction {
     let mut action = ToolbarAction::default();
 
-    egui::menu::bar(ui, |ui| {
+    egui::MenuBar::new().ui(ui, |ui| {
         // File / Fichier
         ui.menu_button(format!("📂 {}", tr("File")), |ui| {
             if ui.button(format!("📄 {}", tr("New Project"))).clicked() {
                 action.new_clear_project = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui.button(format!("📂 {}", tr("Open"))).clicked() {
                 action.open_file = true;
-                ui.close_menu();
+                ui.close();
             }
             ui.menu_button(format!("▾ {}", tr("Recent Files")), |ui| {
                 if recent.paths.is_empty() {
@@ -604,26 +632,26 @@ pub fn show_menu_bar(
                             .unwrap_or(path);
                         if ui.selectable_label(false, display).clicked() {
                             action.open_recent = Some(path.clone());
-                            ui.close_menu();
+                            ui.close();
                         }
                     }
                 }
             });
             if ui.button(format!("💾 {}", tr("Save"))).clicked() {
                 action.save_file = true;
-                ui.close_menu();
+                ui.close();
             }
             ui.separator();
             if ui.button(format!("📂 {} (.a4l)", tr("Open Project"))).clicked() {
                 action.open_project = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_file, egui::Button::new(format!("💾 {} (.a4l)", tr("Save Project"))))
                 .clicked()
             {
                 action.save_project = true;
-                ui.close_menu();
+                ui.close();
             }
             ui.separator();
             if ui
@@ -631,21 +659,21 @@ pub fn show_menu_bar(
                 .clicked()
             {
                 action.export_lbrn2 = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_shapes, egui::Button::new("📤 Export .svg"))
                 .clicked()
             {
                 action.export_svg = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_file, egui::Button::new(format!("📊 {}", tr("Export Job Report"))))
                 .clicked()
             {
                 action.export_job_report = true;
-                ui.close_menu();
+                ui.close();
             }
         });
 
@@ -653,20 +681,20 @@ pub fn show_menu_bar(
         ui.menu_button(format!("✏ {}", tr("Edit")), |ui| {
             if ui.button(format!("↶ {}", tr("Undo"))).clicked() {
                 action.undo = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui.button(format!("↷ {}", tr("Redo"))).clicked() {
                 action.redo = true;
-                ui.close_menu();
+                ui.close();
             }
             ui.separator();
             if ui.button(format!("🔍 {}", tr("Zoom In"))).clicked() {
                 action.zoom_in = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui.button(format!("🔎 {}", tr("Zoom Out"))).clicked() {
                 action.zoom_out = true;
-                ui.close_menu();
+                ui.close();
             }
         });
 
@@ -678,14 +706,14 @@ pub fn show_menu_bar(
                 .clicked()
             {
                 action.set_theme = Some(theme::UiTheme::Modern);
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .selectable_label(current_theme == theme::UiTheme::Industrial, tr("Industrial (advanced)"))
                 .clicked()
             {
                 action.set_theme = Some(theme::UiTheme::Industrial);
-                ui.close_menu();
+                ui.close();
             }
 
             ui.separator();
@@ -695,14 +723,14 @@ pub fn show_menu_bar(
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Modern);
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .selectable_label(current_layout == theme::UiLayout::Classic, tr("Classic layout (expert)"))
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Classic);
-                ui.close_menu();
+                ui.close();
             }
 
             ui.separator();
@@ -713,7 +741,7 @@ pub fn show_menu_bar(
             };
             if ui.selectable_label(beginner_mode, beginner_label).clicked() {
                 action.toggle_beginner_mode = true;
-                ui.close_menu();
+                ui.close();
             }
 
             ui.separator();
@@ -735,7 +763,7 @@ pub fn show_menu_bar(
                     .clicked()
                 {
                     action.set_language = Some(lang);
-                    ui.close_menu();
+                    ui.close();
                 }
             }
 
@@ -747,7 +775,7 @@ pub fn show_menu_bar(
             };
             if ui.button(theme_toggle_label).clicked() {
                 action.toggle_light_mode = true;
-                ui.close_menu();
+                ui.close();
             }
         });
 
@@ -755,11 +783,11 @@ pub fn show_menu_bar(
         ui.menu_button(format!("🔧 {}", tr("Tools")), |ui| {
             if ui.button(format!("⊞ {}", tr("Power/Speed Test"))).clicked() {
                 action.open_power_speed_test = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui.button(format!("🔥 {}", tr("Test Fire"))).clicked() {
                 action.open_test_fire = true;
-                ui.close_menu();
+                ui.close();
             }
             ui.separator();
             if ui
@@ -767,41 +795,41 @@ pub fn show_menu_bar(
                 .clicked()
             {
                 action.open_gcode_editor = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_file, egui::Button::new(format!("⊟ {}", tr("Tiling"))))
                 .clicked()
             {
                 action.open_tiling = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_shapes, egui::Button::new(format!("🧩 {}", tr("Auto Nesting"))))
                 .clicked()
             {
                 action.open_nesting = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .add_enabled(has_file, egui::Button::new(format!("📚 {}", tr("Job Queue"))))
                 .clicked()
             {
                 action.open_job_queue = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui.button(format!("⌨ {}", tr("Shortcuts"))).clicked() {
                 action.open_shortcuts = true;
-                ui.close_menu();
+                ui.close();
             }
             ui.separator();
             if ui.button(format!("💾 {}", tr("Save Layer Template"))).on_hover_text(tr("Save Layer Template")).clicked() {
                 action.save_job_template = true;
-                ui.close_menu();
+                ui.close();
             }
             if ui.button(format!("📂 {}", tr("Load Layer Template"))).on_hover_text(tr("Load Layer Template")).clicked() {
                 action.load_job_template = true;
-                ui.close_menu();
+                ui.close();
             }
             ui.separator();
             if ui
@@ -812,7 +840,7 @@ pub fn show_menu_bar(
                 .clicked()
             {
                 action.open_settings = true;
-                ui.close_menu();
+                ui.close();
             }
         });
 
@@ -820,7 +848,7 @@ pub fn show_menu_bar(
         ui.menu_button(format!("ℹ {}", tr("Help")), |ui| {
             if ui.button(format!("ℹ {}", tr("About"))).clicked() {
                 action.open_about = true;
-                ui.close_menu();
+                ui.close();
             }
         });
     });

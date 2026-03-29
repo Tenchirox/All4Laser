@@ -1,9 +1,10 @@
 #![allow(dead_code)]
 
 use image::{GrayImage, Luma};
+use serde::{Deserialize, Serialize};
 
 /// Parameters for a cutting frame (outline) around the image
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OutlineParams {
     pub enabled: bool,
     pub speed: f32,
@@ -22,7 +23,7 @@ impl Default for OutlineParams {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub enum DitherMode {
     None,
     FloydSteinberg,
@@ -30,7 +31,7 @@ pub enum DitherMode {
 }
 
 /// Parameters for raster-to-GCode conversion
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RasterParams {
     pub width_mm: f32,
     pub height_mm: f32,

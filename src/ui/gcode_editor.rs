@@ -117,7 +117,8 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
             
             ui.separator();
 
-            let mut layouter = |ui: &egui::Ui, string: &str, wrap_width: f32| {
+            let mut layouter = |ui: &egui::Ui, string: &dyn egui::TextBuffer, wrap_width: f32| {
+                let string = string.as_str();
                 let mut job = egui::text::LayoutJob::default();
                 job.wrap.max_width = wrap_width;
 
@@ -171,12 +172,12 @@ pub fn show(ctx: &egui::Context, state: &mut GCodeEditorState) -> GCodeEditorAct
                     job.append("\n", 0.0, egui::TextFormat::default());
                 }
 
-                ui.fonts(|f| f.layout_job(job))
+                ui.ctx().fonts_mut(|f| f.layout_job(job))
             };
 
             // Line numbers + editor layout
             let font_id = egui::TextStyle::Monospace.resolve(ui.style());
-            let line_height = ui.fonts(|f| f.row_height(&font_id));
+            let line_height = ui.ctx().fonts_mut(|f| f.row_height(&font_id));
             let text = &state.text;
             let line_count = text.lines().count().max(1);
             let gutter_width = format!("{}", line_count).len() as f32 * 8.0 + 16.0;

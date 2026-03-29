@@ -1499,52 +1499,60 @@ impl PreviewRenderer {
 
     fn show_context_menu(
         &self,
-        _ui: &egui::Ui,
+        ui: &egui::Ui,
         response: &egui::Response,
         has_selection: bool,
     ) -> InteractiveAction {
         let mut ctx_action = InteractiveAction::None;
-        response.clone().context_menu(|ui| {
-            if has_selection {
-                if ui.button(format!("�  {}", tr("Copy"))).clicked() {
-                    ctx_action = InteractiveAction::ContextCopy;
-                    ui.close_menu();
+        
+        // Check for right-click to trigger context menu
+        if response.secondary_clicked() {
+            egui::Popup::open_id(ui.ctx(), egui::Id::new("preview_context_menu"));
+        }
+        
+        egui::Popup::context_menu(response)
+            .id(egui::Id::new("preview_context_menu"))
+            .show(|ui| {
+                if has_selection {
+                    if ui.button(format!("📋  {}", tr("Copy"))).clicked() {
+                        ctx_action = InteractiveAction::ContextCopy;
+                        ui.close();
+                    }
+                    if ui.button(format!("✂️  {}", tr("Cut"))).clicked() {
+                        ctx_action = InteractiveAction::ContextCut;
+                        ui.close();
+                    }
                 }
-                if ui.button(format!("✂  {}", tr("Cut"))).clicked() {
-                    ctx_action = InteractiveAction::ContextCut;
-                    ui.close_menu();
+                if ui.button(format!("📌  {}", tr("Paste"))).clicked() {
+                    ctx_action = InteractiveAction::ContextPaste;
+                    ui.close();
                 }
-            }
-            if ui.button(format!("📌  {}", tr("Paste"))).clicked() {
-                ctx_action = InteractiveAction::ContextPaste;
-                ui.close_menu();
-            }
-            if has_selection {
+                if has_selection {
+                    ui.separator();
+                    if ui.button(format!("📋  {}", tr("Duplicate"))).clicked() {
+                        ctx_action = InteractiveAction::ContextDuplicateSelection;
+                        ui.close();
+                    }
+                    if ui.button(format!("🗑️  {}", tr("Delete"))).clicked() {
+                        ctx_action = InteractiveAction::ContextDeleteSelection;
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button(format!("🔗  {}", tr("Group"))).clicked() {
+                        ctx_action = InteractiveAction::ContextGroupSelection;
+                        ui.close();
+                    }
+                    if ui.button(format!("✂️  {}", tr("Ungroup"))).clicked() {
+                        ctx_action = InteractiveAction::ContextUngroupSelection;
+                        ui.close();
+                    }
+                }
                 ui.separator();
-                if ui.button(format!("📋  {}", tr("Duplicate"))).clicked() {
-                    ctx_action = InteractiveAction::ContextDuplicateSelection;
-                    ui.close_menu();
+                if ui.button(format!("☑️  {}", tr("Select All"))).clicked() {
+                    ctx_action = InteractiveAction::ContextSelectAll;
+                    ui.close();
                 }
-                if ui.button(format!("�  {}", tr("Delete"))).clicked() {
-                    ctx_action = InteractiveAction::ContextDeleteSelection;
-                    ui.close_menu();
-                }
-                ui.separator();
-                if ui.button(format!("🔗  {}", tr("Group"))).clicked() {
-                    ctx_action = InteractiveAction::ContextGroupSelection;
-                    ui.close_menu();
-                }
-                if ui.button(format!("✂  {}", tr("Ungroup"))).clicked() {
-                    ctx_action = InteractiveAction::ContextUngroupSelection;
-                    ui.close_menu();
-                }
-            }
-            ui.separator();
-            if ui.button(format!("☑  {}", tr("Select All"))).clicked() {
-                ctx_action = InteractiveAction::ContextSelectAll;
-                ui.close_menu();
-            }
-        });
+            });
         ctx_action
     }
 

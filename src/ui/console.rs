@@ -113,14 +113,16 @@ pub fn show(ui: &mut Ui, log: &[String], console_state: &mut ConsoleState) -> Co
                     .copied()
                     .collect();
                 if !matches.is_empty() && console_state.input.len() < 4 {
-                    egui::popup_below_widget(ui, ui.id().with("autocomplete"), &input_response, egui::PopupCloseBehavior::CloseOnClickOutside, |ui: &mut egui::Ui| {
-                        ui.set_min_width(80.0);
-                        for cmd in matches.iter().take(5) {
-                            if ui.selectable_label(false, *cmd).clicked() {
-                                console_state.input = cmd.to_string();
+                    egui::Popup::from_response(&input_response)
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                        .show(|ui: &mut egui::Ui| {
+                            ui.set_min_width(80.0);
+                            for cmd in matches.iter().take(5) {
+                                if ui.selectable_label(false, *cmd).clicked() {
+                                    console_state.input = cmd.to_string();
+                                }
                             }
-                        }
-                    });
+                        });
                 }
             }
 

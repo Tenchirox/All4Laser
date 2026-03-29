@@ -246,12 +246,13 @@ fn call_ollama_chat(base: &str, config: &AiConfig, prompt: &str) -> Result<Strin
     };
 
     let resp = ureq::post(&url)
-        .set("Content-Type", "application/json")
+        .header("Content-Type", "application/json")
         .send_json(serde_json::to_value(&body).map_err(|e| e.to_string())?)
         .map_err(|e| format!("{}", e))?;
 
     let parsed: OllamaChatResponse = resp
-        .into_json()
+        .into_body()
+        .read_json()
         .map_err(|e| format!("Ollama chat parse error: {}", e))?;
 
     if let Some(err) = parsed.error {
@@ -278,12 +279,13 @@ fn call_ollama_generate(base: &str, config: &AiConfig, prompt: &str) -> Result<S
     };
 
     let resp = ureq::post(&url)
-        .set("Content-Type", "application/json")
+        .header("Content-Type", "application/json")
         .send_json(serde_json::to_value(&body).map_err(|e| e.to_string())?)
         .map_err(|e| format!("{}", e))?;
 
     let parsed: OllamaGenerateResponse = resp
-        .into_json()
+        .into_body()
+        .read_json()
         .map_err(|e| format!("Ollama generate parse error: {}", e))?;
 
     if let Some(err) = parsed.error {
@@ -314,10 +316,10 @@ fn call_openai(config: &AiConfig, prompt: &str) -> Result<String, String> {
         temperature: 0.7,
     };
 
-    let mut req = ureq::post(&url).set("Content-Type", "application/json");
+    let mut req = ureq::post(&url).header("Content-Type", "application/json");
 
     if !config.api_key.is_empty() {
-        req = req.set("Authorization", &format!("Bearer {}", config.api_key));
+        req = req.header("Authorization", &format!("Bearer {}", config.api_key));
     }
 
     let resp = req
@@ -325,7 +327,8 @@ fn call_openai(config: &AiConfig, prompt: &str) -> Result<String, String> {
         .map_err(|e| format!("OpenAI request failed: {}", e))?;
 
     let parsed: OpenAiResponse = resp
-        .into_json()
+        .into_body()
+        .read_json()
         .map_err(|e| format!("OpenAI parse error: {}", e))?;
 
     if let Some(err) = parsed.error {
@@ -334,7 +337,7 @@ fn call_openai(config: &AiConfig, prompt: &str) -> Result<String, String> {
 
     parsed
         .choices
-        .and_then(|c| c.into_iter().next())
+        .and_then(|c: Vec<OpenAiChoice>| c.into_iter().next())
         .map(|c| c.message.content)
         .ok_or_else(|| "OpenAI returned no choices".to_string())
 }
@@ -414,12 +417,13 @@ fn call_gemini(config: &AiConfig, prompt: &str) -> Result<String, String> {
     };
 
     let resp = ureq::post(&url)
-        .set("Content-Type", "application/json")
+        .header("Content-Type", "application/json")
         .send_json(serde_json::to_value(&body).map_err(|e| e.to_string())?)
         .map_err(|e| format!("Gemini request failed: {}", e))?;
 
     let parsed: GeminiResponse = resp
-        .into_json()
+        .into_body()
+        .read_json()
         .map_err(|e| format!("Gemini parse error: {}", e))?;
 
     if let Some(err) = parsed.error {
@@ -428,10 +432,10 @@ fn call_gemini(config: &AiConfig, prompt: &str) -> Result<String, String> {
 
     parsed
         .candidates
-        .and_then(|c| c.into_iter().next())
+        .and_then(|c: Vec<GeminiCandidate>| c.into_iter().next())
         .and_then(|c| c.content)
-        .and_then(|c| c.parts)
-        .and_then(|p| p.into_iter().next())
+        .and_then(|c: GeminiContentResp| c.parts)
+        .and_then(|p: Vec<GeminiPart>| p.into_iter().next())
         .map(|p| p.text)
         .ok_or_else(|| "Gemini returned no content".to_string())
 }

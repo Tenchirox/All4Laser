@@ -51,6 +51,18 @@ pub struct ProjectFile {
     pub checkpoint_line: Option<usize>,
     #[serde(default)]
     pub project_notes: String,
+
+    // Drawing shapes (editable vector objects) — added for full session recovery
+    #[serde(default)]
+    pub shapes: Vec<crate::ui::drawing::ShapeParams>,
+
+    // Layer/cut settings (speed, power, mode, etc.)
+    #[serde(default)]
+    pub layers: Vec<crate::ui::layers_new::CutLayer>,
+
+    // Active layer index
+    #[serde(default)]
+    pub active_layer_idx: usize,
 }
 
 fn default_camera_opacity() -> f32 {

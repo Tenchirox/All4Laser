@@ -9,6 +9,7 @@ use egui::{RichText, Ui};
 use geo::Buffer;
 use geo::LineString;
 use geo::algorithm::buffer::{BufferStyle, LineJoin};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -28,7 +29,33 @@ impl PartialEq for ImageData {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+impl Serialize for ImageData {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use image::ImageEncoder;
+        let mut buf = Vec::new();
+        let img = self.0.to_rgba8();
+        image::codecs::png::PngEncoder::new(&mut buf)
+            .write_image(img.as_raw(), img.width(), img.height(), image::ExtendedColorType::Rgba8)
+            .map_err(serde::ser::Error::custom)?;
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+        serializer.serialize_str(&b64)
+    }
+}
+
+impl<'de> Deserialize<'de> for ImageData {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let b64 = String::deserialize(deserializer)?;
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&b64)
+            .map_err(serde::de::Error::custom)?;
+        let img = image::load_from_memory(&bytes).map_err(serde::de::Error::custom)?;
+        Ok(ImageData(Arc::new(img)))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum PathSegment {
     LineTo(f32, f32),
     CubicBezier {
@@ -42,7 +69,7 @@ pub enum PathSegment {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PathData {
     pub points: Vec<(f32, f32)>,
     pub segments: Vec<PathSegment>,
@@ -147,7 +174,7 @@ impl<'a> IntoIterator for &'a mut PathData {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ShapeKind {
     Rectangle,
     Circle,
@@ -159,7 +186,7 @@ pub enum ShapeKind {
     },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ShapeParams {
     pub shape: ShapeKind,
     pub x: f32,
