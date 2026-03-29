@@ -90,11 +90,23 @@ jobs:
       - name: Package Windows release
         run: cargo packager --release --target ${{ matrix.target }} -f nsis
 
+      - name: Collect NSIS installer
+        shell: bash
+        run: |
+          mkdir -p nsis_out
+          # cargo-packager places NSIS installers under bundle/nsis/
+          find target/${{ matrix.target }}/release/bundle/nsis -name '*.exe' -exec cp {} nsis_out/ \; 2>/dev/null || true
+          # Fallback: grab only setup executables from release root
+          if [ -z "$(ls -A nsis_out 2>/dev/null)" ]; then
+            find target/${{ matrix.target }}/release -maxdepth 1 -name '*setup*.exe' -exec cp {} nsis_out/ \; 2>/dev/null || true
+          fi
+          ls -la nsis_out
+
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ matrix.arch }}
-          path: target/${{ matrix.target }}/release/*.exe
+          path: nsis_out/*.exe
 
   build-macos:
     strategy:
@@ -166,6 +178,12 @@ jobs:
         with:
           path: downloaded_artifacts
 
+      - name: Create source archives
+        run: |
+          TAG=${{ steps.version.outputs.tag }}
+          git archive --format=zip    --prefix=${APP_NAME}-${TAG}/ HEAD -o ${APP_NAME}-${TAG}-source.zip
+          git archive --format=tar.gz --prefix=${APP_NAME}-${TAG}/ HEAD -o ${APP_NAME}-${TAG}-source.tar.gz
+
       - name: Flatten artifact files
         run: |
           mkdir -p release downloaded_artifacts
@@ -173,6 +191,8 @@ jobs:
           find downloaded_artifacts -type f -name "*.AppImage" -exec cp {} release/ \;
           find downloaded_artifacts -type f -name "*.exe" -exec cp {} release/ \;
           find downloaded_artifacts -type f -name "*.dmg" -exec cp {} release/ \;
+          cp ${APP_NAME}-*-source.zip release/
+          cp ${APP_NAME}-*-source.tar.gz release/
           ls -la release
 
       - name: Create GitHub release
@@ -183,6 +203,8 @@ jobs:
             release/*.AppImage
             release/*.exe
             release/*.dmg
+            release/*-source.zip
+            release/*-source.tar.gz
           generate_release_notes: true
           tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
