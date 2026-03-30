@@ -232,8 +232,10 @@ pub fn show(
                                             .speed(1.0)
                                             .range(0.0..=100.0)
                                             .suffix("%")
-                                            .clamp_existing_to_range(true),
+                                            .clamp_existing_to_range(true)
+                                            .custom_formatter(|val, _| format!("{:.0}", val)),
                                     );
+                                    ui.colored_label(pwr_color, "⚡");
                                     ui.add_space(4.0);
                                     // Pass count always visible next to power
                                     ui.add(

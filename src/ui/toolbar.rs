@@ -7,11 +7,13 @@ use egui::{RichText, Ui};
 /// C.6: Rich button atoms helper - combines icon and text for egui 0.34+ Button::new(atoms)
 /// 
 /// Usage: `ui.button(RichButton::atoms("📂", tr("Open")))` for rich icon+text buttons
+#[allow(dead_code)]
 pub struct RichButton<'a> {
     icon: &'a str,
     text: &'a str,
 }
 
+#[allow(dead_code)]
 impl<'a> RichButton<'a> {
     pub fn new(icon: &'a str, text: &'a str) -> Self {
         Self { icon, text }

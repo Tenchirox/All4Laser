@@ -2,6 +2,7 @@ use crate::i18n::tr;
 use egui::{Pos2, RichText, TextureHandle, Ui};
 use serde::{Deserialize, Serialize};
 
+#[allow(dead_code)]
 #[derive(Default)]
 pub struct CameraAction {
     pub load_snapshot: bool,
@@ -37,6 +38,7 @@ impl Default for CameraCalibration {
     }
 }
 
+#[allow(dead_code)]
 pub struct CameraState {
     pub enabled: bool,
     pub calibration: CameraCalibration,
@@ -79,6 +81,7 @@ impl Default for CameraState {
     }
 }
 
+#[allow(dead_code)]
 pub fn show(ui: &mut Ui, state: &mut CameraState) -> CameraAction {
     let mut action = CameraAction::default();
 

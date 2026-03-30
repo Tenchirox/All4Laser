@@ -1,6 +1,7 @@
 /// Camera marker detection logic (pure functions, no app state dependency)
 /// Extracted from app.rs for maintainability.
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub struct MarkerComponent {
     pub center_x: f32,
@@ -10,6 +11,7 @@ pub struct MarkerComponent {
     pub aspect_ratio: f32,
 }
 
+#[allow(dead_code)]
 pub fn detect_marker_components(rgba: &[u8], width: usize, height: usize) -> Vec<MarkerComponent> {
     if width == 0 || height == 0 || rgba.len() < width.saturating_mul(height).saturating_mul(4) {
         return Vec::new();
@@ -111,6 +113,7 @@ pub fn detect_marker_components(rgba: &[u8], width: usize, height: usize) -> Vec
     out
 }
 
+#[allow(dead_code)]
 pub fn detect_cross_and_circle_markers(
     rgba: &[u8],
     width: usize,

@@ -1466,6 +1466,7 @@ impl All4LaserApp {
         }
     }
 
+    #[allow(dead_code)]
     fn start_camera_calibration_wizard(&mut self) {
         if self.camera_state.texture.is_none() {
             self.show_error("Start live camera (or load image) before calibration wizard.".into());
@@ -1487,6 +1488,7 @@ impl All4LaserApp {
         self.camera_state.calibration_pick_count = 0;
     }
 
+    #[allow(dead_code)]
     fn start_camera_point_align(&mut self) {
         if self.camera_state.texture.is_none() {
             self.show_error("Start live camera (or load image) before point align.".into());
@@ -1616,6 +1618,7 @@ impl All4LaserApp {
         true
     }
 
+    #[allow(dead_code)]
     fn auto_detect_camera_mark(&mut self) {
         if let Some((width, height, rgba)) = self.camera_state.latest_rgba.clone() {
             if let Some(img) = image::RgbaImage::from_raw(width as u32, height as u32, rgba) {
@@ -1680,6 +1683,7 @@ impl All4LaserApp {
         }
     }
 
+    #[allow(dead_code)]
     fn camera_overlay_center_world(&self) -> egui::Pos2 {
         let scale = self.camera_state.calibration.scale.max(0.01);
         egui::Pos2::new(
@@ -1688,6 +1692,7 @@ impl All4LaserApp {
         )
     }
 
+    #[allow(dead_code)]
     fn camera_pixel_to_world(
         &self,
         px: f32,
@@ -1718,6 +1723,7 @@ impl All4LaserApp {
         egui::Pos2::new(cx + dx * cos_a - dy * sin_a, cy + dx * sin_a + dy * cos_a)
     }
 
+    #[allow(dead_code)]
     fn auto_detect_camera_markers(&mut self) {
         let mut rgba: Vec<u8> = Vec::new();
         let mut width = 0usize;
@@ -1791,6 +1797,7 @@ impl All4LaserApp {
         }
     }
 
+    #[allow(dead_code)]
     fn apply_detected_marker_align(&mut self) {
         let (Some(cross), Some(circle)) = (
             self.camera_state.detected_cross_world,
@@ -1810,6 +1817,7 @@ impl All4LaserApp {
         }
     }
 
+    #[allow(dead_code)]
     fn align_job_to_camera(&mut self) {
         let Some(file) = self.loaded_file.as_ref() else {
             self.show_error("Load a job before Align Job to Camera.".into());
@@ -2879,6 +2887,7 @@ impl All4LaserApp {
         }
     }
 
+    #[allow(dead_code)]
     fn handle_camera_ui_actions(&mut self, ui: &mut egui::Ui) {
         let prev_cam_enabled = self.camera_state.enabled;
         let prev_cam_opacity = self.camera_state.opacity;
@@ -3550,6 +3559,7 @@ impl All4LaserApp {
         });
     }
 
+    #[allow(dead_code)]
     fn ui_z_probe_tools(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.horizontal(|ui| {
@@ -4331,7 +4341,6 @@ impl All4LaserApp {
         }
 
         // === Handle Settings Modal ===
-        let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
         let mut settings_write_blocked = false;
         if let Some(state) = &mut self.settings_state {
             ui::settings_dialog::show(ui.ctx(), state);
@@ -4339,9 +4348,7 @@ impl All4LaserApp {
                 self.settings_state = None;
             } else {
                 let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
-                let mut settings_write_blocked = false;
                 if supports_grbl_settings && self.connection.is_some() {
-                    // Handle settings dialog logic here
                     settings_write_blocked = true;
                 }
             }
