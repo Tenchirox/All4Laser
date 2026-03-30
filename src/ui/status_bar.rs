@@ -41,6 +41,7 @@ pub fn show(
     state: &GrblState,
     file_info: Option<(&str, usize, Duration)>,
     progress: Option<(usize, usize)>,
+    pass_info: Option<(u32, u32)>,
     zoom: f32,
     caps: ControllerCapabilities,
     display_unit: DisplayUnit,
@@ -71,24 +72,25 @@ pub fn show(
 
         // Override controls
         let feed_color = if state.override_feed != 100 { theme::YELLOW } else { theme::TEXT };
-        ui.label(RichText::new(format!("F:{}%", state.override_feed)).color(feed_color).monospace().size(sz));
+        ui.label(RichText::new(format!("{}:{}%", tr("Speed"), state.override_feed)).color(feed_color).monospace().size(sz))
+            .on_hover_text(tr("Movement speed override"));
         if ui
             .add_enabled(caps.supports_feed_override && state.override_feed != 100, egui::Button::new("↺").small())
-            .on_hover_text(tr("Feed reset 100%"))
+            .on_hover_text(tr("Speed reset 100%"))
             .clicked()
         {
             action.feed_reset = true;
         }
         if ui
             .add_enabled(caps.supports_feed_override, egui::Button::new("+").small())
-            .on_hover_text(tr("Feed +10%"))
+            .on_hover_text(tr("Speed +10%"))
             .clicked()
         {
             action.feed_up = true;
         }
         if ui
             .add_enabled(caps.supports_feed_override, egui::Button::new("-").small())
-            .on_hover_text(tr("Feed -10%"))
+            .on_hover_text(tr("Speed -10%"))
             .clicked()
         {
             action.feed_down = true;
@@ -97,7 +99,8 @@ pub fn show(
         ui.separator();
 
         let rapid_color = if state.override_rapid != 100 { theme::YELLOW } else { theme::TEXT };
-        ui.label(RichText::new(format!("R:{}%", state.override_rapid)).color(rapid_color).monospace().size(sz));
+        ui.label(RichText::new(format!("{}:{}%", tr("Rapid"), state.override_rapid)).color(rapid_color).monospace().size(sz))
+            .on_hover_text(tr("Rapid movement override"));
         if ui
             .add_enabled(caps.supports_rapid_override && state.override_rapid != 100, egui::Button::new("↺").small())
             .on_hover_text(tr("Rapid reset 100%"))
@@ -123,13 +126,14 @@ pub fn show(
         ui.separator();
 
         let spindle_color = if state.override_spindle != 100 { theme::YELLOW } else { theme::TEXT };
-        ui.label(RichText::new(format!("S:{}%", state.override_spindle)).color(spindle_color).monospace().size(sz));
+        ui.label(RichText::new(format!("{}:{}%", tr("Power"), state.override_spindle)).color(spindle_color).monospace().size(sz))
+            .on_hover_text(tr("Laser power override"));
         if ui
             .add_enabled(
                 caps.supports_spindle_override && state.override_spindle != 100,
                 egui::Button::new("↺").small(),
             )
-            .on_hover_text(tr("Laser reset 100%"))
+            .on_hover_text(tr("Power reset 100%"))
             .clicked()
         {
             action.spindle_reset = true;
@@ -139,7 +143,7 @@ pub fn show(
                 caps.supports_spindle_override,
                 egui::Button::new("+").small(),
             )
-            .on_hover_text(tr("Laser +10%"))
+            .on_hover_text(tr("Power +10%"))
             .clicked()
         {
             action.spindle_up = true;
@@ -149,7 +153,7 @@ pub fn show(
                 caps.supports_spindle_override,
                 egui::Button::new("-").small(),
             )
-            .on_hover_text(tr("Laser -10%"))
+            .on_hover_text(tr("Power -10%"))
             .clicked()
         {
             action.spindle_down = true;
@@ -196,6 +200,16 @@ pub fn show(
                         .monospace()
                         .size(sz),
                 );
+            }
+            if let Some((current_pass, total_passes)) = pass_info {
+                if total_passes > 1 {
+                    ui.label(
+                        RichText::new(format!("{} {}/{}", tr("Pass"), current_pass, total_passes))
+                            .color(theme::LAVENDER)
+                            .monospace()
+                            .size(sz),
+                    );
+                }
             }
         }
         if let Some((filename, lines, est)) = file_info {

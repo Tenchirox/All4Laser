@@ -49,8 +49,10 @@ pub fn show(ui: &mut Ui, layers: &mut [LayerSettings]) {
                                 ui.label(format!("{}:", tr("Pwr")));
                                 ui.add(
                                     egui::DragValue::new(&mut layer.power)
-                                        .speed(10.0)
-                                        .range(0.0..=1000.0),
+                                        .speed(1.0)
+                                        .range(0.0..=100.0)
+                                        .suffix("%")
+                                        .clamp_existing_to_range(true),
                                 );
                             });
                         }

@@ -253,8 +253,8 @@ pub fn show(ui: &mut Ui, state: &mut GeneratorState, active_layer: usize) -> Gen
             ui.horizontal(|ui| {
                 ui.label("Feed:");
                 ui.add(egui::DragValue::new(&mut state.fiducial_feed).range(50.0..=10000.0));
-                ui.label("Power (S):");
-                ui.add(egui::DragValue::new(&mut state.fiducial_power).range(1.0..=1000.0));
+                ui.label("Power (%):");
+                ui.add(egui::DragValue::new(&mut state.fiducial_power).range(1.0..=100.0).suffix("%"));
             });
             ui.checkbox(&mut state.fiducial_draw_frame, "Include outer frame");
 
@@ -521,7 +521,8 @@ fn generate_fiducials_gcode(state: &GeneratorState) -> Vec<String> {
     let mark = state.fiducial_mark_size.clamp(1.0, 100.0);
     let half = mark * 0.5;
     let feed = state.fiducial_feed.max(50.0);
-    let power = state.fiducial_power.clamp(1.0, 1000.0);
+    let power_pct = state.fiducial_power.clamp(1.0, 100.0);
+    let power_s = (power_pct * 10.0).clamp(1.0, 1000.0); // Convert % to S-value
 
     let corners = [
         (margin, margin),
@@ -539,7 +540,7 @@ fn generate_fiducials_gcode(state: &GeneratorState) -> Vec<String> {
         gcode.push("; Outer frame".to_string());
         gcode.push("M5".to_string());
         gcode.push(format!("G0 X{:.3} Y{:.3}", 0.0, 0.0));
-        gcode.push(format!("M3 S{:.0}", power));
+        gcode.push(format!("M3 S{:.0}", power_s));
         gcode.push(format!("G1 X{:.3} Y{:.3} F{:.0}", w, 0.0, feed));
         gcode.push(format!("G1 X{:.3} Y{:.3} F{:.0}", w, h, feed));
         gcode.push(format!("G1 X{:.3} Y{:.3} F{:.0}", 0.0, h, feed));
@@ -551,12 +552,12 @@ fn generate_fiducials_gcode(state: &GeneratorState) -> Vec<String> {
         gcode.push(format!("; Fiducial {}", idx + 1));
 
         gcode.push(format!("G0 X{:.3} Y{:.3}", cx - half, cy));
-        gcode.push(format!("M3 S{:.0}", power));
+        gcode.push(format!("M3 S{:.0}", power_s));
         gcode.push(format!("G1 X{:.3} Y{:.3} F{:.0}", cx + half, cy, feed));
         gcode.push("M5".to_string());
 
         gcode.push(format!("G0 X{:.3} Y{:.3}", cx, cy - half));
-        gcode.push(format!("M3 S{:.0}", power));
+        gcode.push(format!("M3 S{:.0}", power_s));
         gcode.push(format!("G1 X{:.3} Y{:.3} F{:.0}", cx, cy + half, feed));
         gcode.push("M5".to_string());
     }

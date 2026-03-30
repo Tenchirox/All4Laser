@@ -93,14 +93,14 @@ pub fn show(
         ui.add_space(4.0);
 
         ui.horizontal(|ui| {
-            ui.label(RichText::new(tr("Feed:")).color(theme::SUBTEXT));
+            ui.label(RichText::new(format!("{}:", tr("Speed"))).color(theme::SUBTEXT));
             ui.label(
                 RichText::new(format!("{:.0} mm/min", state.feed_rate))
                     .color(theme::YELLOW)
                     .monospace(),
             );
             ui.add_space(12.0);
-            ui.label(RichText::new(tr("Laser:")).color(theme::SUBTEXT));
+            ui.label(RichText::new(format!("{}:", tr("Power"))).color(theme::SUBTEXT));
             ui.label(
                 RichText::new(format!("S{:.0}", state.spindle_speed))
                     .color(theme::MAUVE)

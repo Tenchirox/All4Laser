@@ -27,8 +27,8 @@ impl Default for PowerSpeedTestState {
             cols: 5,
             speed_min: 200.0,
             speed_max: 2000.0,
-            power_min: 100.0,
-            power_max: 1000.0,
+            power_min: 10.0,
+            power_max: 100.0,
             cell_size: 10.0,
             cell_gap: 2.0,
             origin_x: 5.0,
@@ -73,11 +73,11 @@ pub fn show(ctx: &egui::Context, state: &mut PowerSpeedTestState) -> PowerSpeedT
                     ui.label(format!("{} {} (mm/min):", tr("Speed"), tr("max")));
                     ui.add(egui::DragValue::new(&mut state.speed_max).speed(50.0));
                     ui.end_row();
-                    ui.label(format!("{} {} (S):", tr("Power"), tr("min")));
-                    ui.add(egui::DragValue::new(&mut state.power_min).speed(10.0));
+                    ui.label(format!("{} {} (%):", tr("Power"), tr("min")));
+                    ui.add(egui::DragValue::new(&mut state.power_min).speed(1.0).range(0.0..=100.0));
                     ui.end_row();
-                    ui.label(format!("{} {} (S):", tr("Power"), tr("max")));
-                    ui.add(egui::DragValue::new(&mut state.power_max).speed(10.0));
+                    ui.label(format!("{} {} (%):", tr("Power"), tr("max")));
+                    ui.add(egui::DragValue::new(&mut state.power_max).speed(1.0).range(0.0..=100.0));
                     ui.end_row();
                     ui.label(format!("{} (mm):", tr("Cell size")));
                     ui.add(egui::DragValue::new(&mut state.cell_size).range(2.0..=50.0));
@@ -213,7 +213,8 @@ fn generate_gcode(s: &PowerSpeedTestState) -> Vec<String> {
     for row in 0..s.rows {
         let speed = s.speed_min + row as f32 * speed_step;
         for col in 0..s.cols {
-            let power = s.power_min + col as f32 * power_step;
+            let power_pct = s.power_min + col as f32 * power_step;
+            let power_s = (power_pct * 10.0).clamp(0.0, 1000.0); // Convert % to S-value
 
             let x0 = s.origin_x + col as f32 * step;
             let y0 = s.origin_y + row as f32 * step;
@@ -221,12 +222,12 @@ fn generate_gcode(s: &PowerSpeedTestState) -> Vec<String> {
             let y1 = y0 + s.cell_size;
 
             lines.push(format!(
-                "; Row={} Col={} Speed={:.0} Power={:.0}",
-                row, col, speed, power
+                "; Row={} Col={} Speed={:.0} Power={:.0}%",
+                row, col, speed, power_pct
             ));
             lines.push(format!("M5"));
             lines.push(format!("G0 X{:.2} Y{:.2} F3000", x0, y0));
-            lines.push(format!("M3 S{:.0}", power));
+            lines.push(format!("M3 S{:.0}", power_s));
 
             // Fill with horizontal scan lines
             let mut y = y0;
@@ -238,7 +239,7 @@ fn generate_gcode(s: &PowerSpeedTestState) -> Vec<String> {
                 if !s.scan_bidirectional && !left_to_right {
                     lines.push(format!("M5"));
                     lines.push(format!("G0 X{:.2} Y{:.2}", start_x, y));
-                    lines.push(format!("M3 S{:.0}", power));
+                    lines.push(format!("M3 S{:.0}", power_s));
                     lines.push(format!("G1 X{:.2} Y{:.2} F{:.0}", end_x, y, speed));
                 } else {
                     // Normal burn move

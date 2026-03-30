@@ -24,6 +24,7 @@ pub mod nesting;
 pub mod node_edit;
 pub mod offset;
 pub mod power_speed_test;
+pub mod preferences;
 pub mod preflight;
 pub mod preview_panel;
 pub mod settings_dialog;

@@ -622,6 +622,32 @@ Users cannot hide panels they don't need (e.g., hide the console, hide the camer
 
 ---
 
+## 36. App Preferences Dialog (NEW)
+
+### 🔴 36.1 — No application preferences dialog
+Currently the ⚙ "Settings" button only opens GRBL firmware settings and requires a machine connection. There is no way to modify application preferences (theme, layout, language, display units, etc.) from a dedicated dialog. These options are scattered across the View menu dropdown.
+
+**Plan:**
+
+1. **Create `src/ui/preferences.rs`** — New preferences dialog with tabbed sections:
+   - **Appearance**: Theme (Modern/Industrial), Layout (Modern/Classic), Light/Dark mode
+   - **Language**: Language selector with all supported languages
+   - **General**: Display units (mm/in), Beginner mode toggle, Max undo steps
+   - **Accessibility**: Colorblind mode, High contrast
+   - **Advanced**: Darkroom mode, Touch mode, Autosave interval, Watch folder
+
+2. **Add toolbar button** — A new 🎛 "Preferences" button in the top toolbar (always enabled, no connection required), distinct from the existing ⚙ GRBL Settings button.
+
+3. **Add menu bar entry** — In the Industrial theme menu bar, add "Preferences" under Edit menu (or as a standalone entry), following standard application conventions.
+
+4. **Wire into `app.rs`** — Add `PreferencesState` field, `open_preferences` action in `ToolbarAction`, handle apply logic to live-update theme/layout/language when changed.
+
+5. **i18n** — Add translation keys for all new labels across supported languages.
+
+6. **Verify** — `cargo check` passes.
+
+---
+
 ## Summary Statistics
 
 | Priority | Count |

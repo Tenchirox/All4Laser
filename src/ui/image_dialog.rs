@@ -273,8 +273,8 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                                 .text("Speed (mm/min)"),
                         );
                         ui.add(
-                            egui::Slider::new(&mut state.raster_params.max_power, 0.0..=1000.0)
-                                .text("Max Power (S)"),
+                            egui::Slider::new(&mut state.raster_params.max_power, 0.0..=100.0)
+                                .text("Max Power (%)"),
                         );
 
                         // --- Cutting Frame ---
@@ -301,9 +301,9 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                                 ui.add(
                                     egui::Slider::new(
                                         &mut state.raster_params.outline.power,
-                                        0.0..=1000.0,
+                                        0.0..=100.0,
                                     )
-                                    .text("Cut Power"),
+                                    .text("Cut Power (%)"),
                                 );
                                 ui.horizontal(|ui| {
                                     ui.label("Passes:");
@@ -377,7 +377,8 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                                                 ui.add(
                                                     egui::DragValue::new(&mut layer.power)
                                                         .speed(1.0)
-                                                        .range(0.0..=1000.0),
+                                                        .range(0.0..=100.0)
+                                                        .suffix("%"),
                                                 );
                                             });
                                         }
@@ -409,9 +410,9 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                                 ui.add(
                                     egui::Slider::new(
                                         &mut state.svg_params.outline.power,
-                                        0.0..=1000.0,
+                                        0.0..=100.0,
                                     )
-                                    .text("Cut Power"),
+                                    .text("Cut Power (%)"),
                                 );
                                 ui.horizontal(|ui| {
                                     ui.label("Passes:");

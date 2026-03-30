@@ -84,10 +84,11 @@ pub fn show(ui: &mut Ui, layers: &[CutLayer], active_idx: usize, is_light_mode: 
                     }
 
                     response.on_hover_text(format!(
-                        "{} C{:02}\n{}: {}\n{}: {}",
+                        "{} C{:02}\n{}: {} mm/min\n{}: S{}\n{}: {}",
                         tr("Layer"), i,
                         tr("Speed"), layer.speed,
-                        tr("Power"), layer.power
+                        tr("Power"), layer.power,
+                        tr("Passes"), layer.passes
                     ));
                 }
             });

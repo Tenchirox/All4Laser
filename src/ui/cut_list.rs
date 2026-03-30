@@ -179,6 +179,7 @@ pub fn show(
                                     RENAME_BUFFER.with(|b| *b.borrow_mut() = layer.name.clone());
                                 }
                             }
+                            ui.add_space(25.0); // Space between name and mode/speed row
                             ui.horizontal(|ui| {
                                 let mode_before = layer.mode;
                                 egui::ComboBox::from_id_salt(format!("layer_mode_{i}"))
@@ -199,7 +200,9 @@ pub fn show(
                                     action.layers_changed = true;
                                 }
 
-                                // Inline Speed / Power / Passes editing
+                                ui.add_space(8.0); // Space between mode and speed/power
+
+                                // Inline Speed / Power+Passes editing
                                 let pwr_pct = (layer.power / 1000.0).clamp(0.0, 1.0);
                                 let pwr_color = if pwr_pct > 0.8 {
                                     theme::RED
@@ -211,6 +214,7 @@ pub fn show(
                                 
                                 let speed_before = layer.speed;
                                 let power_before = layer.power;
+                                let passes_before = layer.passes;
                                 
                                 ui.horizontal(|ui| {
                                     ui.add(
@@ -220,35 +224,35 @@ pub fn show(
                                             .suffix(" mm/min")
                                             .clamp_existing_to_range(true),
                                     );
+                                    ui.add_space(4.0);
                                     ui.label("/");
+                                    ui.add_space(4.0);
                                     ui.add(
                                         egui::DragValue::new(&mut layer.power)
                                             .speed(1.0)
-                                            .range(0.0..=1000.0)
-                                            .suffix(" S")
+                                            .range(0.0..=100.0)
+                                            .suffix("%")
+                                            .clamp_existing_to_range(true),
+                                    );
+                                    ui.add_space(4.0);
+                                    // Pass count always visible next to power
+                                    ui.add(
+                                        egui::DragValue::new(&mut layer.passes)
+                                            .speed(1.0)
+                                            .range(1..=100)
+                                            .prefix("×")
                                             .clamp_existing_to_range(true),
                                     );
                                 });
                                 
-                                if layer.speed != speed_before || layer.power != power_before {
+                                if layer.speed != speed_before || layer.power != power_before || layer.passes != passes_before {
                                     action.layers_changed = true;
-                                }
-                                
-                                let pass_badge = if layer.passes > 1 {
-                                    format!("×{}", layer.passes)
-                                } else {
-                                    String::new()
-                                };
-                                if !pass_badge.is_empty() {
-                                    ui.label(
-                                        RichText::new(pass_badge)
-                                            .monospace()
-                                            .small()
-                                            .color(pwr_color),
-                                    );
                                 }
                             });
                         });
+
+                        // Horizontal space between left settings and right buttons
+                        ui.allocate_exact_size(egui::vec2(5.0, 0.0), egui::Sense::hover());
 
                         // Right side: output toggle + settings + select all + reorder buttons
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -287,7 +291,7 @@ pub fn show(
                         });
                     });
                 });
-            ui.add_space(2.0);
+            ui.add_space(10.0);
         }
     });
 

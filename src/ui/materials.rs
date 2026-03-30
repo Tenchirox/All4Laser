@@ -83,9 +83,9 @@ fn default_presets() -> Vec<MaterialPreset> {
             name: "Plywood 3mm".into(),
             thickness_mm: 3.0,
             speed: 800.0,
-            power: 750.0,
+            power: 75.0,
             cut_speed: 200.0,
-            cut_power: 1000.0,
+            cut_power: 100.0,
             operation: MaterialOperation::Cut,
             recommended_passes: 1,
             ..MaterialPreset::default()
@@ -94,9 +94,9 @@ fn default_presets() -> Vec<MaterialPreset> {
             name: "Plywood 6mm".into(),
             thickness_mm: 6.0,
             speed: 600.0,
-            power: 900.0,
+            power: 90.0,
             cut_speed: 100.0,
-            cut_power: 1000.0,
+            cut_power: 100.0,
             operation: MaterialOperation::Cut,
             recommended_passes: 2,
             ..MaterialPreset::default()
@@ -105,9 +105,9 @@ fn default_presets() -> Vec<MaterialPreset> {
             name: "Anodized Aluminum".into(),
             thickness_mm: 1.5,
             speed: 1500.0,
-            power: 600.0,
+            power: 60.0,
             cut_speed: 500.0,
-            cut_power: 800.0,
+            cut_power: 80.0,
             operation: MaterialOperation::Engrave,
             recommended_passes: 1,
             ..MaterialPreset::default()
@@ -116,9 +116,9 @@ fn default_presets() -> Vec<MaterialPreset> {
             name: "Acrylic 3mm".into(),
             thickness_mm: 3.0,
             speed: 500.0,
-            power: 850.0,
+            power: 85.0,
             cut_speed: 150.0,
-            cut_power: 950.0,
+            cut_power: 95.0,
             operation: MaterialOperation::Cut,
             recommended_passes: 1,
             ..MaterialPreset::default()
@@ -127,9 +127,9 @@ fn default_presets() -> Vec<MaterialPreset> {
             name: "Leather".into(),
             thickness_mm: 2.0,
             speed: 1200.0,
-            power: 500.0,
+            power: 50.0,
             cut_speed: 300.0,
-            cut_power: 700.0,
+            cut_power: 70.0,
             operation: MaterialOperation::Engrave,
             recommended_passes: 1,
             ..MaterialPreset::default()
@@ -417,7 +417,7 @@ pub fn show_with_context(
                 };
                 ui.label(
                     RichText::new(format!(
-                        "{}mm | {} {} / S{} | {} {} / S{} | {} {} | {}",
+                        "{}mm | {} {} / {}% | {} {} / {}% | {} {} | {}",
                         preset.thickness_mm,
                         tr("Engrave"),
                         preset.speed,
@@ -432,7 +432,7 @@ pub fn show_with_context(
                     .small(),
                 );
             });
-            ui.add_space(4.0);
+            ui.add_space(8.0);
 
             ui.horizontal(|ui| {
                 if ui
@@ -497,13 +497,13 @@ pub fn show_with_context(
                 ui.label(format!("{} {}:", tr("Engrave"), tr("Speed")));
                 ui.add(egui::DragValue::new(&mut ep.speed).speed(10.0));
                 ui.label(format!("{}:", tr("Power")));
-                ui.add(egui::DragValue::new(&mut ep.power).speed(5.0));
+                ui.add(egui::DragValue::new(&mut ep.power).speed(1.0).range(0.0..=100.0).suffix("%"));
             });
             ui.horizontal(|ui| {
                 ui.label(format!("{} {}:", tr("Cut"), tr("Speed")));
                 ui.add(egui::DragValue::new(&mut ep.cut_speed).speed(10.0));
                 ui.label(format!("{}:", tr("Power")));
-                ui.add(egui::DragValue::new(&mut ep.cut_power).speed(5.0));
+                ui.add(egui::DragValue::new(&mut ep.cut_power).speed(1.0).range(0.0..=100.0).suffix("%"));
             });
             ui.horizontal(|ui| {
                 ui.label(format!("{}:", tr("Recommended Passes")));
