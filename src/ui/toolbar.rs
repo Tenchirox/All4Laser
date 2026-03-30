@@ -1,6 +1,6 @@
 use crate::config::recent_files::RecentFiles;
 use crate::controller::ControllerCapabilities;
-use crate::i18n::{self, Language, tr};
+use crate::i18n::{Language, tr};
 use crate::theme;
 use egui::{RichText, Ui};
 
@@ -186,17 +186,12 @@ pub fn show(
     ui: &mut Ui,
     connected: bool,
     running: bool,
-    light_mode: bool,
-    beginner_mode: bool,
     framing_active: bool,
     framing_power: &mut f32,
     recent: &RecentFiles,
     has_file: bool,
     has_shapes: bool,
     caps: ControllerCapabilities,
-    current_theme: theme::UiTheme,
-    current_layout: theme::UiLayout,
-    auto_optimization_enabled: bool,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::default();
 
@@ -471,70 +466,17 @@ pub fn show(
 
         // View menu
         ui.menu_button( label("👁", &tr("View")), |ui| {
-            ui.label(RichText::new(format!("{}:", tr("Theme"))).strong());
-            if ui
-                .selectable_label(current_theme == theme::UiTheme::Modern, "Modern")
-                .clicked()
-            {
-                action.set_theme = Some(theme::UiTheme::Modern);
+            if ui.button(format!("🔍 {}", tr("Zoom In"))).clicked() {
+                action.zoom_in = true;
                 ui.close();
             }
-            if ui
-                .selectable_label(current_theme == theme::UiTheme::Industrial, "Industrial")
-                .clicked()
-            {
-                action.set_theme = Some(theme::UiTheme::Industrial);
+            if ui.button(format!("🔎 {}", tr("Zoom Out"))).clicked() {
+                action.zoom_out = true;
                 ui.close();
             }
-
             ui.separator();
-            ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());
-            if ui
-                .selectable_label(current_layout == theme::UiLayout::Modern, "Modern")
-                .clicked()
-            {
-                action.set_layout = Some(theme::UiLayout::Modern);
-                ui.close();
-            }
-            if ui
-                .selectable_label(current_layout == theme::UiLayout::Classic, "Classic")
-                .clicked()
-            {
-                action.set_layout = Some(theme::UiLayout::Classic);
-                ui.close();
-            }
-
-            ui.separator();
-            let light_label = if light_mode {
-                format!("☀️ {}", tr("Light Mode"))
-            } else {
-                format!("🌙 {}", tr("Dark Mode"))
-            };
-            if ui.selectable_label(light_mode, light_label).clicked() {
-                action.toggle_light_mode = true;
-                ui.close();
-            }
-
-            ui.separator();
-            let beginner_label = if beginner_mode {
-                format!("✅ {}", tr("Beginner Mode"))
-            } else {
-                tr("Beginner Mode")
-            };
-            if ui.selectable_label(beginner_mode, beginner_label).clicked() {
-                action.toggle_beginner_mode = true;
-                ui.close();
-            }
-
-            ui.separator();
-            let opt_label = if auto_optimization_enabled {
-                format!("⚡ {}", tr("Auto-Optimization"))
-            } else {
-                tr("Auto-Optimization")
-            };
-            if ui.selectable_label(auto_optimization_enabled, opt_label).clicked() {
-                // Note: This would require adding an action to toggle auto-optimization
-                // For now, it's just an indicator
+            if ui.button(format!("🎛 {}", tr("Preferences"))).clicked() {
+                action.open_preferences = true;
                 ui.close();
             }
         });
@@ -606,16 +548,6 @@ pub fn show(
         {
             action.open_preferences = true;
         }
-
-        let theme_icon = if light_mode { "🌙" } else { "☀" };
-        let theme_tip = if light_mode { tr("Dark UI") } else { tr("Light UI") };
-        if ui
-            .button(RichText::new(label(theme_icon, &theme_tip)).size(sz))
-            .on_hover_text(if light_mode { tr("Dark UI") } else { tr("Light UI") })
-            .clicked()
-        {
-            action.toggle_light_mode = true;
-        }
     });
 
     action
@@ -626,11 +558,7 @@ pub fn show_menu_bar(
     recent: &RecentFiles,
     has_file: bool,
     has_shapes: bool,
-    beginner_mode: bool,
-    light_mode: bool,
     caps: ControllerCapabilities,
-    current_theme: theme::UiTheme,
-    current_layout: theme::UiLayout,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::default();
 
@@ -729,81 +657,17 @@ pub fn show_menu_bar(
 
         // View / Affichage
         ui.menu_button(format!("👁 {}", tr("View")), |ui| {
-            ui.label(RichText::new(format!("{}:", tr("Theme"))).strong());
-            if ui
-                .selectable_label(current_theme == theme::UiTheme::Modern, tr("Modern (recommended)"))
-                .clicked()
-            {
-                action.set_theme = Some(theme::UiTheme::Modern);
+            if ui.button(format!("🔍 {}", tr("Zoom In"))).clicked() {
+                action.zoom_in = true;
                 ui.close();
             }
-            if ui
-                .selectable_label(current_theme == theme::UiTheme::Industrial, tr("Industrial (advanced)"))
-                .clicked()
-            {
-                action.set_theme = Some(theme::UiTheme::Industrial);
+            if ui.button(format!("🔎 {}", tr("Zoom Out"))).clicked() {
+                action.zoom_out = true;
                 ui.close();
             }
-
             ui.separator();
-            ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());
-            if ui
-                .selectable_label(current_layout == theme::UiLayout::Modern, tr("Modern layout (simple)"))
-                .clicked()
-            {
-                action.set_layout = Some(theme::UiLayout::Modern);
-                ui.close();
-            }
-            if ui
-                .selectable_label(current_layout == theme::UiLayout::Classic, tr("Classic layout (expert)"))
-                .clicked()
-            {
-                action.set_layout = Some(theme::UiLayout::Classic);
-                ui.close();
-            }
-
-            ui.separator();
-            let beginner_label = if beginner_mode {
-                format!("✅ {}", tr("Beginner Mode"))
-            } else {
-                tr("Beginner Mode")
-            };
-            if ui.selectable_label(beginner_mode, beginner_label).clicked() {
-                action.toggle_beginner_mode = true;
-                ui.close();
-            }
-
-            ui.separator();
-            ui.label(RichText::new(format!("{}:", tr("Language"))).strong());
-            let current_lang = i18n::get_language();
-            let langs = [
-                Language::English,
-                Language::French,
-                Language::Japanese,
-                Language::German,
-                Language::Italian,
-                Language::Arabic,
-                Language::Spanish,
-                Language::Portuguese,
-            ];
-            for lang in langs {
-                if ui
-                    .selectable_label(current_lang == lang, lang.name())
-                    .clicked()
-                {
-                    action.set_language = Some(lang);
-                    ui.close();
-                }
-            }
-
-            ui.separator();
-            let theme_toggle_label = if light_mode {
-                format!("🌙 {}", tr("Dark UI"))
-            } else {
-                format!("☀ {}", tr("Light UI"))
-            };
-            if ui.button(theme_toggle_label).clicked() {
-                action.toggle_light_mode = true;
+            if ui.button(format!("🎛 {}", tr("Preferences"))).clicked() {
+                action.open_preferences = true;
                 ui.close();
             }
         });

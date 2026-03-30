@@ -140,37 +140,22 @@ fn show_appearance_tab(ui: &mut Ui, state: &mut PreferencesState, app_settings: 
         ui.add_space(4.0);
         
         let current_theme = state.pending_theme.unwrap_or(app_settings.theme);
-        let mut theme_index = match current_theme {
-            theme::UiTheme::Modern => 0,
-            theme::UiTheme::Industrial => 1,
-            theme::UiTheme::Pro => 1, // Deprecated: map to Industrial
-        };
         
         ui.horizontal(|ui| {
             ui.label(tr("Theme:"));
-            if egui::ComboBox::from_label("")
+            egui::ComboBox::from_id_salt("pref_theme")
                 .selected_text(match current_theme {
                     theme::UiTheme::Modern => tr("Modern"),
-                    theme::UiTheme::Industrial => tr("Industrial"),
-                    theme::UiTheme::Pro => tr("Industrial"), // Deprecated: map to Industrial
+                    theme::UiTheme::Industrial | theme::UiTheme::Pro => tr("Industrial"),
                 })
                 .show_ui(ui, |ui| {
-                    if ui.selectable_label(false, tr("Modern")).clicked() {
-                        theme_index = 0;
+                    if ui.selectable_label(current_theme == theme::UiTheme::Modern, tr("Modern")).clicked() {
+                        state.pending_theme = Some(theme::UiTheme::Modern);
                     }
-                    if ui.selectable_label(false, tr("Industrial")).clicked() {
-                        theme_index = 1;
+                    if ui.selectable_label(current_theme == theme::UiTheme::Industrial || current_theme == theme::UiTheme::Pro, tr("Industrial")).clicked() {
+                        state.pending_theme = Some(theme::UiTheme::Industrial);
                     }
-                })
-                .response
-                .changed()
-            {
-                state.pending_theme = match theme_index {
-                    0 => Some(theme::UiTheme::Modern),
-                    1 => Some(theme::UiTheme::Industrial),
-                    _ => None,
-                };
-            }
+                });
         });
     });
 
@@ -181,37 +166,22 @@ fn show_appearance_tab(ui: &mut Ui, state: &mut PreferencesState, app_settings: 
         ui.add_space(4.0);
         
         let current_layout = state.pending_layout.unwrap_or(app_settings.layout);
-        let mut layout_index = match current_layout {
-            theme::UiLayout::Modern => 0,
-            theme::UiLayout::Classic => 1,
-            theme::UiLayout::Pro => 1, // Deprecated: map to Classic
-        };
         
         ui.horizontal(|ui| {
             ui.label(tr("Layout:"));
-            if egui::ComboBox::from_label("")
+            egui::ComboBox::from_id_salt("pref_layout")
                 .selected_text(match current_layout {
                     theme::UiLayout::Modern => tr("Modern"),
-                    theme::UiLayout::Classic => tr("Classic"),
-                    theme::UiLayout::Pro => tr("Classic"), // Deprecated: map to Classic
+                    theme::UiLayout::Classic | theme::UiLayout::Pro => tr("Classic"),
                 })
                 .show_ui(ui, |ui| {
-                    if ui.selectable_label(false, tr("Modern")).clicked() {
-                        layout_index = 0;
+                    if ui.selectable_label(current_layout == theme::UiLayout::Modern, tr("Modern")).clicked() {
+                        state.pending_layout = Some(theme::UiLayout::Modern);
                     }
-                    if ui.selectable_label(false, tr("Classic")).clicked() {
-                        layout_index = 1;
+                    if ui.selectable_label(current_layout == theme::UiLayout::Classic || current_layout == theme::UiLayout::Pro, tr("Classic")).clicked() {
+                        state.pending_layout = Some(theme::UiLayout::Classic);
                     }
-                })
-                .response
-                .changed()
-            {
-                state.pending_layout = match layout_index {
-                    0 => Some(theme::UiLayout::Modern),
-                    1 => Some(theme::UiLayout::Classic),
-                    _ => None,
-                };
-            }
+                });
         });
     });
 
@@ -234,25 +204,10 @@ fn show_language_tab(ui: &mut Ui, state: &mut PreferencesState, app_settings: &A
         ui.add_space(4.0);
         
         let current_language = state.pending_language.unwrap_or(app_settings.language);
-        let mut language_index = match current_language {
-            crate::i18n::Language::English => 0,
-            crate::i18n::Language::French => 1,
-            crate::i18n::Language::German => 2,
-            crate::i18n::Language::Spanish => 3,
-            crate::i18n::Language::Chinese => 4,
-            crate::i18n::Language::Japanese => 5,
-            crate::i18n::Language::Italian => 6,
-            crate::i18n::Language::Arabic => 7,
-            crate::i18n::Language::Portuguese => 8,
-            crate::i18n::Language::Russian => 9,
-            crate::i18n::Language::Turkish => 10,
-            crate::i18n::Language::Korean => 11,
-            crate::i18n::Language::Polish => 12,
-        };
         
         ui.horizontal(|ui| {
             ui.label(tr("Language:"));
-            if egui::ComboBox::from_label("")
+            egui::ComboBox::from_id_salt("pref_language")
                 .selected_text(match current_language {
                     crate::i18n::Language::English => "English",
                     crate::i18n::Language::French => "Français",
@@ -269,66 +224,20 @@ fn show_language_tab(ui: &mut Ui, state: &mut PreferencesState, app_settings: &A
                     crate::i18n::Language::Polish => "Polski",
                 })
                 .show_ui(ui, |ui| {
-                    if ui.selectable_label(false, "English").clicked() {
-                        language_index = 0;
+                    use crate::i18n::Language::*;
+                    let langs = [
+                        (English, "English"), (French, "Français"), (German, "Deutsch"),
+                        (Spanish, "Español"), (Chinese, "中文"), (Japanese, "日本語"),
+                        (Italian, "Italiano"), (Arabic, "العربية"), (Portuguese, "Português"),
+                        (Russian, "Русский"), (Turkish, "Türkçe"), (Korean, "한국어"),
+                        (Polish, "Polski"),
+                    ];
+                    for (lang, name) in langs {
+                        if ui.selectable_label(current_language == lang, name).clicked() {
+                            state.pending_language = Some(lang);
+                        }
                     }
-                    if ui.selectable_label(false, "Français").clicked() {
-                        language_index = 1;
-                    }
-                    if ui.selectable_label(false, "Deutsch").clicked() {
-                        language_index = 2;
-                    }
-                    if ui.selectable_label(false, "Español").clicked() {
-                        language_index = 3;
-                    }
-                    if ui.selectable_label(false, "中文").clicked() {
-                        language_index = 4;
-                    }
-                    if ui.selectable_label(false, "日本語").clicked() {
-                        language_index = 5;
-                    }
-                    if ui.selectable_label(false, "Italiano").clicked() {
-                        language_index = 6;
-                    }
-                    if ui.selectable_label(false, "العربية").clicked() {
-                        language_index = 7;
-                    }
-                    if ui.selectable_label(false, "Português").clicked() {
-                        language_index = 8;
-                    }
-                    if ui.selectable_label(false, "Русский").clicked() {
-                        language_index = 9;
-                    }
-                    if ui.selectable_label(false, "Türkçe").clicked() {
-                        language_index = 10;
-                    }
-                    if ui.selectable_label(false, "한국어").clicked() {
-                        language_index = 11;
-                    }
-                    if ui.selectable_label(false, "Polski").clicked() {
-                        language_index = 12;
-                    }
-                })
-                .response
-                .changed()
-            {
-                state.pending_language = match language_index {
-                    0 => Some(crate::i18n::Language::English),
-                    1 => Some(crate::i18n::Language::French),
-                    2 => Some(crate::i18n::Language::German),
-                    3 => Some(crate::i18n::Language::Spanish),
-                    4 => Some(crate::i18n::Language::Chinese),
-                    5 => Some(crate::i18n::Language::Japanese),
-                    6 => Some(crate::i18n::Language::Italian),
-                    7 => Some(crate::i18n::Language::Arabic),
-                    8 => Some(crate::i18n::Language::Portuguese),
-                    9 => Some(crate::i18n::Language::Russian),
-                    10 => Some(crate::i18n::Language::Turkish),
-                    11 => Some(crate::i18n::Language::Korean),
-                    12 => Some(crate::i18n::Language::Polish),
-                    _ => None,
-                };
-            }
+                });
         });
     });
 }
@@ -345,24 +254,19 @@ fn show_general_tab(ui: &mut Ui, state: &mut PreferencesState, app_settings: &Ap
         
         ui.horizontal(|ui| {
             ui.label(tr("Display Units:"));
-            if egui::ComboBox::from_label("")
+            egui::ComboBox::from_id_salt("pref_units")
                 .selected_text(match current_units {
                     DisplayUnit::Millimeters => tr("Millimeters"),
                     DisplayUnit::Inches => tr("Inches"),
                 })
                 .show_ui(ui, |ui| {
-                    if ui.selectable_label(false, tr("Millimeters")).clicked() {
+                    if ui.selectable_label(current_units == DisplayUnit::Millimeters, tr("Millimeters")).clicked() {
                         state.pending_display_units = Some(DisplayUnit::Millimeters);
                     }
-                    if ui.selectable_label(false, tr("Inches")).clicked() {
+                    if ui.selectable_label(current_units == DisplayUnit::Inches, tr("Inches")).clicked() {
                         state.pending_display_units = Some(DisplayUnit::Inches);
                     }
-                })
-                .response
-                .changed()
-            {
-                // Handled in the combo box
-            }
+                });
         });
     });
 
@@ -398,16 +302,10 @@ fn show_accessibility_tab(ui: &mut Ui, state: &mut PreferencesState, app_setting
         ui.add_space(4.0);
         
         let current_colorblind_mode = state.pending_colorblind_mode.unwrap_or(app_settings.colorblind_mode);
-        let mut mode_index = match current_colorblind_mode {
-            ColorblindMode::None => 0,
-            ColorblindMode::Protanopia => 1,
-            ColorblindMode::Deuteranopia => 2,
-            ColorblindMode::Tritanopia => 3,
-        };
         
         ui.horizontal(|ui| {
             ui.label(tr("Colorblind Mode:"));
-            if egui::ComboBox::from_label("")
+            egui::ComboBox::from_id_salt("pref_colorblind")
                 .selected_text(match current_colorblind_mode {
                     ColorblindMode::None => tr("None"),
                     ColorblindMode::Protanopia => tr("Protanopia"),
@@ -415,30 +313,19 @@ fn show_accessibility_tab(ui: &mut Ui, state: &mut PreferencesState, app_setting
                     ColorblindMode::Tritanopia => tr("Tritanopia"),
                 })
                 .show_ui(ui, |ui| {
-                    if ui.selectable_label(false, tr("None")).clicked() {
-                        mode_index = 0;
+                    if ui.selectable_label(current_colorblind_mode == ColorblindMode::None, tr("None")).clicked() {
+                        state.pending_colorblind_mode = Some(ColorblindMode::None);
                     }
-                    if ui.selectable_label(false, tr("Protanopia")).clicked() {
-                        mode_index = 1;
+                    if ui.selectable_label(current_colorblind_mode == ColorblindMode::Protanopia, tr("Protanopia")).clicked() {
+                        state.pending_colorblind_mode = Some(ColorblindMode::Protanopia);
                     }
-                    if ui.selectable_label(false, tr("Deuteranopia")).clicked() {
-                        mode_index = 2;
+                    if ui.selectable_label(current_colorblind_mode == ColorblindMode::Deuteranopia, tr("Deuteranopia")).clicked() {
+                        state.pending_colorblind_mode = Some(ColorblindMode::Deuteranopia);
                     }
-                    if ui.selectable_label(false, tr("Tritanopia")).clicked() {
-                        mode_index = 3;
+                    if ui.selectable_label(current_colorblind_mode == ColorblindMode::Tritanopia, tr("Tritanopia")).clicked() {
+                        state.pending_colorblind_mode = Some(ColorblindMode::Tritanopia);
                     }
-                })
-                .response
-                .changed()
-            {
-                state.pending_colorblind_mode = match mode_index {
-                    0 => Some(ColorblindMode::None),
-                    1 => Some(ColorblindMode::Protanopia),
-                    2 => Some(ColorblindMode::Deuteranopia),
-                    3 => Some(ColorblindMode::Tritanopia),
-                    _ => None,
-                };
-            }
+                });
         });
         
         ui.add_space(4.0);

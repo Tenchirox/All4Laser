@@ -3,3 +3,5 @@
 *.log
 task.md
 TODO.md
+/aur
+/aur-bin

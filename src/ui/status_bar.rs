@@ -161,15 +161,14 @@ pub fn show(
 
         ui.separator();
 
-        // Unit toggle (F96)
-        let unit_label = display_unit.label();
-        if ui
-            .small_button(unit_label)
-            .on_hover_text(tr("Toggle mm / inches"))
-            .clicked()
-        {
-            action.toggle_unit = true;
-        }
+        // Unit indicator (display units now managed in Preferences)
+        ui.label(
+            RichText::new(display_unit.label())
+                .monospace()
+                .size(sz)
+                .color(theme::SUBTEXT),
+        )
+        .on_hover_text(tr("Display unit (change in Preferences)"));
 
         ui.separator();
         ui.label(

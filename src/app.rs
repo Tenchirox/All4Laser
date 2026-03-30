@@ -5506,11 +5506,7 @@ impl eframe::App for All4LaserApp {
                     &self.recent_files,
                     self.loaded_file.is_some(),
                     !self.drawing_state.shapes.is_empty(),
-                    self.beginner_mode,
-                    self.light_mode,
                     self.controller_capabilities(),
-                    self.ui_theme,
-                    self.ui_layout,
                 );
             });
         }
@@ -5518,7 +5514,6 @@ impl eframe::App for All4LaserApp {
         // === TOP: Toolbar ===
         let is_connected = self.is_connected();
         let is_running = self.running;
-        let is_light = self.light_mode;
         let caps = self.controller_capabilities();
 
         egui::Panel::top("toolbar").show_inside(ui, |ui| {
@@ -5529,17 +5524,12 @@ impl eframe::App for All4LaserApp {
                 ui,
                 is_connected,
                 is_running,
-                is_light,
-                self.beginner_mode,
                 self.framing_active,
                 &mut self.framing_power,
                 &self.recent_files,
                 has_file,
                 has_shapes,
                 caps,
-                self.ui_theme,
-                self.ui_layout,
-                self.settings.auto_optimization,
             );
             actions.merge(menu_actions);
             ui.add_space(4.0);
