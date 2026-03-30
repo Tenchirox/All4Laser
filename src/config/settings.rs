@@ -162,6 +162,17 @@ pub struct AppSettings {
     pub ai_layer_engrave: usize,
     #[serde(default = "default_ai_layer_fine")]
     pub ai_layer_fine: usize,
+    // Auto-optimization (Machine preferences)
+    #[serde(default)]
+    pub auto_optimization: bool,
+    // Auto-update check
+    #[serde(default)]
+    pub auto_update: bool,
+    // Workspace size (synced with machine profile)
+    #[serde(default = "default_workspace_width")]
+    pub workspace_width_mm: f32,
+    #[serde(default = "default_workspace_height")]
+    pub workspace_height_mm: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -194,16 +205,16 @@ impl Default for DitherAlgorithm {
 }
 
 fn default_theme() -> UiTheme {
-    UiTheme::Modern
+    UiTheme::Industrial
 }
 fn default_layout() -> UiLayout {
-    UiLayout::Modern
+    UiLayout::Classic
 }
 fn default_light_mode() -> bool {
     true
 }
 fn default_beginner_mode() -> bool {
-    true
+    false
 }
 fn default_active_tab() -> RightPanelTab {
     RightPanelTab::Art
@@ -252,6 +263,8 @@ pub fn lightburn_shortcuts() -> std::collections::HashMap<String, String> {
 
 fn default_ai_layer_engrave() -> usize { 1 }
 fn default_ai_layer_fine() -> usize { 2 }
+fn default_workspace_width() -> f32 { 400.0 }
+fn default_workspace_height() -> f32 { 400.0 }
 
 fn default_shortcuts() -> std::collections::HashMap<String, String> {
     let mut m = std::collections::HashMap::new();
@@ -319,6 +332,10 @@ impl Default for AppSettings {
             ai_layer_cut: 0,
             ai_layer_engrave: 1,
             ai_layer_fine: 2,
+            auto_optimization: false,
+            auto_update: false,
+            workspace_width_mm: default_workspace_width(),
+            workspace_height_mm: default_workspace_height(),
         }
     }
 }

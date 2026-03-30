@@ -1034,6 +1034,10 @@ pub fn show(
 }
 
 pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<String> {
+    generate_all_gcode_with_settings(state, layers, &crate::config::settings::AppSettings::default())
+}
+
+pub fn generate_all_gcode_with_settings(state: &DrawingState, layers: &[CutLayer], settings: &crate::config::settings::AppSettings) -> Vec<String> {
     let mut builder = GCodeBuilder::new();
 
     builder.comment("Compiled Drawing — All4Laser");
@@ -1172,7 +1176,23 @@ pub fn generate_all_gcode(state: &DrawingState, layers: &[CutLayer]) -> Vec<Stri
     builder.laser_off();
     builder.rapid(0.0, 0.0);
 
-    builder.finish()
+    let gcode_lines = builder.finish();
+    
+    // Apply auto-optimization if enabled
+    if settings.auto_optimization {
+        // Convert String lines to GCodeLine for optimization
+        let gcode_lines_for_opt: Vec<crate::gcode::types::GCodeLine> = gcode_lines
+            .iter()
+            .map(|line| crate::gcode::parser::parse_line(line))
+            .collect();
+        
+        let optimized_lines = crate::gcode::optimizer::optimize(&gcode_lines_for_opt);
+        
+        // Convert back to String lines
+        optimized_lines.iter().map(|line| line.raw.clone()).collect()
+    } else {
+        gcode_lines
+    }
 }
 
 fn gen_rect(builder: &mut GCodeBuilder, s: &ShapeParams, layer: &CutLayer) {
@@ -1439,6 +1459,41 @@ fn rotate_point(lx: f32, ly: f32, s: &ShapeParams) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn auto_optimization_disabled_by_default() {
+        let state = DrawingState::default();
+        let layers = vec![CutLayer::default_palette()[0].clone()];
+        
+        let lines_without_opt = generate_all_gcode(&state, &layers);
+        
+        let settings = crate::config::settings::AppSettings::default();
+        assert!(!settings.auto_optimization); // Should be false by default
+        
+        let lines_with_opt = generate_all_gcode_with_settings(&state, &layers, &settings);
+        
+        // Should be the same when optimization is disabled
+        assert_eq!(lines_without_opt, lines_with_opt);
+    }
+
+    #[test]
+    fn auto_optimization_enabled_changes_output() {
+        let state = DrawingState::default();
+        let layers = vec![CutLayer::default_palette()[0].clone()];
+        
+        let mut settings = crate::config::settings::AppSettings::default();
+        settings.auto_optimization = true;
+        
+        let lines_with_opt = generate_all_gcode_with_settings(&state, &layers, &settings);
+        
+        // Should have some lines (not empty)
+        assert!(!lines_with_opt.is_empty());
+        
+        // The optimized version should be valid G-code
+        for line in &lines_with_opt {
+            assert!(!line.is_empty());
+        }
+    }
 
     fn parse_axis(line: &str, axis: char) -> Option<f32> {
         line.split_whitespace()

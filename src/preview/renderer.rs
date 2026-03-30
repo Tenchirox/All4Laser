@@ -71,7 +71,7 @@ impl Default for PreviewRenderer {
             workspace_size: Vec2::new(400.0, 400.0), // conservative default
             simulation_progress: None,
             simulation_playing: false,
-            show_rapids: true,
+            show_rapids: false,
             show_fill_preview: true,
             show_thermal_risk: false,
             risk_threshold: 10.0,
@@ -506,9 +506,10 @@ impl PreviewRenderer {
                         // Burn effect (Dark Brown)
                         Color32::from_rgba_premultiplied(60, 30, 10, (avg_power * 255.0) as u8)
                     } else if is_light {
-                        Color32::from_rgba_premultiplied(0, 0, 0, final_alpha as u8)
+                        // Completely transparent lines for light mode (invisible)
+                        Color32::from_rgba_premultiplied(0, 0, 0, 0)  // Fully transparent
                     } else {
-                        Color32::from_rgba_premultiplied(255, 255, 255, final_alpha as u8)
+                        Color32::from_rgba_premultiplied(0, 0, 0, final_alpha as u8)  // Changed from white to black
                     };
                     painter.line_segment([p1, p2], Stroke::new(stroke_width, color));
                 }
@@ -559,9 +560,10 @@ impl PreviewRenderer {
                     stroke_width = stroke_width.min(2.5);
 
                     let color = if is_light {
-                        Color32::from_rgba_premultiplied(0, 0, 0, final_alpha as u8)
+                        // Completely transparent lines for light mode (invisible)
+                        Color32::from_rgba_premultiplied(0, 0, 0, 0)  // Fully transparent
                     } else {
-                        Color32::from_rgba_premultiplied(255, 255, 255, final_alpha as u8)
+                        Color32::from_rgba_premultiplied(0, 0, 0, final_alpha as u8)  // Changed from white to black
                     };
                     painter.line_segment([p1, p2], Stroke::new(stroke_width, color));
                 }
@@ -1147,8 +1149,10 @@ impl PreviewRenderer {
     ) -> InteractiveAction {
         let mut action = InteractiveAction::None;
 
-        // ── Middle mouse button: ALWAYS pan, regardless of selection ──
-        if response.dragged_by(egui::PointerButton::Middle) {
+        // ── Middle mouse button or Right mouse drag: ALWAYS pan ──
+        if response.dragged_by(egui::PointerButton::Middle)
+            || response.dragged_by(egui::PointerButton::Secondary)
+        {
             let delta = response.drag_delta();
             self.pan += delta;
             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -1264,15 +1268,10 @@ impl PreviewRenderer {
                     && self.hover_shape_idx.is_none()
                     && !self.node_edit_mode
                 {
-                    if is_multi {
-                        // Ctrl/Shift + drag on empty space → selection box
-                        self.selection_box_start = Some(Pos2::new(wx, wy));
-                        self.selection_box_end = Some(Pos2::new(wx, wy));
-                        self.selection_box_additive = is_multi;
-                    } else {
-                        // Plain drag on empty space → pan the view
-                        self._drag_start = Some(Pos2::new(wx, wy));
-                    }
+                    // Left-drag on empty space → selection box (always)
+                    self.selection_box_start = Some(Pos2::new(wx, wy));
+                    self.selection_box_end = Some(Pos2::new(wx, wy));
+                    self.selection_box_additive = is_multi;
                 }
             }
 
@@ -1372,14 +1371,9 @@ impl PreviewRenderer {
             }
         }
 
-        // ── Left mouse drag: pan / shape/node operations ──
+        // ── Left mouse drag: selection / shape/node operations ──
         if response.dragged_by(egui::PointerButton::Primary) {
-            if self._drag_start.is_some() {
-                // Pan the view (left-drag on empty space)
-                let delta = response.drag_delta();
-                self.pan += delta;
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-            } else if self.selection_box_start.is_some() {
+            if self.selection_box_start.is_some() {
                 if let Some(pos) = response.interact_pointer_pos() {
                     let ex = (pos.x - self.pan.x) / self.zoom;
                     let ey = -(pos.y - self.pan.y) / self.zoom;
@@ -1460,7 +1454,9 @@ impl PreviewRenderer {
                     delta: Vec2::new(delta.x / self.zoom, -delta.y / self.zoom),
                 };
             }
-        } else if !response.dragged_by(egui::PointerButton::Middle) {
+        } else if !response.dragged_by(egui::PointerButton::Middle)
+            && !response.dragged_by(egui::PointerButton::Secondary)
+        {
             if response.drag_stopped_by(egui::PointerButton::Primary) {
                 if let (Some(start), Some(end)) = (
                     self.selection_box_start.take(),

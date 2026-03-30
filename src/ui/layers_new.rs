@@ -222,10 +222,28 @@ where
 }
 
 impl CutLayer {
+    /// Get theme-adaptive color for first layer (black in light mode, white in dark mode)
+    fn get_theme_adaptive_color() -> egui::Color32 {
+        // This will be updated when the theme changes
+        // For now, default to black (will be overridden by theme updates)
+        egui::Color32::BLACK
+    }
+
+    /// Update the first layer color based on current theme
+    pub fn update_first_layer_theme(layers: &mut Vec<CutLayer>, is_light_mode: bool) {
+        if !layers.is_empty() {
+            layers[0].color = if is_light_mode {
+                egui::Color32::BLACK
+            } else {
+                egui::Color32::WHITE
+            };
+        }
+    }
+
     pub fn default_palette() -> Vec<CutLayer> {
         let mut layers = Vec::with_capacity(30);
         let colors = [
-            Color32::from_rgb(0, 0, 0),       // C00 Black
+            Self::get_theme_adaptive_color(),   // C00 Theme-adaptive (black/white)
             Color32::from_rgb(0, 0, 255),     // C01 Blue
             Color32::from_rgb(255, 0, 0),     // C02 Red
             Color32::from_rgb(0, 128, 0),     // C03 Green

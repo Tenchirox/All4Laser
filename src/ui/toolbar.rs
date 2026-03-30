@@ -64,6 +64,7 @@ pub struct ToolbarAction {
     pub open_nesting: bool,
     pub open_job_queue: bool,
     pub open_test_fire: bool,
+    pub open_preferences: bool,
     pub export_lbrn2: bool,
     pub export_svg: bool,
     pub export_job_report: bool,
@@ -110,6 +111,7 @@ impl Default for ToolbarAction {
             open_nesting: false,
             open_job_queue: false,
             open_test_fire: false,
+            open_preferences: false,
             export_lbrn2: false,
             export_svg: false,
             export_job_report: false,
@@ -185,12 +187,14 @@ pub fn show(
     light_mode: bool,
     beginner_mode: bool,
     framing_active: bool,
+    framing_power: &mut f32,
     recent: &RecentFiles,
     has_file: bool,
     has_shapes: bool,
     caps: ControllerCapabilities,
     current_theme: theme::UiTheme,
     current_layout: theme::UiLayout,
+    auto_optimization_enabled: bool,
 ) -> ToolbarAction {
     let mut action = ToolbarAction::default();
 
@@ -370,6 +374,15 @@ pub fn show(
                 action.frame_bbox = true;
             }
 
+            // Framing power slider (always visible next to Frame button)
+            ui.add(
+                egui::DragValue::new(framing_power)
+                    .range(1.0..=100.0)
+                    .speed(1.0)
+                    .suffix("%")
+                    .max_decimals(0),
+            ).on_hover_text(tr("Framing laser power (%)"));
+
             // Dry Run
             if ui
                 .add_enabled(
@@ -458,14 +471,14 @@ pub fn show(
         ui.menu_button( label("👁", &tr("View")), |ui| {
             ui.label(RichText::new(format!("{}:", tr("Theme"))).strong());
             if ui
-                .selectable_label(current_theme == theme::UiTheme::Modern, tr("Modern (recommended)"))
+                .selectable_label(current_theme == theme::UiTheme::Modern, "Modern")
                 .clicked()
             {
                 action.set_theme = Some(theme::UiTheme::Modern);
                 ui.close();
             }
             if ui
-                .selectable_label(current_theme == theme::UiTheme::Industrial, tr("Industrial (advanced)"))
+                .selectable_label(current_theme == theme::UiTheme::Industrial, "Industrial")
                 .clicked()
             {
                 action.set_theme = Some(theme::UiTheme::Industrial);
@@ -475,17 +488,28 @@ pub fn show(
             ui.separator();
             ui.label(RichText::new(format!("{}:", tr("Layout"))).strong());
             if ui
-                .selectable_label(current_layout == theme::UiLayout::Modern, tr("Modern layout (simple)"))
+                .selectable_label(current_layout == theme::UiLayout::Modern, "Modern")
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Modern);
                 ui.close();
             }
             if ui
-                .selectable_label(current_layout == theme::UiLayout::Classic, tr("Classic layout (expert)"))
+                .selectable_label(current_layout == theme::UiLayout::Classic, "Classic")
                 .clicked()
             {
                 action.set_layout = Some(theme::UiLayout::Classic);
+                ui.close();
+            }
+
+            ui.separator();
+            let light_label = if light_mode {
+                format!("☀️ {}", tr("Light Mode"))
+            } else {
+                format!("🌙 {}", tr("Dark Mode"))
+            };
+            if ui.selectable_label(light_mode, light_label).clicked() {
+                action.toggle_light_mode = true;
                 ui.close();
             }
 
@@ -501,26 +525,15 @@ pub fn show(
             }
 
             ui.separator();
-            ui.label(RichText::new(format!("{}:", tr("Language"))).strong());
-            let current_lang = i18n::get_language();
-            let langs = [
-                Language::English,
-                Language::French,
-                Language::Japanese,
-                Language::German,
-                Language::Italian,
-                Language::Arabic,
-                Language::Spanish,
-                Language::Portuguese,
-            ];
-            for lang in langs {
-                if ui
-                    .selectable_label(current_lang == lang, lang.name())
-                    .clicked()
-                {
-                    action.set_language = Some(lang);
-                    ui.close();
-                }
+            let opt_label = if auto_optimization_enabled {
+                format!("⚡ {}", tr("Auto-Optimization"))
+            } else {
+                tr("Auto-Optimization")
+            };
+            if ui.selectable_label(auto_optimization_enabled, opt_label).clicked() {
+                // Note: This would require adding an action to toggle auto-optimization
+                // For now, it's just an indicator
+                ui.close();
             }
         });
 
@@ -581,6 +594,15 @@ pub fn show(
             .clicked()
         {
             action.open_settings = true;
+        }
+
+        // Preferences — always enabled, no connection required
+        if ui
+            .button(RichText::new(label("🎛", &tr("Preferences"))).size(sz))
+            .on_hover_text(tr("Preferences"))
+            .clicked()
+        {
+            action.open_preferences = true;
         }
 
         let theme_icon = if light_mode { "🌙" } else { "☀" };
@@ -694,6 +716,11 @@ pub fn show_menu_bar(
             }
             if ui.button(format!("🔎 {}", tr("Zoom Out"))).clicked() {
                 action.zoom_out = true;
+                ui.close();
+            }
+            ui.separator();
+            if ui.button(format!("🎛 {}", tr("Preferences"))).clicked() {
+                action.open_preferences = true;
                 ui.close();
             }
         });
@@ -840,6 +867,10 @@ pub fn show_menu_bar(
                 .clicked()
             {
                 action.open_settings = true;
+                ui.close();
+            }
+            if ui.button(format!("🎛 {}", tr("Preferences"))).on_hover_text(tr("Preferences")).clicked() {
+                action.open_preferences = true;
                 ui.close();
             }
         });

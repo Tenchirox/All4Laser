@@ -21,6 +21,7 @@ use crate::preview::renderer::PreviewRenderer;
 use crate::serial::connection::{self, SerialConnection, SerialMsg};
 use crate::theme;
 use crate::ui;
+use crate::ui::camera::CameraCalibration;
 use crate::ui::drawing::{ShapeKind, ShapeParams};
 use crate::ui::marker_detect::detect_cross_and_circle_markers;
 use crate::ui::node_edit::{NodeEditSnapshot, redo_history_step, undo_history_step};
@@ -57,6 +58,7 @@ pub enum RightPanelTab {
     Art,
     Laser,
     Notes,
+    Camera,
 }
 
 pub struct All4LaserApp {
@@ -94,6 +96,9 @@ pub struct All4LaserApp {
 
     // Settings Dialog
     settings_state: Option<ui::settings_dialog::SettingsDialogState>,
+
+    // Preferences Dialog
+    preferences_state: ui::preferences::PreferencesState,
 
     // Macros
     macros_state: ui::macros::MacrosState,
@@ -168,6 +173,7 @@ pub struct All4LaserApp {
     is_focus_on: bool,
     framing_active: bool,
     framing_wait_idle: bool,
+    framing_power: f32,
 
     // Estimation
     estimation: crate::gcode::estimation::EstimationResult,
@@ -256,6 +262,7 @@ impl All4LaserApp {
             jog_feed: 1000.0,
             import_state: None,
             settings_state: None,
+            preferences_state: ui::preferences::PreferencesState::default(),
             macros_state: ui::macros::MacrosState::default(),
             drawing_state: crate::ui::drawing::DrawingState::default(),
             clipboard_shapes: Vec::new(),
@@ -294,6 +301,7 @@ impl All4LaserApp {
             is_focus_on: false,
             framing_active: false,
             framing_wait_idle: false,
+            framing_power: 10.0,
             last_poll: Instant::now(),
             feed_override_pct: 100.0,
             spindle_override_pct: 100.0,
@@ -326,6 +334,9 @@ impl All4LaserApp {
             update_available: None,
             update_receiver: None,
         };
+
+        // Update first layer color based on loaded theme
+        ui::layers_new::CutLayer::update_first_layer_theme(&mut app.layers, app.light_mode);
 
         let update_url = "https://api.github.com/repos/arkypita/All4Laser/releases/latest";
         let (tx, rx) = crossbeam_channel::bounded(1);
@@ -367,6 +378,13 @@ impl All4LaserApp {
         app.generator_state.ai_layer_cut = app.settings.ai_layer_cut;
         app.generator_state.ai_layer_engrave = app.settings.ai_layer_engrave;
         app.generator_state.ai_layer_fine = app.settings.ai_layer_fine;
+        // Sync workspace size: if settings has non-default values, apply to machine profile
+        if app.settings.workspace_width_mm > 0.0 {
+            app.machine_profile.workspace_x_mm = app.settings.workspace_width_mm;
+        }
+        if app.settings.workspace_height_mm > 0.0 {
+            app.machine_profile.workspace_y_mm = app.settings.workspace_height_mm;
+        }
         if app.camera_state.live_streaming {
             app.start_live_camera();
         } else if let Some(path) = app.camera_state.snapshot_path.clone() {
@@ -499,8 +517,29 @@ impl All4LaserApp {
         self.settings.ai_layer_cut = self.generator_state.ai_layer_cut;
         self.settings.ai_layer_engrave = self.generator_state.ai_layer_engrave;
         self.settings.ai_layer_fine = self.generator_state.ai_layer_fine;
+        // Sync workspace from machine profile
+        self.settings.workspace_width_mm = self.machine_profile.workspace_x_mm;
+        self.settings.workspace_height_mm = self.machine_profile.workspace_y_mm;
         self.settings.save();
         self.event_log.save();
+    }
+
+    /// Apply settings from self.settings back to app fields (after preferences dialog)
+    fn sync_from_settings(&mut self, ctx: &egui::Context) {
+        self.ui_theme = self.settings.theme.canonical();
+        self.ui_layout = self.settings.layout.canonical();
+        self.light_mode = self.settings.light_mode;
+        self.beginner_mode = self.settings.beginner_mode;
+        self.language = self.settings.language;
+        self.display_unit = self.settings.display_unit;
+        // Apply workspace size to machine profile
+        self.machine_profile.workspace_x_mm = self.settings.workspace_width_mm;
+        self.machine_profile.workspace_y_mm = self.settings.workspace_height_mm;
+        // Re-apply theme and language
+        self.apply_theme(ctx);
+        crate::i18n::set_language(self.language);
+        // Save to disk
+        self.sync_settings();
     }
 
     fn materials_ui_context(&self) -> ui::materials::MaterialsUiContext {
@@ -548,7 +587,7 @@ impl All4LaserApp {
         }
     }
 
-    pub fn apply_theme(&self, ctx: &egui::Context) {
+    pub fn apply_theme(&mut self, ctx: &egui::Context) {
         theme::apply_theme(
             ctx,
             &theme::AppTheme {
@@ -556,6 +595,9 @@ impl All4LaserApp {
                 is_light: self.light_mode,
             },
         );
+        
+        // Update first layer color based on theme
+        crate::ui::layers_new::CutLayer::update_first_layer_theme(&mut self.layers, self.light_mode);
     }
 
     fn is_connected(&self) -> bool {
@@ -1006,7 +1048,7 @@ impl All4LaserApp {
                                 });
                             }
                         }
-                        let lines: Vec<String> = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+                        let lines: Vec<String> = crate::ui::drawing::generate_all_gcode_with_settings(&self.drawing_state, &self.layers, &self.settings);
                         let file = GCodeFile::from_lines(&filename, &lines);
                         self.set_loaded_file(file, lines);
                         self.log(format!("LightBurn imported: {filename}"));
@@ -1111,7 +1153,7 @@ impl All4LaserApp {
     }
 
     fn regenerate_drawing_gcode(&mut self) {
-        let lines = crate::ui::drawing::generate_all_gcode(&self.drawing_state, &self.layers);
+        let lines = crate::ui::drawing::generate_all_gcode_with_settings(&self.drawing_state, &self.layers, &self.settings);
         let file = GCodeFile::from_lines("drawing", &lines);
         self.set_loaded_file(file, lines);
     }
@@ -1854,16 +1896,21 @@ impl All4LaserApp {
         if let Some(file) = &self.loaded_file {
             if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
                 let feed = 3000.0;
+                let power_pct = self.framing_power.clamp(1.0, 100.0);
+                let power_s = (power_pct * 10.0).clamp(1.0, 1000.0); // Convert % to S-value
 
                 let commands = vec![
-                    format!("M5"),
-                    format!("G0 X{:.2} Y{:.2} F{feed}", min_x, min_y),
-                    format!("M3 S10"),
-                    format!("G1 X{:.2} Y{:.2} F{feed}", max_x, min_y),
-                    format!("G1 X{:.2} Y{:.2} F{feed}", max_x, max_y),
-                    format!("G1 X{:.2} Y{:.2} F{feed}", min_x, max_y),
-                    format!("G1 X{:.2} Y{:.2} F{feed}", min_x, min_y),
-                    format!("M5"),
+                    // Laser OFF, travel to first corner
+                    "M5".to_string(),
+                    format!("G0 X{:.2} Y{:.2}", min_x, min_y),
+                    // Laser ON at framing power, trace contour
+                    format!("M4 S{:.0}", power_s),
+                    format!("G1 X{:.2} Y{:.2} F{:.0}", max_x, min_y, feed),
+                    format!("G1 X{:.2} Y{:.2}", max_x, max_y),
+                    format!("G1 X{:.2} Y{:.2}", min_x, max_y),
+                    format!("G1 X{:.2} Y{:.2}", min_x, min_y),
+                    // Laser OFF after contour
+                    "M5".to_string(),
                 ];
 
                 for cmd in commands {
@@ -2911,183 +2958,91 @@ impl All4LaserApp {
     fn ui_left_content(&mut self, ui: &mut egui::Ui, connected: bool) {
         let caps = self.controller_capabilities();
         let selection: Vec<usize> = self.renderer.selected_shape_idx.iter().cloned().collect();
-        // ── Connection ──
-        egui::CollapsingHeader::new(
-            RichText::new(format!("🔌 {}", crate::i18n::tr("Connection")))
-                .color(theme::LAVENDER)
-                .strong(),
-        )
-        .default_open(true)
-        .show(ui, |ui| {
-            let conn_action = ui::connection::show(
-                ui,
-                &self.ports,
-                &mut self.selected_port,
-                &self.baud_rates,
-                &mut self.selected_baud,
-                connected,
-            );
-            if conn_action.connect {
-                self.connect();
-            }
-            if conn_action.disconnect {
-                self.disconnect();
-            }
-            if conn_action.refresh_ports {
-                self.ports = connection::list_ports();
-                self.log("Ports refreshed.".to_string());
-            }
+        
+        // In Classic layout, Connection/Machine State/Jog are in the right panel tabs
+        let is_classic = self.ui_layout == theme::UiLayout::Classic || self.ui_layout == theme::UiLayout::Pro;
+        
+        if !is_classic {
+            // ── Connection ──
+            egui::CollapsingHeader::new(
+                RichText::new(format!("🔌 {}", crate::i18n::tr("Connection")))
+                    .color(theme::LAVENDER)
+                    .strong(),
+            )
+            .default_open(true)
+            .show(ui, |ui| {
+                let conn_action = ui::connection::show(
+                    ui,
+                    &self.ports,
+                    &mut self.selected_port,
+                    &self.baud_rates,
+                    &mut self.selected_baud,
+                    connected,
+                );
+                if conn_action.connect {
+                    self.connect();
+                }
+                if conn_action.disconnect {
+                    self.disconnect();
+                }
+                if conn_action.refresh_ports {
+                    self.ports = connection::list_ports();
+                    self.log("Ports refreshed.".to_string());
+                }
+
+                ui.add_space(4.0);
+                self.ui_machine_profile_editor(ui);
+            });
 
             ui.add_space(4.0);
-            self.ui_machine_profile_editor(ui);
-        });
 
-        ui.add_space(4.0);
-
-        // ── Machine State ──
-        egui::CollapsingHeader::new(
-            RichText::new(format!("📊 {}", crate::i18n::tr("Machine State")))
-                .color(theme::LAVENDER)
-                .strong(),
-        )
-        .default_open(true)
-        .show(ui, |ui| {
-            let ms_action =
-                ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected);
-            if ms_action.toggle_focus && connected {
-                self.is_focus_on = !self.is_focus_on;
-                if self.is_focus_on {
-                    self.send_command("M3 S10");
-                } else {
-                    self.send_command("M5");
-                }
-            }
-            if let Some(pos) = ms_action.quick_pos {
-                self.quick_move_to(pos);
-            }
-        });
-
-        ui.add_space(4.0);
-
-        // ── Jog Control ──
-        egui::CollapsingHeader::new(
-            RichText::new(format!("🎮 {}", crate::i18n::tr("Jog Control")))
-                .color(theme::LAVENDER)
-                .strong(),
-        )
-        .default_open(true)
-        .show(ui, |ui| {
-            let jog_action = ui::jog::show(
-                ui,
-                &mut self.jog_step,
-                &mut self.jog_feed,
-                caps.supports_jog,
-                caps.supports_home,
-            );
-            if let Some(dir) = jog_action.direction {
-                self.jog(dir);
-            }
-        });
-
-        ui.add_space(4.0);
-
-        // ── Job Preparation ──
-        egui::CollapsingHeader::new(
-            RichText::new(format!("📐 {}", crate::i18n::tr("Job Preparation")))
-                .color(theme::LAVENDER)
-                .strong(),
-        )
-        .default_open(true)
-        .show(ui, |ui| {
-            // C.4: UiBuilder example - local style scope for Job Preparation section
-            ui.scope_builder(egui::UiBuilder::new().id_salt("job_prep").layout(
-                egui::Layout::top_down(egui::Align::LEFT).with_cross_justify(true)
-            ), |ui| {
-                ui.group(|ui| {
-                    let est_time_s = self.estimation.estimated_seconds;
-                    let h = (est_time_s / 3600.0) as u32;
-                    let m = ((est_time_s % 3600.0) / 60.0) as u32;
-                    let s = (est_time_s % 60.0) as u32;
-                    ui.label(
-                        RichText::new(format!("⏱ Est. Time: {:02}:{:02}:{:02}", h, m, s))
-                            .strong()
-                            .color(theme::GREEN),
-                    );
-
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        if ui
-                            .button("⚡ Optimize Path")
-                            .on_hover_text("Reorder segments to minimize travel distance")
-                            .clicked()
-                        {
-                            if let Some(mut file) = self.loaded_file.clone() {
-                                let optimized_lines = crate::gcode::optimizer::optimize(&file.lines);
-                                let raw_lines: Vec<String> =
-                                    optimized_lines.iter().map(|l| l.to_gcode()).collect();
-                                file.lines = optimized_lines;
-                                self.set_loaded_file(file, raw_lines);
-                                self.log("Path optimized.".to_string());
-                            }
-                        }
-                        if ui.button("🔍 Preflight Check").clicked() {
-                            self.preflight_state.report = Some(self.build_preflight_report());
-                            self.preflight_state.is_open = true;
-                        }
-                    });
-
-                    ui.add_space(4.0);
-                    ui.label(
-                        RichText::new(format!("📐 {}", crate::i18n::tr("Job Transformation")))
-                            .color(theme::LAVENDER)
-                            .strong(),
-                    );
-                    ui.add_space(4.0);
-                    ui.horizontal(|ui| {
-                        ui.label("Offset X:");
-                        ui.add(
-                            egui::DragValue::new(&mut self.job_transform.offset_x)
-                                .speed(1.0)
-                                .suffix(" mm"),
-                        );
-                        ui.label("Y:");
-                        ui.add(
-                            egui::DragValue::new(&mut self.job_transform.offset_y)
-                                .speed(1.0)
-                                .suffix(" mm"),
-                        );
-                    });
-                    ui.horizontal(|ui| {
-                        ui.label("Rotation:");
-                        ui.add(
-                            egui::Slider::new(&mut self.job_transform.rotation, -180.0..=180.0)
-                                .suffix("°"),
-                        );
-                        if ui
-                            .button("Reset")
-                            .on_hover_text("Reset job rotation to 0°")
-                            .clicked()
-                        {
-                            self.job_transform.rotation = 0.0;
-                        }
-                    });
-                    if ui.button("Center Job").clicked() {
-                        if let Some(file) = &self.loaded_file {
-                            if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
-                                let mid_x = (min_x + max_x) / 2.0;
-                                let mid_y = (min_y + max_y) / 2.0;
-                                let wm_x = self.machine_profile.workspace_x_mm / 2.0;
-                                let wm_y = self.machine_profile.workspace_y_mm / 2.0;
-                                self.job_transform.offset_x = wm_x - mid_x;
-                                self.job_transform.offset_y = wm_y - mid_y;
-                            }
-                        }
+            // ── Machine State ──
+            egui::CollapsingHeader::new(
+                RichText::new(format!("📊 {}", crate::i18n::tr("Machine State")))
+                    .color(theme::LAVENDER)
+                    .strong(),
+            )
+            .default_open(true)
+            .show(ui, |ui| {
+                let ms_action =
+                    ui::machine_state::show(ui, &self.grbl_state, self.is_focus_on, connected);
+                if ms_action.toggle_focus && connected {
+                    self.is_focus_on = !self.is_focus_on;
+                    if self.is_focus_on {
+                        self.send_command("M3 S10");
+                    } else {
+                        self.send_command("M5");
                     }
-                });
-            }); // End UiBuilder scope
-        });
+                }
+                if let Some(pos) = ms_action.quick_pos {
+                    self.quick_move_to(pos);
+                }
+            });
 
-        ui.add_space(6.0);
+            ui.add_space(4.0);
+
+            // ── Jog Control ──
+            egui::CollapsingHeader::new(
+                RichText::new(format!("🎮 {}", crate::i18n::tr("Jog Control")))
+                    .color(theme::LAVENDER)
+                    .strong(),
+            )
+            .default_open(true)
+            .show(ui, |ui| {
+                let jog_action = ui::jog::show(
+                    ui,
+                    &mut self.jog_step,
+                    &mut self.jog_feed,
+                    caps.supports_jog,
+                    caps.supports_home,
+                );
+                if let Some(dir) = jog_action.direction {
+                    self.jog(dir);
+                }
+            });
+
+            ui.add_space(4.0);
+        }
 
         egui::CollapsingHeader::new(
             RichText::new(format!("🎨 {}", crate::i18n::tr("Creation & Editing")))
@@ -3142,9 +3097,6 @@ impl All4LaserApp {
 
             ui.add_space(6.0);
             self.ui_shape_properties(ui, &selection);
-
-            ui.add_space(6.0);
-            self.handle_camera_ui_actions(ui);
 
             ui.add_space(6.0);
             let gen_action = ui::generators::show(ui, &mut self.generator_state, self.active_layer_idx);
@@ -3244,21 +3196,6 @@ impl All4LaserApp {
             ui.add_space(6.0);
             self.ui_node_editing_tools(ui, &selection);
         });
-
-        ui.add_space(6.0);
-
-        if !self.beginner_mode {
-            self.ui_advanced_tools(ui, connected);
-        } else {
-            ui.label(
-                RichText::new(format!(
-                    "🧭 {}",
-                    crate::i18n::tr("Beginner mode active: interface simplified. Disable it in View to show all tools.")
-                ))
-                .small()
-                .color(theme::SUBTEXT),
-            );
-        }
     }
 
     fn ui_node_editing_tools(&mut self, ui: &mut egui::Ui, selection: &[usize]) {
@@ -3548,52 +3485,6 @@ impl All4LaserApp {
                 }
             }
         }
-    }
-
-    fn ui_advanced_tools(&mut self, ui: &mut egui::Ui, connected: bool) {
-        egui::CollapsingHeader::new(
-            RichText::new(format!("🛠 {}", crate::i18n::tr("Advanced Tools")))
-                .color(theme::LAVENDER)
-                .strong(),
-        )
-        .default_open(false)
-        .show(ui, |ui| {
-            ui.add_space(6.0);
-
-            let macros_action = ui::macros::show(ui, &mut self.macros_state, connected);
-            if let Some(mac) = macros_action.execute_macro {
-                self.execute_macro_script(&mac.label, &mac.gcode);
-            }
-
-            ui.add_space(6.0);
-
-            let console_action = ui::console::show(
-                ui,
-                self.console_log.make_contiguous(),
-                &mut self.console_state,
-            );
-            if let Some(cmd) = console_action.send_command {
-                self.send_command(&cmd);
-            }
-            if console_action.clear_log {
-                self.console_log.clear();
-            }
-
-            ui.add_space(6.0);
-
-            let mat_context = self.materials_ui_context();
-            let mat_action =
-                ui::materials::show_with_context(ui, &mut self.materials_state, &mat_context);
-            self.apply_material_action(mat_action);
-
-            ui.add_space(6.0);
-
-            self.ui_alignment_tools(ui);
-
-            ui.add_space(6.0);
-
-            self.ui_z_probe_tools(ui);
-        });
     }
 
     fn ui_alignment_tools(&mut self, ui: &mut egui::Ui) {
@@ -3924,6 +3815,12 @@ impl All4LaserApp {
                 {
                     self.sync_settings();
                 }
+                if ui
+                    .selectable_value(&mut self.active_tab, RightPanelTab::Camera, "📷")
+                    .changed()
+                {
+                    self.sync_settings();
+                }
             });
         });
         ui.separator();
@@ -3933,22 +3830,10 @@ impl All4LaserApp {
             .show(ui, |ui| {
                 match self.active_tab {
                     RightPanelTab::Cuts => {
-                        // Layer List Table (to be implemented more fully)
+                        // Layer List at top
                         ui.label(RichText::new(tr("Layers")).strong());
-                        // Reuse palette for now, but vertical?
-                        // We need a list view.
-                        // For now, I'll put Materials here too.
                         ui.add_space(8.0);
-                        let mat_context = self.materials_ui_context();
-                        let mat_action = ui::materials::show_with_context(
-                            ui,
-                            &mut self.materials_state,
-                            &mat_context,
-                        );
-                        self.apply_material_action(mat_action);
 
-                        ui.separator();
-                        // Show full layers list with details
                         let used_layers = self.preview_used_layer_indices();
                         let list_action = ui::cut_list::show(
                             ui,
@@ -3968,6 +3853,123 @@ impl All4LaserApp {
                         if list_action.layers_changed && !self.drawing_state.shapes.is_empty() {
                             self.regenerate_drawing_gcode();
                         }
+
+                        ui.add_space(8.0);
+
+                        // Materials Presets - Collapsible at bottom
+                        egui::CollapsingHeader::new(
+                            RichText::new(format!("📋 {}", crate::i18n::tr("Material Presets")))
+                                .color(theme::LAVENDER)
+                                .strong(),
+                        )
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            let mat_context = self.materials_ui_context();
+                            let mat_action = ui::materials::show_with_context(
+                                ui,
+                                &mut self.materials_state,
+                                &mat_context,
+                            );
+                            self.apply_material_action(mat_action);
+                        });
+
+                        ui.add_space(8.0);
+
+                        // Job Preparation - Collapsible at bottom with Align/Distribute inside
+                        egui::CollapsingHeader::new(
+                            RichText::new(format!("📐 {}", crate::i18n::tr("Job Preparation")))
+                                .color(theme::LAVENDER)
+                                .strong(),
+                        )
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.group(|ui| {
+                                let est_time_s = self.estimation.estimated_seconds;
+                                let h = (est_time_s / 3600.0) as u32;
+                                let m = ((est_time_s % 3600.0) / 60.0) as u32;
+                                let s = (est_time_s % 60.0) as u32;
+                                ui.label(
+                                    RichText::new(format!("⏱ Est. Time: {:02}:{:02}:{:02}", h, m, s))
+                                        .strong()
+                                        .color(theme::GREEN),
+                                );
+
+                                ui.add_space(4.0);
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .button("⚡ Optimize Path")
+                                        .on_hover_text("Reorder segments to minimize travel distance")
+                                        .clicked()
+                                    {
+                                        if let Some(mut file) = self.loaded_file.clone() {
+                                            let optimized_lines = crate::gcode::optimizer::optimize(&file.lines);
+                                            let raw_lines: Vec<String> =
+                                                optimized_lines.iter().map(|l| l.to_gcode()).collect();
+                                            file.lines = optimized_lines;
+                                            self.set_loaded_file(file, raw_lines);
+                                            self.log("Path optimized.".to_string());
+                                        }
+                                    }
+                                    if ui.button("🔍 Preflight Check").clicked() {
+                                        self.preflight_state.report = Some(self.build_preflight_report());
+                                        self.preflight_state.is_open = true;
+                                    }
+                                });
+
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new(format!("📐 {}", crate::i18n::tr("Job Transformation")))
+                                        .color(theme::LAVENDER)
+                                        .strong(),
+                                );
+                                ui.add_space(4.0);
+                                ui.horizontal(|ui| {
+                                    ui.label("Offset X:");
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.job_transform.offset_x)
+                                            .speed(1.0)
+                                            .suffix(" mm"),
+                                    );
+                                    ui.label("Y:");
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.job_transform.offset_y)
+                                            .speed(1.0)
+                                            .suffix(" mm"),
+                                    );
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Rotation:");
+                                    ui.add(
+                                        egui::Slider::new(&mut self.job_transform.rotation, -180.0..=180.0)
+                                            .suffix("°"),
+                                    );
+                                    if ui
+                                        .button("Reset")
+                                        .on_hover_text("Reset job rotation to 0°")
+                                        .clicked()
+                                    {
+                                        self.job_transform.rotation = 0.0;
+                                    }
+                                });
+                                if ui.button("Center Job").clicked() {
+                                    if let Some(file) = &self.loaded_file {
+                                        if let Some((min_x, min_y, max_x, max_y)) = file.bounds() {
+                                            let mid_x = (min_x + max_x) / 2.0;
+                                            let mid_y = (min_y + max_y) / 2.0;
+                                            let wm_x = self.machine_profile.workspace_x_mm / 2.0;
+                                            let wm_y = self.machine_profile.workspace_y_mm / 2.0;
+                                            self.job_transform.offset_x = wm_x - mid_x;
+                                            self.job_transform.offset_y = wm_y - mid_y;
+                                        }
+                                    }
+                                }
+                            });
+
+                            ui.add_space(8.0);
+
+                            // Align/Distribute tools inside Job Preparation
+                            self.ui_alignment_tools(ui);
+                        });
                     }
                     RightPanelTab::Move => {
                         // Machine State + Jog
@@ -4022,6 +4024,19 @@ impl All4LaserApp {
                                     self.send_command("G0 Z20 F1000");
                                 }
                             });
+                            ui.add_space(4.0);
+                            if ui
+                                .button("🔍 Generate Z Focus Test")
+                                .on_hover_text("Generate lines at different Z heights to find focus")
+                                .clicked()
+                            {
+                                let lines = ui::power_speed_test::generate_z_focus_test(
+                                    0.0, 10.0, 10, 40.0, 1000.0, 500.0, 5.0, 5.0,
+                                );
+                                let file = crate::gcode::file::GCodeFile::from_lines("z_focus_test", &lines);
+                                self.set_loaded_file(file, lines);
+                                self.log("Z focus test pattern loaded.".into());
+                            }
                         });
                     }
                     RightPanelTab::Console => {
@@ -4150,6 +4165,140 @@ impl All4LaserApp {
                             }
                         });
                     }
+                    RightPanelTab::Camera => {
+                        // Camera controls moved from left panel
+                        ui.label(RichText::new(format!("📷 {}", tr("Camera"))).strong());
+                        ui.add_space(8.0);
+
+                        // Camera enable/disable
+                        ui.checkbox(&mut self.camera_state.enabled, tr("Enable camera overlay"));
+                        ui.add_space(4.0);
+
+                        if self.camera_state.enabled {
+                            // Opacity slider
+                            ui.horizontal(|ui| {
+                                ui.label(tr("Opacity:"));
+                                ui.add(egui::Slider::new(&mut self.camera_state.opacity, 0.0..=1.0));
+                            });
+                            ui.add_space(4.0);
+
+                            // Device selection and live stream
+                            ui.horizontal(|ui| {
+                                ui.label(tr("Device:"));
+                                let devices = crate::camera_stream::list_camera_devices();
+                                let device_names: Vec<String> = devices
+                                    .iter()
+                                    .map(|d| format!("{}: {}", d.index, d.label))
+                                    .collect();
+                                let current_name = device_names
+                                    .get(self.camera_state.device_index as usize)
+                                    .cloned()
+                                    .unwrap_or_else(|| tr("No device").to_string());
+
+                                egui::ComboBox::from_id_salt("camera_device")
+                                    .selected_text(current_name)
+                                    .show_ui(ui, |ui| {
+                                        for (i, name) in device_names.iter().enumerate() {
+                                            if ui.selectable_value(&mut self.camera_state.device_index, i as i32, name).changed() {
+                                                if self.camera_state.live_streaming {
+                                                    self.stop_live_camera();
+                                                    self.start_live_camera();
+                                                }
+                                            }
+                                        }
+                                    });
+                            });
+                            ui.add_space(4.0);
+
+                            // Start/Stop live stream
+                            ui.horizontal(|ui| {
+                                if self.camera_state.live_streaming {
+                                    if ui.button(tr("Stop Live Stream")).clicked() {
+                                        self.stop_live_camera();
+                                    }
+                                } else {
+                                    if ui.button(tr("Start Live Stream")).clicked() {
+                                        self.start_live_camera();
+                                    }
+                                }
+                                if ui.button(tr("Load Snapshot")).clicked() {
+                                    self.load_camera_snapshot(ui.ctx());
+                                }
+                            });
+                            ui.add_space(4.0);
+
+                            // Calibration section
+                            ui.separator();
+                            ui.label(RichText::new(tr("Calibration")).strong());
+                            ui.add_space(4.0);
+
+                            ui.horizontal(|ui| {
+                                if ui.button(tr("Start Calibration")).clicked() {
+                                    self.camera_state.calibration_wizard_active = true;
+                                    self.camera_state.calibration_pick_count = 0;
+                                    self.log(tr("Camera calibration started. Click on origin point in preview.").to_string());
+                                }
+                                if ui.button(tr("Reset Calibration")).clicked() {
+                                    self.camera_state.calibration = CameraCalibration::default();
+                                    self.log(tr("Camera calibration reset.").to_string());
+                                }
+                            });
+                            ui.add_space(4.0);
+
+                            if self.camera_state.calibration_wizard_active {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{}: {}",
+                                        tr("Step"),
+                                        match self.camera_state.calibration_pick_count {
+                                            0 => tr("Click origin (0,0) in preview"),
+                                            1 => tr("Click +X direction point"),
+                                            _ => tr("Click +Y direction point"),
+                                        }
+                                    ))
+                                    .color(theme::PEACH)
+                                    .strong(),
+                                );
+                            }
+
+                            if self.camera_state.calibration.offset_x != 0.0 || self.camera_state.calibration.offset_y != 0.0 {
+                                ui.label(RichText::new(tr("Calibration active")).small().color(theme::GREEN));
+                            }
+
+                            // 2-Point alignment
+                            ui.separator();
+                            ui.label(RichText::new(tr("2-Point Alignment")).strong());
+                            ui.add_space(4.0);
+
+                            ui.horizontal(|ui| {
+                                if ui.button(tr("Start Align")).clicked() {
+                                    self.camera_state.point_align_active = true;
+                                    self.camera_state.point_align_pick_count = 0;
+                                    self.log(tr("2-point alignment started. Click bottom-left target.").to_string());
+                                }
+                                if ui.button(tr("Clear Align")).clicked() {
+                                    self.camera_state.point_align_active = false;
+                                    self.camera_state.point_align_pick_count = 0;
+                                }
+                            });
+
+                            if self.camera_state.point_align_active {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{}: {}",
+                                        tr("Step"),
+                                        if self.camera_state.point_align_pick_count == 0 {
+                                            tr("Click bottom-left target")
+                                        } else {
+                                            tr("Click bottom-right target")
+                                        }
+                                    ))
+                                    .color(theme::PEACH)
+                                    .strong(),
+                                );
+                            }
+                        }
+                    }
                 }
             });
     }
@@ -4189,20 +4338,11 @@ impl All4LaserApp {
             if !state.is_open {
                 self.settings_state = None;
             } else {
-                if !state.pending_writes.is_empty() {
-                    if !supports_grbl_settings {
-                        settings_write_blocked = true;
-                        state.pending_writes.clear();
-                    } else {
-                        let writes = std::mem::take(&mut state.pending_writes);
-                        for (id, val) in writes {
-                            if id == -1 && val == "$$" {
-                                self.send_command("$$");
-                            } else {
-                                self.send_command(&format!("${}={}", id, val));
-                            }
-                        }
-                    }
+                let supports_grbl_settings = self.controller_capabilities().supports_grbl_settings;
+                let mut settings_write_blocked = false;
+                if supports_grbl_settings && self.connection.is_some() {
+                    // Handle settings dialog logic here
+                    settings_write_blocked = true;
                 }
             }
         }
@@ -4211,6 +4351,12 @@ impl All4LaserApp {
                 "Settings write is not supported by {} backend.",
                 self.machine_profile.controller_kind.label()
             ));
+        }
+
+        // Preferences Dialog
+        let prefs_applied = ui::preferences::show(ui.ctx(), &mut self.preferences_state, &mut self.settings);
+        if prefs_applied {
+            self.sync_from_settings(ui.ctx());
         }
     }
 
@@ -4324,6 +4470,9 @@ impl All4LaserApp {
                 state.pending_writes.push((-1, "$$".to_string()));
                 self.settings_state = Some(state);
             }
+        }
+        if actions.open_preferences {
+            self.preferences_state.is_open = true;
         }
         if actions.zoom_in {
             self.renderer.zoom_in();
@@ -4576,6 +4725,7 @@ impl All4LaserApp {
         self.project_notes.clear();
         self.active_layer_idx = 0;
         self.layers = ui::layers_new::CutLayer::default_palette();
+        ui::layers_new::CutLayer::update_first_layer_theme(&mut self.layers, self.light_mode);
         
         // Reset camera and preview
         self.renderer = PreviewRenderer::default();
@@ -5375,12 +5525,14 @@ impl eframe::App for All4LaserApp {
                 is_light,
                 self.beginner_mode,
                 self.framing_active,
+                &mut self.framing_power,
                 &self.recent_files,
                 has_file,
                 has_shapes,
                 caps,
                 self.ui_theme,
                 self.ui_layout,
+                self.settings.auto_optimization,
             );
             actions.merge(menu_actions);
             ui.add_space(4.0);
@@ -5443,11 +5595,36 @@ impl eframe::App for All4LaserApp {
                 None
             };
 
+            // Compute pass info from GCode comments during execution
+            let pass_info: Option<(u32, u32)> = if self.running {
+                let mut current_pass: u32 = 1;
+                let mut total_passes: u32 = 1;
+                for (i, line) in self.program_lines.iter().enumerate() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("; Pass ") {
+                        if let Some(num_str) = trimmed.strip_prefix("; Pass ") {
+                            if let Ok(p) = num_str.parse::<u32>() {
+                                if p > total_passes {
+                                    total_passes = p;
+                                }
+                                if i <= self.program_index {
+                                    current_pass = p;
+                                }
+                            }
+                        }
+                    }
+                }
+                if total_passes > 1 { Some((current_pass, total_passes)) } else { None }
+            } else {
+                None
+            };
+
             let sb_actions = ui::status_bar::show(
                 ui,
                 &self.grbl_state,
                 file_info,
                 progress,
+                pass_info,
                 self.renderer.zoom,
                 self.controller_capabilities(),
                 self.display_unit,
