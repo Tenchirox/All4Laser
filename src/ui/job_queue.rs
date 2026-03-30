@@ -238,6 +238,7 @@ pub struct JobQueueAction {
     pub start_next: bool,
     pub retry_last_failed: bool,
     pub requeue_from_history: Option<JobHistoryEntry>,
+    pub batch_import_paths: Option<Vec<std::path::PathBuf>>,
 }
 
 pub fn show(
@@ -246,6 +247,7 @@ pub fn show(
     has_loaded_program: bool,
     running: bool,
     active_job_name: Option<&str>,
+    prepared_cache_count: usize,
 ) -> JobQueueAction {
     let mut action = JobQueueAction::default();
 
@@ -295,11 +297,12 @@ pub fn show(
                 let (total, completed, failed) = state.stats_summary();
                 ui.label(
                     RichText::new(format!(
-                        "{}: {} | {}: {} | {}: {} | {}: {}",
+                        "{}: {} | {}: {} | {}: {} | {}: {} | {}: {}",
                         tr("Pending"), state.queue.len(),
                         tr("Done"), completed,
                         tr("Failed"), failed,
                         tr("Total"), total,
+                        tr("Prepared"), prepared_cache_count,
                     ))
                     .small()
                     .color(theme::SUBTEXT),
@@ -312,22 +315,7 @@ pub fn show(
                         .add_filter("GCode", &["gcode", "nc", "gc", "ngc", "txt"])
                         .pick_files()
                     {
-                        let count_before = state.queue.len();
-                        let ids = state.batch_enqueue_from_paths(&paths);
-                        if !ids.is_empty() {
-                            let imported = ids.len();
-                            let total_lines: usize = state.queue[count_before..].iter().map(|j| j.lines.len()).sum();
-                            ui.label(
-                                RichText::new(format!("✅ {} {} ({} {})", 
-                                    imported, 
-                                    if imported == 1 { tr("file imported") } else { tr("files imported") },
-                                    total_lines,
-                                    tr("total lines")
-                                ))
-                                .small()
-                                .color(theme::GREEN),
-                            );
-                        }
+                        action.batch_import_paths = Some(paths);
                     }
                 }
                 if ui.button(format!("💾 {}", tr("Save History"))).on_hover_text(tr("Save job history to disk")).clicked() {

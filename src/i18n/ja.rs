@@ -215,5 +215,19 @@ pub fn entries() -> HashMap<&'static str, &'static str> {
     m.insert("Center Vertical", "垂直中央");
     m.insert("Distribute H", "水平分布");
     m.insert("Distribute V", "垂直分布");
+    // Network connection
+    m.insert("Mode", "モード");
+    m.insert("Serial", "シリアル");
+    m.insert("Network (TCP/IP)", "ネットワーク (TCP/IP)");
+    m.insert("Host", "ホスト");
+    m.insert("Port", "ポート");
+    m.insert("Baud", "ボーレート");
+    m.insert("Refresh", "更新");
+    m.insert("Test Network", "ネットワークテスト");
+    m.insert("No ports", "ポートなし");
+    m.insert("Connection", "接続");
+    // Vector raster settings
+    m.insert("Vector Padding (mm)", "ベクトルパディング (mm)");
+    m.insert("Vector Overscan (mm)", "ベクトルオーバースキャン (mm)");
     m
 }

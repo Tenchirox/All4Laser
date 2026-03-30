@@ -198,5 +198,19 @@ pub fn entries() -> HashMap<&'static str, &'static str> {
     m.insert("Center Vertical", "수직 중앙");
     m.insert("Distribute H", "수평 배분");
     m.insert("Distribute V", "수직 배분");
+    // Network connection
+    m.insert("Mode", "모드");
+    m.insert("Serial", "시리얼");
+    m.insert("Network (TCP/IP)", "네트워크 (TCP/IP)");
+    m.insert("Host", "호스트");
+    m.insert("Port", "포트");
+    m.insert("Baud", "보드레이트");
+    m.insert("Refresh", "새로고침");
+    m.insert("Test Network", "네트워크 테스트");
+    m.insert("No ports", "포트 없음");
+    m.insert("Connection", "연결");
+    // Vector raster settings
+    m.insert("Vector Padding (mm)", "벡터 패딩 (mm)");
+    m.insert("Vector Overscan (mm)", "벡터 오버스캔 (mm)");
     m
 }

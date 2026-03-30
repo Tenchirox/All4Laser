@@ -1,6 +1,9 @@
 use crate::app_types::WizardState;
 use crate::config::machine_profile::MachineProfile;
 use crate::controller::ControllerKind;
+use crate::laser::driver::{
+    LaserDriverProfile, available_driver_profiles, effective_driver_profile,
+};
 /// Startup wizard UI (F43) — extracted from app.rs for maintainability
 use crate::i18n::{tr, Language};
 
@@ -130,7 +133,42 @@ pub fn show_wizard(ctx: &egui::Context, wctx: &mut WizardContext) -> WizardResul
                         "Trocen (beta)",
                     );
                     if wctx.machine_profile.controller_kind != prev_kind {
+                        wctx.machine_profile.laser_driver_profile = LaserDriverProfile::Auto;
                         result.controller_changed = true;
+                    }
+                    ui.add_space(8.0);
+                    ui.label(tr("Laser Driver"));
+                    egui::ComboBox::from_id_salt("wizard_laser_driver_profile")
+                        .selected_text(wctx.machine_profile.laser_driver_profile.label())
+                        .show_ui(ui, |ui| {
+                            for profile in
+                                available_driver_profiles(wctx.machine_profile.controller_kind)
+                            {
+                                ui.selectable_value(
+                                    &mut wctx.machine_profile.laser_driver_profile,
+                                    profile,
+                                    profile.label(),
+                                );
+                            }
+                        });
+                    ui.label(
+                        egui::RichText::new(
+                            wctx.machine_profile.laser_driver_profile.description(),
+                        )
+                        .small(),
+                    );
+                    if wctx.machine_profile.laser_driver_profile == LaserDriverProfile::Auto {
+                        let resolved_profile = effective_driver_profile(
+                            wctx.machine_profile.controller_kind,
+                            wctx.machine_profile.laser_driver_profile,
+                        );
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Resolved now: {}",
+                                resolved_profile.label()
+                            ))
+                            .small(),
+                        );
                     }
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {

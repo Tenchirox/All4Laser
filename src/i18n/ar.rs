@@ -198,5 +198,19 @@ pub fn entries() -> HashMap<&'static str, &'static str> {
     m.insert("Center Vertical", "توسيط رأسي");
     m.insert("Distribute H", "توزيع أفقي");
     m.insert("Distribute V", "توزيع رأسي");
+    // Network connection
+    m.insert("Mode", "الوضع");
+    m.insert("Serial", "تسلسلي");
+    m.insert("Network (TCP/IP)", "شبكة (TCP/IP)");
+    m.insert("Host", "المضيف");
+    m.insert("Port", "المنفذ");
+    m.insert("Baud", "معدل البود");
+    m.insert("Refresh", "تحديث");
+    m.insert("Test Network", "اختبار الشبكة");
+    m.insert("No ports", "لا توجد منافذ");
+    m.insert("Connection", "الاتصال");
+    // Vector raster settings
+    m.insert("Vector Padding (mm)", "حشوة المتجه (مم)");
+    m.insert("Vector Overscan (mm)", "المسح الزائد للمتجه (مم)");
     m
 }

@@ -32,6 +32,7 @@ pub enum DitherMode {
 
 /// Parameters for raster-to-GCode conversion
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RasterParams {
     pub width_mm: f32,
     pub height_mm: f32,
@@ -48,6 +49,8 @@ pub struct RasterParams {
     pub _line_spacing: f32,
     pub dither: DitherMode,
     pub use_skeleton: bool, // New flag for skeletonization
+    pub vector_padding_mm: f32,
+    pub vector_overscan_mm: f32,
     pub outline: OutlineParams,
 }
 
@@ -69,6 +72,8 @@ impl Default for RasterParams {
             _line_spacing: 0.1, // mm
             dither: DitherMode::FloydSteinberg,
             use_skeleton: false,
+            vector_padding_mm: 0.0,
+            vector_overscan_mm: 0.0,
             outline: OutlineParams::default(),
         }
     }
@@ -97,11 +102,16 @@ pub fn vectorize_image(img: &image::DynamicImage, params: &RasterParams) -> Vec<
     gcode.push("G21".into());
     gcode.push("M3".into());
 
-    let x_scale = params.width_mm / rw as f32;
-    let y_scale = params.height_mm / rh as f32;
+    let padding = params.vector_padding_mm.max(0.0);
+    let overscan = params.vector_overscan_mm.max(0.0);
+    let active_w = (params.width_mm - 2.0 * padding).max(0.1);
+    let active_h = (params.height_mm - 2.0 * padding).max(0.1);
+
+    let x_scale = active_w / rw as f32;
+    let y_scale = active_h / rh as f32;
 
     for y_idx in 0..rh {
-        let py = (rh - 1 - y_idx) as f32 * y_scale;
+        let py = padding + (rh - 1 - y_idx) as f32 * y_scale;
         let mut in_run = false;
         let mut start_x = 0.0;
 
@@ -111,24 +121,40 @@ pub fn vectorize_image(img: &image::DynamicImage, params: &RasterParams) -> Vec<
 
             if is_black && !in_run {
                 in_run = true;
-                start_x = x_idx as f32 * x_scale;
+                start_x = padding + x_idx as f32 * x_scale;
             } else if !is_black && in_run {
                 in_run = false;
-                let end_x = (x_idx - 1) as f32 * x_scale;
-                gcode.push(format!("G0X{:.3}Y{:.3}S0", start_x, py));
+                let end_x = padding + (x_idx - 1) as f32 * x_scale;
+                let entry_x = (start_x - overscan).max(0.0);
+                let exit_x = (end_x + overscan).min(params.width_mm);
+                gcode.push(format!("G0X{:.3}Y{:.3}S0", entry_x, py));
+                if overscan > 0.0 {
+                    gcode.push(format!("G1X{:.3}Y{:.3}S0F{:.0}", start_x, py, params.max_speed));
+                }
                 gcode.push(format!(
                     "G1X{:.3}Y{:.3}S{:.0}F{:.0}",
                     end_x, py, params.max_power, params.max_speed
                 ));
+                if overscan > 0.0 {
+                    gcode.push(format!("G1X{:.3}Y{:.3}S0F{:.0}", exit_x, py, params.max_speed));
+                }
             }
         }
         if in_run {
-            let end_x = (rw - 1) as f32 * x_scale;
-            gcode.push(format!("G0X{:.3}Y{:.3}S0", start_x, py));
+            let end_x = padding + (rw - 1) as f32 * x_scale;
+            let entry_x = (start_x - overscan).max(0.0);
+            let exit_x = (end_x + overscan).min(params.width_mm);
+            gcode.push(format!("G0X{:.3}Y{:.3}S0", entry_x, py));
+            if overscan > 0.0 {
+                gcode.push(format!("G1X{:.3}Y{:.3}S0F{:.0}", start_x, py, params.max_speed));
+            }
             gcode.push(format!(
                 "G1X{:.3}Y{:.3}S{:.0}F{:.0}",
                 end_x, py, params.max_power, params.max_speed
             ));
+            if overscan > 0.0 {
+                gcode.push(format!("G1X{:.3}Y{:.3}S0F{:.0}", exit_x, py, params.max_speed));
+            }
         }
     }
 

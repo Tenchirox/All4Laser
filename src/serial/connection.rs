@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use serialport::SerialPort;
 use std::io::{BufRead, BufReader, Write};
+use std::net::{Shutdown, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -31,7 +31,7 @@ pub enum SerialCmd {
 pub struct SerialConnection {
     pub rx: Receiver<SerialMsg>,
     pub cmd_tx: Sender<SerialCmd>,
-    port_handle: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
+    connected: Arc<Mutex<bool>>,
 }
 
 impl SerialConnection {
@@ -50,11 +50,13 @@ impl SerialConnection {
         let (cmd_tx, cmd_rx) = unbounded::<SerialCmd>();
         let cloned_port = port.try_clone().map_err(|e| format!("Failed to clone port {port_name}: {e}"))?;
         let port_handle = Arc::new(Mutex::new(Some(cloned_port)));
+        let connected = Arc::new(Mutex::new(true));
 
         // Reader thread
         let reader_tx = msg_tx.clone();
         let port_name_owned = port_name.to_string();
         let parse_backend = backend.clone();
+        let connected_for_reader = connected.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(port);
             let _ = reader_tx.send(SerialMsg::Connected(port_name_owned.clone()));
@@ -76,15 +78,23 @@ impl SerialConnection {
                         if e.kind() == std::io::ErrorKind::TimedOut {
                             continue;
                         }
+                        if let Ok(mut flag) = connected_for_reader.lock() {
+                            *flag = false;
+                        }
                         let _ = reader_tx.send(SerialMsg::Disconnected(e.to_string()));
                         break;
                     }
                 }
             }
+
+            if let Ok(mut flag) = connected_for_reader.lock() {
+                *flag = false;
+            }
         });
 
         // Writer thread
         let port_for_writer = port_handle.clone();
+        let connected_for_writer = connected.clone();
         std::thread::spawn(move || {
             loop {
                 match cmd_rx.recv() {
@@ -119,6 +129,9 @@ impl SerialConnection {
                             }
                             Err(_) => {} // Already poisoned, just exit
                         }
+                        if let Ok(mut flag) = connected_for_writer.lock() {
+                            *flag = false;
+                        }
                         break;
                     }
                 }
@@ -128,7 +141,117 @@ impl SerialConnection {
         Ok(Self {
             rx: msg_rx,
             cmd_tx,
-            port_handle,
+            connected,
+        })
+    }
+
+    pub fn connect_tcp(
+        host: &str,
+        port: u16,
+        backend: Arc<dyn ControllerBackend>,
+    ) -> Result<Self, String> {
+        let addr = format!("{host}:{port}");
+        let stream = TcpStream::connect(&addr)
+            .map_err(|e| format!("Failed to connect to {addr}: {e}"))?;
+        stream
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .map_err(|e| format!("Failed to set TCP read timeout for {addr}: {e}"))?;
+        stream
+            .set_write_timeout(Some(Duration::from_millis(100)))
+            .map_err(|e| format!("Failed to set TCP write timeout for {addr}: {e}"))?;
+
+        let reader_stream = stream
+            .try_clone()
+            .map_err(|e| format!("Failed to clone TCP stream for {addr}: {e}"))?;
+        let writer_stream = Arc::new(Mutex::new(Some(stream)));
+
+        let (msg_tx, msg_rx) = unbounded::<SerialMsg>();
+        let (cmd_tx, cmd_rx) = unbounded::<SerialCmd>();
+        let connected = Arc::new(Mutex::new(true));
+
+        let reader_tx = msg_tx.clone();
+        let parse_backend = backend.clone();
+        let connected_for_reader = connected.clone();
+        let addr_for_reader = addr.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(reader_stream);
+            let _ = reader_tx.send(SerialMsg::Connected(format!("tcp://{addr_for_reader}")));
+
+            for line in reader.lines() {
+                match line {
+                    Ok(line) => {
+                        let trimmed = line.trim().to_string();
+                        if trimmed.is_empty() {
+                            continue;
+                        }
+                        let response = parse_backend.parse_response(&trimmed);
+                        let _ = reader_tx.send(SerialMsg::Parsed {
+                            raw: trimmed,
+                            response,
+                        });
+                    }
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::TimedOut
+                            || e.kind() == std::io::ErrorKind::WouldBlock
+                        {
+                            continue;
+                        }
+                        if let Ok(mut flag) = connected_for_reader.lock() {
+                            *flag = false;
+                        }
+                        let _ = reader_tx.send(SerialMsg::Disconnected(e.to_string()));
+                        break;
+                    }
+                }
+            }
+
+            if let Ok(mut flag) = connected_for_reader.lock() {
+                *flag = false;
+            }
+        });
+
+        let connected_for_writer = connected.clone();
+        std::thread::spawn(move || {
+            loop {
+                match cmd_rx.recv() {
+                    Ok(SerialCmd::SendLine(line)) => match writer_stream.lock() {
+                        Ok(mut guard) => {
+                            if let Some(ref mut stream) = *guard {
+                                let data = format!("{line}\n");
+                                let _ = stream.write_all(data.as_bytes());
+                                let _ = stream.flush();
+                            }
+                        }
+                        Err(_) => break,
+                    },
+                    Ok(SerialCmd::SendByte(byte)) => match writer_stream.lock() {
+                        Ok(mut guard) => {
+                            if let Some(ref mut stream) = *guard {
+                                let _ = stream.write_all(&[byte]);
+                                let _ = stream.flush();
+                            }
+                        }
+                        Err(_) => break,
+                    },
+                    Ok(SerialCmd::Disconnect) | Err(_) => {
+                        if let Ok(mut guard) = writer_stream.lock()
+                            && let Some(stream) = guard.take()
+                        {
+                            let _ = stream.shutdown(Shutdown::Both);
+                        }
+                        if let Ok(mut flag) = connected_for_writer.lock() {
+                            *flag = false;
+                        }
+                        break;
+                    }
+                }
+            }
+        });
+
+        Ok(Self {
+            rx: msg_rx,
+            cmd_tx,
+            connected,
         })
     }
 
@@ -145,8 +268,8 @@ impl SerialConnection {
     }
 
     pub fn is_connected(&self) -> bool {
-        match self.port_handle.lock() {
-            Ok(guard) => guard.is_some(),
+        match self.connected.lock() {
+            Ok(guard) => *guard,
             Err(_) => false,
         }
     }

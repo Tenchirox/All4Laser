@@ -1,4 +1,5 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
+use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -17,6 +18,12 @@ use crate::controller::{
 use crate::gcode::file::GCodeFile;
 use crate::grbl::types::*;
 use crate::imaging;
+use crate::laser::driver::{
+    DriverProgramSender, DriverValidationSeverity, LaserDriverProfile, available_driver_profiles,
+    create_driver, effective_driver_profile,
+};
+use crate::laser::job::{JobMetadata, LaserJob, LaserJobPart, RasterPartConfig};
+use crate::laser::pipeline::prepare_program;
 use crate::preview::renderer::PreviewRenderer;
 use crate::serial::connection::{self, SerialConnection, SerialMsg};
 use crate::theme;
@@ -27,6 +34,16 @@ use crate::ui::marker_detect::detect_cross_and_circle_markers;
 use crate::ui::node_edit::{NodeEditSnapshot, redo_history_step, undo_history_step};
 use crate::ui::offset::JoinStyle;
 use crate::ui::preflight::{PreflightContext, PreflightReport, PreflightSeverity};
+
+struct RuntimeProgramSender<'a> {
+    conn: &'a SerialConnection,
+}
+
+impl DriverProgramSender for RuntimeProgramSender<'_> {
+    fn send_line(&mut self, line: &str) {
+        self.conn.send(line);
+    }
+}
 
 const MAX_LOG_LINES: usize = 500;
 
@@ -71,10 +88,14 @@ pub struct All4LaserApp {
     selected_port: usize,
     baud_rates: Vec<u32>,
     selected_baud: usize,
+    connection_mode: ui::connection::ConnectionMode,
+    network_host: String,
+    network_port: String,
 
     // GCode
     loaded_file: Option<GCodeFile>,
     program_lines: std::sync::Arc<Vec<String>>,
+    prepared_program_lines: std::sync::Arc<Vec<String>>,
     program_index: usize,
     running: bool,
     is_dry_run: bool, // new flag for dry run
@@ -152,6 +173,8 @@ pub struct All4LaserApp {
     nesting_state: ui::nesting::NestingState,
     job_queue_state: ui::job_queue::JobQueueState,
     active_queue_job: Option<ui::job_queue::QueuedJob>,
+    queued_prepared_programs: HashMap<u64, (Arc<Vec<String>>, String)>,
+    current_job_parts: Option<Vec<LaserJobPart>>,
 
     // Material Library
     materials_state: ui::materials::MaterialsState,
@@ -249,8 +272,12 @@ impl All4LaserApp {
             selected_port: 0,
             baud_rates: ui::connection::default_baud_rates(),
             selected_baud: 4, // 115200
+            connection_mode: ui::connection::ConnectionMode::Serial,
+            network_host: "192.168.1.100".to_string(),
+            network_port: "23".to_string(),
             loaded_file: None,
             program_lines: std::sync::Arc::new(Vec::new()),
+            prepared_program_lines: std::sync::Arc::new(Vec::new()),
             program_index: 0,
             running: false,
             is_dry_run: false,
@@ -292,6 +319,8 @@ impl All4LaserApp {
             nesting_state: ui::nesting::NestingState::default(),
             job_queue_state: ui::job_queue::JobQueueState::default(),
             active_queue_job: None,
+            queued_prepared_programs: HashMap::new(),
+            current_job_parts: None,
             materials_state: ui::materials::MaterialsState::default(),
             test_fire: TestFireState::default(),
             ui_theme: theme::UiTheme::Modern,
@@ -610,6 +639,10 @@ impl All4LaserApp {
     }
 
     fn apply_controller_kind_change(&mut self, previous_kind: ControllerKind) {
+        if previous_kind != self.machine_profile.controller_kind {
+            self.machine_profile.laser_driver_profile = LaserDriverProfile::Auto;
+            self.queued_prepared_programs.clear();
+        }
         self.sync_controller_backend();
         if previous_kind != self.machine_profile.controller_kind && self.is_connected() {
             self.disconnect();
@@ -632,6 +665,23 @@ impl All4LaserApp {
             return true;
         }
         false
+    }
+
+    fn format_driver_resolution(
+        &self,
+        driver_name: &str,
+        resolved_profile: LaserDriverProfile,
+    ) -> String {
+        let requested_profile = self.machine_profile.laser_driver_profile;
+        if requested_profile == resolved_profile {
+            format!("{driver_name} [{}]", resolved_profile.label())
+        } else {
+            format!(
+                "{driver_name} [{} resolved from {}]",
+                resolved_profile.label(),
+                requested_profile.label(),
+            )
+        }
     }
 
     fn controller_capabilities(&self) -> ControllerCapabilities {
@@ -699,7 +749,7 @@ impl All4LaserApp {
                                     self.log(format!(
                                         "[STATE] {} → {} (line {}/{}, pos: {:.1},{:.1})",
                                         old_status, state.status,
-                                        self.program_index, self.program_lines.len(),
+                                        self.program_index, self.runtime_program_len(),
                                         state.mpos.x, state.mpos.y,
                                     ));
                                 }
@@ -718,10 +768,10 @@ impl All4LaserApp {
                                 }
                             }
                             GrblResponse::Ok => {
-                                if self.running && self.program_index < self.program_lines.len() {
+                                if self.running && self.program_index < self.runtime_program_len() {
                                     self.send_next_program_line();
                                 } else if self.running
-                                    && self.program_index >= self.program_lines.len()
+                                    && self.program_index >= self.runtime_program_len()
                                 {
                                     self.handle_program_completed();
                                 }
@@ -797,11 +847,13 @@ impl All4LaserApp {
     }
 
     fn send_next_program_line(&mut self) {
-        while self.program_index < self.program_lines.len() {
+        while self.program_index < self.runtime_program_len() {
             let line_idx = self.program_index;
             self.program_index += 1;
 
-            let mut cmd = if let (Some(file), Some(center)) =
+            let mut cmd = if !self.prepared_program_lines.is_empty() {
+                self.prepared_program_lines[line_idx].clone()
+            } else if let (Some(file), Some(center)) =
                 (&self.loaded_file, self.job_transform.center)
             {
                 if let Some(parsed) = file.lines.get(line_idx) {
@@ -843,27 +895,70 @@ impl All4LaserApp {
             if trimmed.is_empty() || trimmed.starts_with(';') || trimmed.starts_with('(') {
                 continue;
             }
-            self.log(format!("[TX:{}/{}] {}", self.program_index, self.program_lines.len(), trimmed));
+            self.log(format!(
+                "[TX:{}/{}] {}",
+                self.program_index,
+                self.runtime_program_len(),
+                trimmed
+            ));
             if let Some(conn) = self.connection.as_ref() {
-                conn.send(&trimmed);
+                let lines = vec![trimmed.clone()];
+                let send_result = match create_driver(
+                    self.machine_profile.controller_kind,
+                    self.machine_profile.laser_driver_profile,
+                ) {
+                    Ok(driver) => {
+                        let mut sender = RuntimeProgramSender { conn };
+                        driver.send_program(&lines, &mut sender)
+                    }
+                    Err(_) => {
+                        conn.send(&trimmed);
+                        Ok(())
+                    }
+                };
+
+                if let Err(err) = send_result {
+                    self.handle_program_failed(format!("Driver send failed: {err}"));
+                    return;
+                }
             }
             return;
         }
     }
 
     fn connect(&mut self) {
-        let port = match self.ports.get(self.selected_port) {
-            Some(p) => p.clone(),
-            None => {
-                self.show_error("No port selected".to_string());
-                return;
-            }
-        };
-        let baud = ui::connection::get_baud(&self.baud_rates, self.selected_baud);
-        self.log(format!("Connecting to {port} @ {baud}…"));
         self.grbl_state.status = MacStatus::Connecting;
 
-        match SerialConnection::connect(&port, baud, self.controller_backend.clone()) {
+        let result = match self.connection_mode {
+            ui::connection::ConnectionMode::Serial => {
+                let port = match self.ports.get(self.selected_port) {
+                    Some(p) => p.clone(),
+                    None => {
+                        self.show_error("No port selected".to_string());
+                        self.grbl_state.status = MacStatus::Disconnected;
+                        return;
+                    }
+                };
+                let baud = ui::connection::get_baud(&self.baud_rates, self.selected_baud);
+                self.log(format!("Connecting to {port} @ {baud}…"));
+                SerialConnection::connect(&port, baud, self.controller_backend.clone())
+            }
+            ui::connection::ConnectionMode::Network => {
+                let host = self.network_host.trim().to_string();
+                let port = match self.network_port.trim().parse::<u16>() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        self.show_error("Invalid network port (must be 1..65535).".to_string());
+                        self.grbl_state.status = MacStatus::Disconnected;
+                        return;
+                    }
+                };
+                self.log(format!("Connecting to tcp://{host}:{port}…"));
+                SerialConnection::connect_tcp(&host, port, self.controller_backend.clone())
+            }
+        };
+
+        match result {
             Ok(conn) => {
                 self.connection = Some(conn);
             }
@@ -874,12 +969,54 @@ impl All4LaserApp {
         }
     }
 
+    fn test_network_target(&mut self) {
+        let host = self.network_host.trim().to_string();
+        if host.is_empty() {
+            self.show_error("Network host is empty.".to_string());
+            return;
+        }
+
+        let port = match self.network_port.trim().parse::<u16>() {
+            Ok(v) => v,
+            Err(_) => {
+                self.show_error("Invalid network port (must be 1..65535).".to_string());
+                return;
+            }
+        };
+
+        let addr_text = format!("{host}:{port}");
+        let socket_addr = match addr_text.to_socket_addrs() {
+            Ok(mut iter) => match iter.next() {
+                Some(addr) => addr,
+                None => {
+                    self.show_error(format!("Could not resolve host: {addr_text}"));
+                    return;
+                }
+            },
+            Err(e) => {
+                self.show_error(format!("Invalid host or port '{addr_text}': {e}"));
+                return;
+            }
+        };
+
+        match TcpStream::connect_timeout(&socket_addr, Duration::from_millis(1200)) {
+            Ok(stream) => {
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+                self.log(format!("Network test OK: tcp://{addr_text}"));
+            }
+            Err(e) => {
+                self.show_error(format!("Network test failed for tcp://{addr_text}: {e}"));
+            }
+        }
+    }
+
     fn disconnect(&mut self) {
         if let Some(conn) = self.connection.take() {
             conn.disconnect();
         }
         self.grbl_state = GrblState::default();
         self.running = false;
+        self.clear_runtime_program();
         self.is_dry_run = false;
         self.framing_active = false;
         self.log("Disconnected".to_string());
@@ -1147,6 +1284,7 @@ impl All4LaserApp {
         }
 
         self.loaded_file = Some(file);
+        self.current_job_parts = None;
         if let Some(file) = self.loaded_file.as_ref() {
             self.estimation = crate::gcode::estimation::estimate(&file.lines);
         }
@@ -1156,6 +1294,33 @@ impl All4LaserApp {
         let lines = crate::ui::drawing::generate_all_gcode_with_settings(&self.drawing_state, &self.layers, &self.settings);
         let file = GCodeFile::from_lines("drawing", &lines);
         self.set_loaded_file(file, lines);
+    }
+
+    fn build_laser_job(&self, title: &str, source_name: &str, lines: &[String]) -> LaserJob {
+        let metadata = JobMetadata {
+            title: title.to_string(),
+            source_name: source_name.to_string(),
+            user: "operator".to_string(),
+        };
+
+        let use_parts = lines == self.program_lines.as_ref();
+        let mut job = if use_parts {
+            if let Some(parts) = &self.current_job_parts {
+                LaserJob::from_parts(metadata, parts.clone())
+            } else {
+                LaserJob::new(metadata, lines.to_vec())
+            }
+        } else {
+            LaserJob::new(metadata, lines.to_vec())
+        };
+
+        job.start_x_mm = self.job_transform.offset_x;
+        job.start_y_mm = self.job_transform.offset_y;
+        job.rotary_enabled = self.machine_profile.rotary_enabled;
+        if self.machine_profile.rotary_enabled {
+            job.rotary_diameter_mm = Some(self.machine_profile.rotary_diameter_mm);
+        }
+        job
     }
 
     fn preview_used_layer_indices(&self) -> Vec<usize> {
@@ -1979,6 +2144,41 @@ impl All4LaserApp {
     }
 
     fn run_program_internal(&mut self) {
+        let source_name = self
+            .loaded_file
+            .as_ref()
+            .map(|f| f.filename.clone())
+            .unwrap_or_else(|| "current_job.gcode".to_string());
+
+        let job = self.build_laser_job("All4Laser job", &source_name, self.program_lines.as_ref());
+
+        let prepared = match prepare_program(
+            self.machine_profile.controller_kind,
+            &self.machine_profile,
+            &job,
+        ) {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                self.handle_program_failed(format!("Program preparation failed: {err}"));
+                return;
+            }
+        };
+
+        for issue in &prepared.validation_issues {
+            let level = match issue.severity {
+                DriverValidationSeverity::Warning => "warning",
+                DriverValidationSeverity::Error => "error",
+            };
+            self.log(format!("Driver precheck ({level}): {}", issue.message));
+        }
+
+        let driver_display =
+            self.format_driver_resolution(prepared.driver_name, prepared.driver_profile);
+        self.start_runtime_program(prepared.lines, &driver_display);
+    }
+
+    fn start_runtime_program(&mut self, mut runtime_lines: Vec<String>, driver_name: &str) {
+
         self.program_index = 0;
         self.running = true;
         self.notify_job_done = false;
@@ -1991,10 +2191,17 @@ impl All4LaserApp {
 
         // Append return-to-origin if configured
         if self.machine_profile.return_to_origin {
-            if self.program_lines.last().map(|l| l.trim()) != Some("G0 X0 Y0") {
-                std::sync::Arc::make_mut(&mut self.program_lines).push("G0 X0 Y0 F3000".to_string());
+            if runtime_lines.last().map(|l| l.trim()) != Some("G0 X0 Y0") {
+                runtime_lines.push("G0 X0 Y0 F3000".to_string());
             }
         }
+
+        self.prepared_program_lines = Arc::new(runtime_lines);
+        self.log(format!(
+            "Using driver '{}' ({} line(s) prepared).",
+            driver_name,
+            self.runtime_program_len()
+        ));
 
         self.log(if self.is_dry_run {
             "Starting Dry Run (Laser OFF)…".to_string()
@@ -2002,6 +2209,38 @@ impl All4LaserApp {
             "Starting program…".to_string()
         });
         self.send_next_program_line();
+    }
+
+    fn prepare_lines_for_queue(
+        &mut self,
+        source_name: &str,
+        lines: &[String],
+    ) -> Option<(Vec<String>, String)> {
+        let job = self.build_laser_job("Queued All4Laser job", source_name, lines);
+
+        let prepared = match prepare_program(
+            self.machine_profile.controller_kind,
+            &self.machine_profile,
+            &job,
+        ) {
+            Ok(prepared) => prepared,
+            Err(err) => {
+                self.show_error(format!("Queue preparation failed: {err}"));
+                return None;
+            }
+        };
+
+        for issue in &prepared.validation_issues {
+            let level = match issue.severity {
+                DriverValidationSeverity::Warning => "warning",
+                DriverValidationSeverity::Error => "error",
+            };
+            self.log(format!("Queue precheck ({level}): {}", issue.message));
+        }
+
+        let driver_display =
+            self.format_driver_resolution(prepared.driver_name, prepared.driver_profile);
+        Some((prepared.lines, driver_display))
     }
 
     fn build_preflight_report(&self) -> PreflightReport {
@@ -2047,8 +2286,24 @@ impl All4LaserApp {
         let id = self
             .job_queue_state
             .enqueue_job(base_name.clone(), self.program_lines.clone());
+        let queue_lines = self.program_lines.as_ref().clone();
+        self.prepare_queue_cache_entry(id, &base_name, &queue_lines);
         self.log(format!("Queued job #{id}: {base_name}"));
         Some(id)
+    }
+
+    fn prepare_queue_cache_entry(&mut self, id: u64, name: &str, lines: &[String]) {
+        if let Some((prepared_lines, driver_name)) = self.prepare_lines_for_queue(name, lines) {
+            self.queued_prepared_programs
+                .insert(id, (Arc::new(prepared_lines), driver_name.clone()));
+            self.log(format!(
+                "Queue prep #{id}: driver '{driver_name}' ({} line(s)).",
+                self.queued_prepared_programs
+                    .get(&id)
+                    .map(|(prepared, _)| prepared.len())
+                    .unwrap_or(0)
+            ));
+        }
     }
 
     fn try_start_next_queued_job(&mut self) {
@@ -2075,7 +2330,15 @@ impl All4LaserApp {
             return;
         }
         self.active_queue_job = Some(job.clone());
-        self.run_program_internal(); // Assume enqueued jobs are preflighted
+        if let Some((cached_lines, driver_name)) = self.queued_prepared_programs.remove(&job.id) {
+            self.log(format!(
+                "Queue start: using prepared job #{} with driver '{}'.",
+                job.id, driver_name
+            ));
+            self.start_runtime_program(cached_lines.as_ref().clone(), &driver_name);
+        } else {
+            self.run_program_internal();
+        }
         self.log(format!("Queue start: #{} {}", job.id, job.name));
     }
 
@@ -2126,7 +2389,7 @@ impl All4LaserApp {
             &self.estimation,
             &self.layers,
             &self.machine_profile.name,
-            self.program_lines.len(),
+            self.runtime_program_len(),
         );
         let report_path = std::env::current_exe()
             .unwrap_or_default()
@@ -2137,6 +2400,7 @@ impl All4LaserApp {
 
         self.log("Program complete.".to_string());
         self.notify_job_done = true;
+        self.clear_runtime_program();
 
         if let Some(job) = self.active_queue_job.take() {
             self.job_queue_state.record_completion(job);
@@ -2148,12 +2412,13 @@ impl All4LaserApp {
 
     fn handle_program_failed(&mut self, reason: String) {
         let line_info = if self.program_index > 0 {
-            format!(" (at line {}/{})", self.program_index, self.program_lines.len())
+            format!(" (at line {}/{})", self.program_index, self.runtime_program_len())
         } else {
             String::new()
         };
         self.show_error(format!("Job failed{line_info}: {reason}"));
         self.running = false;
+        self.clear_runtime_program();
         self.is_dry_run = false;
         self.framing_active = false;
         if self.machine_profile.air_assist {
@@ -2167,6 +2432,7 @@ impl All4LaserApp {
 
     fn handle_program_aborted(&mut self) {
         self.running = false;
+        self.clear_runtime_program();
         self.is_dry_run = false;
         self.framing_active = false;
         if self.machine_profile.air_assist {
@@ -2196,6 +2462,27 @@ impl All4LaserApp {
         } else {
             self.log("Not connected".to_string());
         }
+    }
+
+    fn runtime_program_lines(&self) -> &[String] {
+        if self.prepared_program_lines.is_empty() {
+            self.program_lines.as_ref()
+        } else {
+            self.prepared_program_lines.as_ref()
+        }
+    }
+
+    fn runtime_program_len(&self) -> usize {
+        self.runtime_program_lines().len()
+    }
+
+    fn clear_runtime_program(&mut self) {
+        self.prepared_program_lines = Arc::new(Vec::new());
+    }
+
+    fn sync_queued_prepared_program_cache(&mut self) {
+        self.queued_prepared_programs
+            .retain(|id, _| self.job_queue_state.queue.iter().any(|job| job.id == *id));
     }
 
     fn execute_macro_script(&mut self, macro_label: &str, gcode: &str) {
@@ -2699,6 +2986,50 @@ impl All4LaserApp {
                 }
                 ui.end_row();
 
+                ui.label(format!("{}:", crate::i18n::tr("Laser Driver")));
+                let previous_driver_profile = self.machine_profile.laser_driver_profile;
+                egui::ComboBox::from_id_salt("laser_driver_profile_combo")
+                    .selected_text(self.machine_profile.laser_driver_profile.label())
+                    .show_ui(ui, |ui| {
+                        for profile in available_driver_profiles(self.machine_profile.controller_kind) {
+                            ui.selectable_value(
+                                &mut self.machine_profile.laser_driver_profile,
+                                profile,
+                                profile.label(),
+                            );
+                        }
+                    });
+                if self.machine_profile.laser_driver_profile != previous_driver_profile {
+                    profile_changed = true;
+                    self.queued_prepared_programs.clear();
+                }
+                ui.end_row();
+
+                ui.label("");
+                ui.label(
+                    egui::RichText::new(self.machine_profile.laser_driver_profile.description())
+                        .small()
+                        .color(theme::SUBTEXT),
+                );
+                ui.end_row();
+
+                if self.machine_profile.laser_driver_profile == LaserDriverProfile::Auto {
+                    let resolved_profile = effective_driver_profile(
+                        self.machine_profile.controller_kind,
+                        self.machine_profile.laser_driver_profile,
+                    );
+                    ui.label("");
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Resolved now: {}",
+                            resolved_profile.label()
+                        ))
+                        .small()
+                        .color(theme::SUBTEXT),
+                    );
+                    ui.end_row();
+                }
+
                 ui.label("Width (mm):");
                 if ui
                     .add(egui::DragValue::new(&mut self.machine_profile.workspace_x_mm).speed(5.0))
@@ -2986,6 +3317,9 @@ impl All4LaserApp {
                     &mut self.selected_port,
                     &self.baud_rates,
                     &mut self.selected_baud,
+                    &mut self.connection_mode,
+                    &mut self.network_host,
+                    &mut self.network_port,
                     connected,
                 );
                 if conn_action.connect {
@@ -2997,6 +3331,9 @@ impl All4LaserApp {
                 if conn_action.refresh_ports {
                     self.ports = connection::list_ports();
                     self.log("Ports refreshed.".to_string());
+                }
+                if conn_action.test_network {
+                    self.test_network_target();
                 }
 
                 ui.add_space(4.0);
@@ -4086,6 +4423,9 @@ impl All4LaserApp {
                             &mut self.selected_port,
                             &self.baud_rates,
                             &mut self.selected_baud,
+                            &mut self.connection_mode,
+                            &mut self.network_host,
+                            &mut self.network_port,
                             connected,
                         );
                         if conn_action.connect {
@@ -4096,6 +4436,9 @@ impl All4LaserApp {
                         }
                         if conn_action.refresh_ports {
                             self.ports = connection::list_ports();
+                        }
+                        if conn_action.test_network {
+                            self.test_network_target();
                         }
 
                         ui.add_space(8.0);
@@ -4364,6 +4707,10 @@ impl All4LaserApp {
         let prefs_applied = ui::preferences::show(ui.ctx(), &mut self.preferences_state, &mut self.settings);
         if prefs_applied {
             self.sync_from_settings(ui.ctx());
+        }
+        if self.preferences_state.show_about {
+            self.about_open = true;
+            self.preferences_state.show_about = false;
         }
     }
 
@@ -4729,6 +5076,7 @@ impl All4LaserApp {
         self.node_undo_stack.clear();
         self.node_redo_stack.clear();
         self.import_state = None;
+        self.current_job_parts = None;
         self.project_notes.clear();
         self.active_layer_idx = 0;
         self.layers = ui::layers_new::CutLayer::default_palette();
@@ -5137,6 +5485,17 @@ impl All4LaserApp {
                                 shape.layer_idx = self.active_layer_idx;
                             }
                             self.drawing_state.shapes.extend(vector_shapes);
+                            self.regenerate_drawing_gcode();
+
+                            let raster_lines =
+                                crate::imaging::raster::vectorize_image(img, &state.raster_params);
+                            self.current_job_parts = Some(vec![LaserJobPart::Raster {
+                                lines: raster_lines,
+                                config: RasterPartConfig {
+                                    padding_mm: state.raster_params.vector_padding_mm,
+                                    overscan_mm: state.raster_params.vector_overscan_mm,
+                                },
+                            }]);
                         } else {
                             let shape = crate::ui::drawing::ShapeParams {
                                 shape: crate::ui::drawing::ShapeKind::RasterImage {
@@ -5152,8 +5511,9 @@ impl All4LaserApp {
                                 ..Default::default()
                             };
                             self.drawing_state.shapes.push(shape);
+                            self.regenerate_drawing_gcode();
+                            self.current_job_parts = None;
                         }
-                        self.regenerate_drawing_gcode();
                     }
                     ui::image_dialog::ImportType::Svg(data) => {
                         match imaging::svg::svg_to_paths(data, &state.svg_params) {
@@ -5272,6 +5632,7 @@ impl All4LaserApp {
                 !self.program_lines.is_empty(),
                 self.running,
                 active_name,
+                self.queued_prepared_programs.len(),
             );
             if queue_action.enqueue_current {
                 self.enqueue_current_job();
@@ -5279,13 +5640,54 @@ impl All4LaserApp {
             if queue_action.retry_last_failed {
                 if let Some(id) = self.job_queue_state.retry_last_failed() {
                     self.log(format!("Requeued last failed job as #{id}."));
+                    let retry_payload = self
+                        .job_queue_state
+                        .queue
+                        .iter()
+                        .find(|j| j.id == id)
+                        .map(|job| (job.name.clone(), job.lines.as_ref().clone()));
+                    if let Some((name, lines)) = retry_payload {
+                        self.prepare_queue_cache_entry(id, &name, &lines);
+                    }
                 } else {
                     self.show_error("No failed/aborted job in history to retry.".into());
+                }
+            }
+            if let Some(entry) = queue_action.requeue_from_history {
+                let id = self
+                    .job_queue_state
+                    .enqueue_job(entry.name.clone(), entry.lines.clone());
+                self.prepare_queue_cache_entry(id, &entry.name, entry.lines.as_ref());
+                self.log(format!("Requeued from history as #{id}: {}", entry.name));
+            }
+            if let Some(paths) = queue_action.batch_import_paths {
+                let mut imported = 0usize;
+                let mut imported_lines = 0usize;
+                for path in paths {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let name = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "batch_file".to_string());
+                        let lines: Vec<String> = content.lines().map(String::from).collect();
+                        let id = self
+                            .job_queue_state
+                            .enqueue_job(name.clone(), Arc::new(lines.clone()));
+                        self.prepare_queue_cache_entry(id, &name, &lines);
+                        imported += 1;
+                        imported_lines += lines.len();
+                    }
+                }
+                if imported > 0 {
+                    self.log(format!(
+                        "Batch import: {imported} file(s), {imported_lines} line(s), prepared for queue."
+                    ));
                 }
             }
             if queue_action.start_next {
                 self.try_start_next_queued_job();
             }
+            self.sync_queued_prepared_program_cache();
         }
 
         // === Circular Array Window ===
@@ -5839,6 +6241,17 @@ impl eframe::App for All4LaserApp {
                 .show(ui.ctx(), |ui| {
                     ui.label(egui::RichText::new("All4Laser").strong().size(20.0));
                     ui.label("Advanced Laser Control Software");
+                    ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                    ui.label("By Tenchirox");
+                    ui.hyperlink_to("All4Laser on GitHub", "https://github.com/Tenchirox/All4Laser");
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.label(egui::RichText::new("Acknowledgements").strong());
+                    ui.label("Special thanks to the open-source laser community projects:");
+                    ui.hyperlink_to("LibLaserCut", "https://github.com/t-oster/LibLaserCut/");
+                    ui.hyperlink_to("LaserGRBL", "https://lasergrbl.com/");
+                    ui.hyperlink_to("Rayforge", "https://rayforge.org/");
+                    ui.hyperlink_to("LaserMagic", "https://lasermagic.ci-yow.com/");
                     ui.add_space(8.0);
                     if ui.button("OK").clicked() {
                         close_clicked = true;

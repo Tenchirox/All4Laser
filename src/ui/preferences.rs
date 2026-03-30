@@ -7,6 +7,7 @@ use egui::{Context, RichText, ScrollArea, Ui, Window};
 pub struct PreferencesState {
     pub is_open: bool,
     pub selected_tab: PreferencesTab,
+    pub show_about: bool,
     // Appearance settings
     pub pending_theme: Option<theme::UiTheme>,
     pub pending_layout: Option<theme::UiLayout>,
@@ -121,6 +122,11 @@ pub fn show(ctx: &Context, state: &mut PreferencesState, app_settings: &mut AppS
                     applied = true;
                     should_close = true;
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(tr("About")).clicked() {
+                        state.show_about = true;
+                    }
+                });
             });
         });
 

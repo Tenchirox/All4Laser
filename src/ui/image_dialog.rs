@@ -159,6 +159,31 @@ pub fn show(ui: &mut Ui, state: &mut ImageImportState) -> ImageImportResult {
                             {
                                 state.needs_texture_update = true;
                             }
+                            ui.add_space(4.0);
+                            if ui
+                                .add(
+                                    egui::Slider::new(
+                                        &mut state.raster_params.vector_padding_mm,
+                                        0.0..=10.0,
+                                    )
+                                    .text(tr("Vector Padding (mm)")),
+                                )
+                                .changed()
+                            {
+                                state.needs_texture_update = true;
+                            }
+                            if ui
+                                .add(
+                                    egui::Slider::new(
+                                        &mut state.raster_params.vector_overscan_mm,
+                                        0.0..=10.0,
+                                    )
+                                    .text(tr("Vector Overscan (mm)")),
+                                )
+                                .changed()
+                            {
+                                state.needs_texture_update = true;
+                            }
                         } else {
                             let b_res = ui.add(
                                 egui::Slider::new(&mut state.raster_params.brightness, -1.0..=1.0)

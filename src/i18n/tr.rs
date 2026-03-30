@@ -198,5 +198,19 @@ pub fn entries() -> HashMap<&'static str, &'static str> {
     m.insert("Center Vertical", "Dikey ortala");
     m.insert("Distribute H", "Yatay dağıt");
     m.insert("Distribute V", "Dikey dağıt");
+    // Network connection
+    m.insert("Mode", "Mod");
+    m.insert("Serial", "Seri");
+    m.insert("Network (TCP/IP)", "Ağ (TCP/IP)");
+    m.insert("Host", "Host");
+    m.insert("Port", "Port");
+    m.insert("Baud", "Baud Hızı");
+    m.insert("Refresh", "Yenile");
+    m.insert("Test Network", "Ağı Test Et");
+    m.insert("No ports", "Port yok");
+    m.insert("Connection", "Bağlantı");
+    // Vector raster settings
+    m.insert("Vector Padding (mm)", "Vektör Dolgusu (mm)");
+    m.insert("Vector Overscan (mm)", "Vektör Aşırı Tarama (mm)");
     m
 }

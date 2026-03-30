@@ -60,11 +60,48 @@ For camera live preview on Windows:
     cargo run --release
     ```
 
+## 🔌 Driver Profiles
+All4Laser includes multiple pipeline driver profiles inspired by LibLaserCut. Profiles can be selected per machine controller in the UI.
+
+### Stable Profiles
+- `Auto (by controller)`
+- `GRBL Generic`
+- `GRBL Device-Safe`
+- `Marlin Line Protocol`
+- `Ruida Line Bridge`
+- `Trocen Line Bridge`
+
+### Experimental Profiles
+- `Smoothie GCode`
+- `Lasersaur GCode`
+- `K40 Nano Bridge`
+- `GoldCut HPGL`
+- `Epilog Zing Bridge`
+- `Epilog Helix Bridge`
+- `Full Spectrum Bridge`
+- `Laos Cutter Bridge`
+- `MakeBlock XY Plotter`
+- `LaserTools Technics`
+- `Dummy Driver`
+- `Sample Driver`
+- `IModela Mill`
+- `K3 Engraver`
+
+Experimental profiles are provided for compatibility research and adapter workflows; validate on non-production jobs before machine use.
+
 
 ## 🤝 Contributing
 Contributions are welcome! Please feel free to submit Pull Requests or open issues for feature requests and bug reports.
 
-## 📄 License
+## � Acknowledgements
+Special thanks to the open-source laser ecosystem and the following projects:
+
+- [LibLaserCut](https://github.com/t-oster/LibLaserCut/)
+- [LaserGRBL](https://lasergrbl.com/)
+- [Rayforge](https://rayforge.org/)
+- [LaserMagic](https://lasermagic.ci-yow.com/)
+
+## �� License
 This project is licensed under the GNU GPL V3.0 - see the [LICENSE](LICENSE) file for details.
 
 ---

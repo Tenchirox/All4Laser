@@ -170,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "all4laser"
-version = "0.1.0"
+version = "0.1.1-testing"
 dependencies = [
  "base64",
  "crossbeam-channel",

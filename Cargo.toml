@@ -1,6 +1,6 @@
 [package]
 name = "all4laser"
-version = "0.1.0"
+version = "0.1.1-testing"
 edition = "2024"
 description = "All4Laser — Open-source laser engraver controller"
 license = "GPL-3.0"

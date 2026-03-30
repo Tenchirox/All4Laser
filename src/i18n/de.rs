@@ -206,5 +206,19 @@ pub fn entries() -> HashMap<&'static str, &'static str> {
     m.insert("Power reset 100%", "Leistung zurücksetzen 100%");
     m.insert("Power +10%", "Leistung +10%");
     m.insert("Power -10%", "Leistung -10%");
+    // Network connection
+    m.insert("Mode", "Modus");
+    m.insert("Serial", "Seriell");
+    m.insert("Network (TCP/IP)", "Netzwerk (TCP/IP)");
+    m.insert("Host", "Host");
+    m.insert("Port", "Port");
+    m.insert("Baud", "Baudrate");
+    m.insert("Refresh", "Aktualisieren");
+    m.insert("Test Network", "Netzwerk testen");
+    m.insert("No ports", "Keine Ports");
+    m.insert("Connection", "Verbindung");
+    // Vector raster settings
+    m.insert("Vector Padding (mm)", "Vektor-Polsterung (mm)");
+    m.insert("Vector Overscan (mm)", "Vektor-Überscan (mm)");
     m
 }

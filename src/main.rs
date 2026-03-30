@@ -10,6 +10,7 @@ mod gcode;
 mod grbl;
 mod i18n;
 mod imaging;
+mod laser;
 mod preview;
 mod serial;
 mod theme;

@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::controller::ControllerKind;
+use crate::laser::driver::LaserDriverProfile;
 
 /// Machine profile saved to disk (port, baud, workspace, kinematics)
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -22,6 +23,8 @@ pub struct MachineProfile {
     pub rotary_steps_per_deg: f32,
     #[serde(default = "default_controller_kind")]
     pub controller_kind: ControllerKind,
+    #[serde(default)]
+    pub laser_driver_profile: LaserDriverProfile,
 
     // Tube wear tracking (F97)
     #[serde(default)]
@@ -116,6 +119,7 @@ impl Default for MachineProfile {
             rotary_axis: 'Y',
             rotary_steps_per_deg: 1.0,
             controller_kind: default_controller_kind(),
+            laser_driver_profile: LaserDriverProfile::default(),
             tube_hours_total: 0.0,
             tube_life_hours: default_tube_life(),
             maintenance_jobs_since_lens_clean: 0,
