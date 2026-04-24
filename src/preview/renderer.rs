@@ -697,7 +697,7 @@ impl PreviewRenderer {
             }
         };
 
-        let stroke = Stroke::new(1.0, stroke_color);
+        let stroke = Stroke::new(0.5, stroke_color);
         let angle = shape.rotation.to_radians();
 
         // Draw the shape itself

@@ -289,5 +289,11 @@ pub fn entries() -> HashMap<&'static str, &'static str> {
     // Vector raster settings
     m.insert("Vector Padding (mm)", "Marge vectorielle (mm)");
     m.insert("Vector Overscan (mm)", "Dépassement vectoriel (mm)");
+    m.insert("Boolean Operations", "Opérations booléennes");
+    m.insert("Union (Combine)", "Union (Combiner)");
+    m.insert("Subtract (A - B)", "Soustraire (A - B)");
+    m.insert("Intersection", "Intersection");
+    m.insert("XOR (Symmetric Difference)", "XOR (Différence symétrique)");
+    m.insert("Boolean operation applied.", "Opération booléenne appliquée.");
     m
 }

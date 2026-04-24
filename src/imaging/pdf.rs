@@ -56,8 +56,14 @@ fn extract_paths_from_ops(
     let mut ctm: [f32; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]; // identity
 
     let transform = |ctm: &[f32; 6], x: f32, y: f32| -> (f32, f32) {
+        // CTM [a b c d e f] represents:
+        // | a  b  0 |
+        // | c  d  0 |
+        // | e  f  1 |
+        // For row vector [x y 1]: tx = x*a + y*c + e, ty = x*b + y*d + f
         let tx = ctm[0] * x + ctm[2] * y + ctm[4];
         let ty = ctm[1] * x + ctm[3] * y + ctm[5];
+        // Convert from PDF units (1/72 inch) to mm
         (tx * PDF_UNIT_MM, ty * PDF_UNIT_MM)
     };
 
@@ -127,7 +133,7 @@ fn extract_paths_from_ops(
                         .collect();
                     if vals.len() >= 6 {
                         let new = [vals[0], vals[1], vals[2], vals[3], vals[4], vals[5]];
-                        ctm = multiply_ctm(&ctm, &new);
+                        ctm = multiply_ctm(&new, &ctm); // Fixed order: M_new x CTM_old
                     }
                 }
             }
@@ -234,20 +240,55 @@ fn extract_paths_from_ops(
                     let w = obj_to_f32(&op.operands[2]).unwrap_or(0.0);
                     let h = obj_to_f32(&op.operands[3]).unwrap_or(0.0);
 
-                    let (tx, ty) = transform(&ctm, x, y);
-                    let w_mm = w * ctm[0].abs() * PDF_UNIT_MM;
-                    let h_mm = h * ctm[3].abs() * PDF_UNIT_MM;
+                    // Transform the four corners of the rectangle
+                    let p1 = transform(&ctm, x, y);
+                    let p2 = transform(&ctm, x + w, y);
+                    let p3 = transform(&ctm, x + w, y + h);
+                    let p4 = transform(&ctm, x, y + h);
 
-                    if w_mm > 0.01 && h_mm > 0.01 {
+                    // Check if there's significant rotation (non-axis-aligned)
+                    let has_rotation = (p2.0 - p1.0).abs() < 0.001 || (p4.0 - p1.0).abs() < 0.001;
+                    
+                    if has_rotation {
+                        // Create as path with the transformed corners
+                        let min_x = p1.0.min(p2.0).min(p3.0).min(p4.0);
+                        let min_y = p1.1.min(p2.1).min(p3.1).min(p4.1);
+                        let local_p1 = (p1.0 - min_x, p1.1 - min_y);
+                        let local_p2 = (p2.0 - min_x, p2.1 - min_y);
+                        let local_p3 = (p3.0 - min_x, p3.1 - min_y);
+                        let local_p4 = (p4.0 - min_x, p4.1 - min_y);
+                        
+                        let path = PathData::from_segments(
+                            local_p1,
+                            vec![
+                                PathSegment::LineTo(local_p2.0, local_p2.1),
+                                PathSegment::LineTo(local_p3.0, local_p3.1),
+                                PathSegment::LineTo(local_p4.0, local_p4.1),
+                                PathSegment::LineTo(local_p1.0, local_p1.1),
+                            ],
+                        );
                         shapes.push(ShapeParams {
-                            shape: ShapeKind::Rectangle,
-                            x: tx,
-                            y: ty,
-                            width: w_mm,
-                            height: h_mm,
+                            shape: ShapeKind::Path(path),
+                            x: min_x,
+                            y: min_y,
                             layer_idx,
                             ..Default::default()
                         });
+                    } else {
+                        // Axis-aligned: can use Rectangle shape
+                        let w_mm = (p2.0 - p1.0).abs();
+                        let h_mm = (p4.1 - p1.1).abs();
+                        if w_mm > 0.01 && h_mm > 0.01 {
+                            shapes.push(ShapeParams {
+                                shape: ShapeKind::Rectangle,
+                                x: p1.0.min(p2.0),
+                                y: p1.1.min(p4.1),
+                                width: w_mm,
+                                height: h_mm,
+                                layer_idx,
+                                ..Default::default()
+                            });
+                        }
                     }
                 }
             }

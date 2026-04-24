@@ -1029,7 +1029,7 @@ impl All4LaserApp {
             .add_filter("Images", &["png", "jpg", "jpeg", "bmp"])
             .add_filter("LightBurn Project", &["lbrn", "lbrn2"])
             .add_filter("DXF", &["dxf"])
-            .add_filter("HPGL / PLT", &["plt", "hpgl"])
+            .add_filter("HPGL / HPG / PLT", &["plt", "hpgl", "hpg"])
             .add_filter("PDF", &["pdf"])
             .add_filter("Adobe Illustrator", &["ai"])
             .add_filter("xTool Creative Space", &["xcs"])
@@ -1229,7 +1229,7 @@ impl All4LaserApp {
                     Err(e) => self.show_error(format!("XCS import failed: {e}")),
                 }
             }
-            "plt" | "hpgl" => {
+            "plt" | "hpgl" | "hpg" => {
                 let data = match std::fs::read_to_string(path) {
                     Ok(d) => d,
                     Err(e) => {

@@ -102,6 +102,12 @@ static DICTIONARY: LazyLock<HashMap<Language, HashMap<&'static str, &'static str
         en_map.insert("Automatically check and install updates in the background", "Automatically check and install updates in the background");
         en_map.insert("Note: These changes will be applied to your machine profile", "Note: These changes will be applied to your machine profile");
         en_map.insert("Auto-Optimization", "Auto-Optimization");
+        en_map.insert("Boolean Operations", "Boolean Operations");
+        en_map.insert("Union (Combine)", "Union (Combine)");
+        en_map.insert("Subtract (A - B)", "Subtract (A - B)");
+        en_map.insert("Intersection", "Intersection");
+        en_map.insert("XOR (Symmetric Difference)", "XOR (Symmetric Difference)");
+        en_map.insert("Boolean operation applied.", "Boolean operation applied.");
         m.insert(Language::English, en_map);
         m.insert(Language::French, fr::entries());
         m.insert(Language::Japanese, ja::entries());

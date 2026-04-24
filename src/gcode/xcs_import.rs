@@ -9,17 +9,33 @@ pub fn import_xcs(content: &str) -> Result<Vec<ShapeParams>, String> {
     let root: Value =
         serde_json::from_str(content).map_err(|e| format!("XCS JSON parse error: {e}"))?;
 
+    let active_canvas_id = root.get("canvasId").and_then(|v| v.as_str());
+
     let canvas = root
         .get("canvas")
         .and_then(|v| v.as_array())
         .ok_or("Missing 'canvas' array in XCS file")?;
+
+    let selected_panels: Vec<&Value> = if let Some(active_id) = active_canvas_id {
+        let matched: Vec<&Value> = canvas
+            .iter()
+            .filter(|panel| panel.get("id").and_then(|v| v.as_str()) == Some(active_id))
+            .collect();
+        if matched.is_empty() {
+            canvas.iter().collect()
+        } else {
+            matched
+        }
+    } else {
+        canvas.iter().collect()
+    };
 
     let mut shapes = Vec::new();
 
     // Collect layerTags and assign layer indices
     // BITMAP layers get lower indices (rendered behind), PATH layers get higher
     let mut layer_map: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
-    for panel in canvas {
+    for panel in &selected_panels {
         if let Some(displays) = panel.get("displays").and_then(|v| v.as_array()) {
             for disp in displays {
                 let tag = disp.get("layerTag").and_then(|v| v.as_str()).unwrap_or("#000000").to_string();
@@ -44,8 +60,8 @@ pub fn import_xcs(content: &str) -> Result<Vec<ShapeParams>, String> {
     }
     eprintln!("[XCS] layer map: {:?}", layer_map);
 
-    eprintln!("[XCS] canvas panels: {}", canvas.len());
-    for (pi, panel) in canvas.iter().enumerate() {
+    eprintln!("[XCS] canvas panels imported: {}", selected_panels.len());
+    for (pi, panel) in selected_panels.iter().enumerate() {
         let displays = match panel.get("displays").and_then(|v| v.as_array()) {
             Some(d) => d,
             None => { eprintln!("[XCS] panel {pi}: no displays"); continue; },
@@ -78,6 +94,15 @@ pub fn import_xcs(content: &str) -> Result<Vec<ShapeParams>, String> {
                             shapes.push(s);
                         }
                         None => eprintln!("[XCS]     -> parse_bitmap_display returned None"),
+                    }
+                }
+                "LINE" => {
+                    match parse_line_display(disp, layer_idx) {
+                        Some(s) => {
+                            eprintln!("[XCS]     -> line shape ok");
+                            shapes.push(s);
+                        }
+                        None => eprintln!("[XCS]     -> parse_line_display returned None"),
                     }
                 }
                 "CIRCLE" | "ELLIPSE" => {
@@ -147,12 +172,48 @@ impl RawSubPath {
 fn parse_path_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>> {
     let dpath = disp.get("dPath").and_then(|v| v.as_str())?;
     let angle = disp.get("angle").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-
-    // Display bounding box in canvas coords (screen Y-down)
-    let disp_x = disp.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-    let disp_y = disp.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-    let disp_w = disp.get("width").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-    let disp_h = disp.get("height").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+    let scale_x = disp
+        .get("scale")
+        .and_then(|v| v.get("x"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0) as f32;
+    let scale_y = disp
+        .get("scale")
+        .and_then(|v| v.get("y"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0) as f32;
+    let skew_x = disp
+        .get("skew")
+        .and_then(|v| v.get("x"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0) as f32;
+    let skew_y = disp
+        .get("skew")
+        .and_then(|v| v.get("y"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0) as f32;
+    let local_skew_x = disp
+        .get("localSkew")
+        .and_then(|v| v.get("x"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0) as f32;
+    let local_skew_y = disp
+        .get("localSkew")
+        .and_then(|v| v.get("y"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0) as f32;
+    let pivot_x = disp
+        .get("pivot")
+        .and_then(|v| v.get("x"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0) as f32;
+    let pivot_y = disp
+        .get("pivot")
+        .and_then(|v| v.get("y"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0) as f32;
+    let offset_x = disp.get("offsetX").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+    let offset_y = disp.get("offsetY").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
 
     // Parse SVG path data into sub-paths with Bézier segments preserved
     let sub_paths = parse_svg_dpath(dpath);
@@ -160,52 +221,37 @@ fn parse_path_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>
         return None;
     }
 
-    // Compute raw bounding box across ALL sub-paths (using control points for conservative bbox)
-    let mut raw_min_x = f32::MAX;
-    let mut raw_min_y = f32::MAX;
-    let mut raw_max_x = f32::MIN;
-    let mut raw_max_y = f32::MIN;
-    for sp in &sub_paths {
-        for (px, py) in sp.all_points() {
-            raw_min_x = raw_min_x.min(px);
-            raw_min_y = raw_min_y.min(py);
-            raw_max_x = raw_max_x.max(px);
-            raw_max_y = raw_max_y.max(py);
-        }
-    }
-    let raw_w = raw_max_x - raw_min_x;
-    let raw_h = raw_max_y - raw_min_y;
-
-    // Coordinate transform: map raw dPath coords to display bbox, then flip Y
-    // Then bake in XCS rotation so the shape geometry is final (no ShapeParams.rotation needed).
+    // Native XCS transform order:
+    // T(offset) * R(angle) * Skew(skew + localSkew) * S(scale) * T(-pivot)
+    // Then convert canvas Y-down -> world Y-up.
     let angle_rad = angle.to_radians();
     let (sin_a, cos_a) = angle_rad.sin_cos();
-    // Rotation center in world coords (center of the display element)
-    let rot_cx = disp_x + disp_w * 0.5;
-    let rot_cy = -(disp_y + disp_h * 0.5);
+    let tan_skew_x = (skew_x + local_skew_x).to_radians().tan();
+    let tan_skew_y = (skew_y + local_skew_y).to_radians().tan();
 
     let xform = |px: f32, py: f32| -> (f32, f32) {
-        let nx = if raw_w > 0.001 {
-            (px - raw_min_x) / raw_w * disp_w + disp_x
-        } else {
-            disp_x
-        };
-        let canvas_y = if raw_h > 0.001 {
-            (py - raw_min_y) / raw_h * disp_h + disp_y
-        } else {
-            disp_y
-        };
-        let wx = nx;
-        let wy = -canvas_y;
-        // Bake rotation around display element center
-        if angle_rad.abs() > 1e-6 {
-            let dx = wx - rot_cx;
-            let dy = wy - rot_cy;
-            (rot_cx + dx * cos_a - dy * sin_a,
-             rot_cy + dx * sin_a + dy * cos_a)
-        } else {
-            (wx, wy)
+        let mut tx = px - pivot_x;
+        let mut ty = py - pivot_y;
+
+        tx *= scale_x;
+        ty *= scale_y;
+
+        if tan_skew_x.abs() > 1e-6 || tan_skew_y.abs() > 1e-6 {
+            let sx = tx + tan_skew_x * ty;
+            let sy = ty + tan_skew_y * tx;
+            tx = sx;
+            ty = sy;
         }
+
+        let (rx, ry) = if angle_rad.abs() > 1e-6 {
+            (tx * cos_a - ty * sin_a, tx * sin_a + ty * cos_a)
+        } else {
+            (tx, ty)
+        };
+
+        let canvas_x = rx + offset_x + pivot_x;
+        let canvas_y = ry + offset_y + pivot_y;
+        (canvas_x, -canvas_y)
     };
 
     let mut result = Vec::new();
@@ -288,6 +334,93 @@ fn parse_path_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>
     Some(result)
 }
 
+/// Parse a LINE display element into a Path shape using native XCS transform.
+fn parse_line_display(disp: &Value, layer_idx: usize) -> Option<ShapeParams> {
+    let angle = disp.get("angle").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+    let offset_x = disp.get("offsetX").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+    let offset_y = disp.get("offsetY").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+    let scale_x = disp
+        .get("scale")
+        .and_then(|v| v.get("x"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0) as f32;
+    let scale_y = disp
+        .get("scale")
+        .and_then(|v| v.get("y"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0) as f32;
+
+    let end_x = disp
+        .get("endPoint")
+        .and_then(|v| v.get("x"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(disp.get("width").and_then(|v| v.as_f64()).unwrap_or(0.0)) as f32;
+    let end_y = disp
+        .get("endPoint")
+        .and_then(|v| v.get("y"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(disp.get("height").and_then(|v| v.as_f64()).unwrap_or(0.0)) as f32;
+
+    // For LINE elements: start at (offsetX, offsetY), extend by (endPoint * scale), then rotate
+    let angle_rad = angle.to_radians();
+    let (sin_a, cos_a) = angle_rad.sin_cos();
+
+    // Start point in canvas coords
+    let start_canvas_x = offset_x;
+    let start_canvas_y = offset_y;
+
+    // End point is start + (endPoint * scale), then rotated
+    let raw_dx = end_x * scale_x;
+    let raw_dy = end_y * scale_y;
+
+    // Apply rotation to the delta
+    let rot_dx = raw_dx * cos_a - raw_dy * sin_a;
+    let rot_dy = raw_dx * sin_a + raw_dy * cos_a;
+
+    let end_canvas_x = start_canvas_x + rot_dx;
+    let end_canvas_y = start_canvas_y + rot_dy;
+
+    // Convert to world coords (Y-up)
+    let p0 = (start_canvas_x, -start_canvas_y);
+    let p1 = (end_canvas_x, -end_canvas_y);
+
+    if (p0.0 - p1.0).abs() < 1e-6 && (p0.1 - p1.1).abs() < 1e-6 {
+        return None;
+    }
+
+    let path_data = PathData::from_segments(p0, vec![PathSegment::LineTo(p1.0, p1.1)]);
+    let min_x = path_data.points.iter().map(|p| p.0).fold(f32::MAX, f32::min);
+    let min_y = path_data.points.iter().map(|p| p.1).fold(f32::MAX, f32::min);
+
+    let local_start = (path_data.start.0 - min_x, path_data.start.1 - min_y);
+    let local_segs: Vec<PathSegment> = path_data
+        .segments
+        .iter()
+        .map(|seg| match seg {
+            PathSegment::LineTo(x, y) => PathSegment::LineTo(x - min_x, y - min_y),
+            PathSegment::CubicBezier { c1, c2, end } => PathSegment::CubicBezier {
+                c1: (c1.0 - min_x, c1.1 - min_y),
+                c2: (c2.0 - min_x, c2.1 - min_y),
+                end: (end.0 - min_x, end.1 - min_y),
+            },
+            PathSegment::QuadBezier { c, end } => PathSegment::QuadBezier {
+                c: (c.0 - min_x, c.1 - min_y),
+                end: (end.0 - min_x, end.1 - min_y),
+            },
+        })
+        .collect();
+    let local_path = PathData::from_segments(local_start, local_segs);
+
+    Some(ShapeParams {
+        shape: ShapeKind::Path(local_path),
+        x: min_x,
+        y: min_y,
+        rotation: 0.0,
+        layer_idx,
+        ..Default::default()
+    })
+}
+
 /// Parse a BITMAP display element into a RasterImage ShapeParams.
 fn parse_bitmap_display(disp: &Value, layer_idx: usize) -> Option<ShapeParams> {
     let b64_str = disp.get("base64").and_then(|v| v.as_str())?;
@@ -347,6 +480,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
     let mut start_x: f32 = 0.0;
     let mut start_y: f32 = 0.0;
     let mut sub_start: (f32, f32) = (0.0, 0.0);
+    let mut last_cubic_ctrl: Option<(f32, f32)> = None;
 
     let tokens = tokenize_svg_path(d);
     let mut i = 0;
@@ -360,6 +494,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 } else {
                     segments.clear();
                 }
+                last_cubic_ctrl = None;
                 i += 1;
                 if let Some((x, y, adv)) = read_pair(&tokens, i) {
                     cx = x;
@@ -383,6 +518,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 } else {
                     segments.clear();
                 }
+                last_cubic_ctrl = None;
                 i += 1;
                 if let Some((dx, dy, adv)) = read_pair(&tokens, i) {
                     cx += dx;
@@ -400,6 +536,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 }
             }
             "L" => {
+                last_cubic_ctrl = None;
                 i += 1;
                 while let Some((x, y, adv)) = read_pair(&tokens, i) {
                     cx = x;
@@ -409,6 +546,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 }
             }
             "l" => {
+                last_cubic_ctrl = None;
                 i += 1;
                 while let Some((dx, dy, adv)) = read_pair(&tokens, i) {
                     cx += dx;
@@ -418,6 +556,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 }
             }
             "H" => {
+                last_cubic_ctrl = None;
                 i += 1;
                 while let Some(v) = read_num(&tokens, i) {
                     cx = v;
@@ -426,6 +565,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 }
             }
             "h" => {
+                last_cubic_ctrl = None;
                 i += 1;
                 while let Some(v) = read_num(&tokens, i) {
                     cx += v;
@@ -434,6 +574,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 }
             }
             "V" => {
+                last_cubic_ctrl = None;
                 i += 1;
                 while let Some(v) = read_num(&tokens, i) {
                     cy = v;
@@ -442,6 +583,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 }
             }
             "v" => {
+                last_cubic_ctrl = None;
                 i += 1;
                 while let Some(v) = read_num(&tokens, i) {
                     cy += v;
@@ -452,11 +594,13 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
             "C" => {
                 i += 1;
                 while let Some((pts6, adv)) = read_n_nums(&tokens, i, 6) {
+                    let c2 = (pts6[2], pts6[3]);
                     segments.push(PathSegment::CubicBezier {
                         c1: (pts6[0], pts6[1]),
-                        c2: (pts6[2], pts6[3]),
+                        c2,
                         end: (pts6[4], pts6[5]),
                     });
+                    last_cubic_ctrl = Some(c2);
                     cx = pts6[4];
                     cy = pts6[5];
                     i += adv;
@@ -465,17 +609,54 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
             "c" => {
                 i += 1;
                 while let Some((pts6, adv)) = read_n_nums(&tokens, i, 6) {
+                    let c2 = (cx + pts6[2], cy + pts6[3]);
                     segments.push(PathSegment::CubicBezier {
                         c1: (cx + pts6[0], cy + pts6[1]),
-                        c2: (cx + pts6[2], cy + pts6[3]),
+                        c2,
                         end: (cx + pts6[4], cy + pts6[5]),
                     });
+                    last_cubic_ctrl = Some(c2);
                     cx += pts6[4];
                     cy += pts6[5];
                     i += adv;
                 }
             }
+            "S" => {
+                i += 1;
+                while let Some((pts4, adv)) = read_n_nums(&tokens, i, 4) {
+                    let c1 = if let Some(prev_c2) = last_cubic_ctrl {
+                        (2.0 * cx - prev_c2.0, 2.0 * cy - prev_c2.1)
+                    } else {
+                        (cx, cy)
+                    };
+                    let c2 = (pts4[0], pts4[1]);
+                    let end = (pts4[2], pts4[3]);
+                    segments.push(PathSegment::CubicBezier { c1, c2, end });
+                    last_cubic_ctrl = Some(c2);
+                    cx = end.0;
+                    cy = end.1;
+                    i += adv;
+                }
+            }
+            "s" => {
+                i += 1;
+                while let Some((pts4, adv)) = read_n_nums(&tokens, i, 4) {
+                    let c1 = if let Some(prev_c2) = last_cubic_ctrl {
+                        (2.0 * cx - prev_c2.0, 2.0 * cy - prev_c2.1)
+                    } else {
+                        (cx, cy)
+                    };
+                    let c2 = (cx + pts4[0], cy + pts4[1]);
+                    let end = (cx + pts4[2], cy + pts4[3]);
+                    segments.push(PathSegment::CubicBezier { c1, c2, end });
+                    last_cubic_ctrl = Some(c2);
+                    cx = end.0;
+                    cy = end.1;
+                    i += adv;
+                }
+            }
             "Q" => {
+                last_cubic_ctrl = None;
                 i += 1;
                 while let Some((pts4, adv)) = read_n_nums(&tokens, i, 4) {
                     segments.push(PathSegment::QuadBezier {
@@ -488,6 +669,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 }
             }
             "q" => {
+                last_cubic_ctrl = None;
                 i += 1;
                 while let Some((pts4, adv)) = read_n_nums(&tokens, i, 4) {
                     segments.push(PathSegment::QuadBezier {
@@ -500,6 +682,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 }
             }
             "A" | "a" => {
+                last_cubic_ctrl = None;
                 // Arc command — convert to cubic bezier curves
                 let relative = tokens[i] == "a";
                 i += 1;
@@ -522,6 +705,7 @@ fn parse_svg_dpath(d: &str) -> Vec<RawSubPath> {
                 }
             }
             "Z" | "z" => {
+                last_cubic_ctrl = None;
                 // Close path
                 if !segments.is_empty() {
                     segments.push(PathSegment::LineTo(start_x, start_y));
@@ -739,6 +923,7 @@ fn arc_to_beziers(
 /// Parse a CIRCLE/ELLIPSE display element into ShapeParams.
 /// Generates a closed ellipse path from 4 cubic bézier curves.
 fn parse_circle_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParams>> {
+    let display_type = disp.get("type").and_then(|v| v.as_str()).unwrap_or("");
     let dx = disp.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
     let dy = disp.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
     let dw = disp.get("width").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
@@ -752,8 +937,19 @@ fn parse_circle_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParam
     // Ellipse parameters in canvas coords (Y-down)
     let rx = dw / 2.0;
     let ry = dh / 2.0;
-    let ccx = dx + rx;
-    let ccy = dy + ry;
+    // XCS uses center anchoring for CIRCLE displays, while other ellipse-like objects
+    // are represented with top-left anchoring.
+    let angle_norm = angle.rem_euclid(360.0);
+    let near_180 = (angle_norm - 180.0).abs() < 0.001;
+    let (ccx, ccy) = if display_type == "CIRCLE" {
+        if near_180 {
+            (dx - rx, dy - ry)
+        } else {
+            (dx, dy)
+        }
+    } else {
+        (dx + rx, dy + ry)
+    };
 
     // Convert center to world coords (Y-up)
     let wcx = ccx;
@@ -788,15 +984,14 @@ fn parse_circle_display(disp: &Value, layer_idx: usize) -> Option<Vec<ShapeParam
         },
     ];
 
-    // Bake rotation if present
+    // Bake rotation if present (around ellipse center)
     let segs = if angle.abs() > 1e-6 {
         let angle_rad = angle.to_radians();
         let (sin_a, cos_a) = angle_rad.sin_cos();
         let rotate = |px: f32, py: f32| -> (f32, f32) {
             let ddx = px - wcx;
             let ddy = py - wcy;
-            (wcx + ddx * cos_a - ddy * sin_a,
-             wcy + ddx * sin_a + ddy * cos_a)
+            (wcx + ddx * cos_a - ddy * sin_a, wcy + ddx * sin_a + ddy * cos_a)
         };
         let rot_seg = |seg: &PathSegment| -> PathSegment {
             match seg {
